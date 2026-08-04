@@ -1,0 +1,353 @@
+name: Publish release images
+
+on:
+  push:
+    tags:
+      - "v*.*.*-alpha.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Require a strict immutable alpha tag
+        shell: bash
+        env:
+          DISTRIBUTION_REVIEWED_TAG: ${{ vars.VUEIO_DISTRIBUTION_REVIEWED_TAG }}
+          PRIVATE_CREDENTIALS_ROTATED_TAG: ${{ vars.VUEIO_PRIVATE_CREDENTIALS_ROTATED_TAG }}
+        run: |
+          set -Eeuo pipefail
+          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$'
+          [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME =~ $pattern ]] || {
+            echo "Releases require an immutable vX.Y.Z-alpha.N tag without leading zeroes." >&2
+            exit 1
+          }
+          [[ $DISTRIBUTION_REVIEWED_TAG == "$GITHUB_REF_NAME" ]] || {
+            echo "Set VUEIO_DISTRIBUTION_REVIEWED_TAG to this exact tag only after completing the third-party distribution review." >&2
+            exit 1
+          }
+          [[ $PRIVATE_CREDENTIALS_ROTATED_TAG == "$GITHUB_REF_NAME" ]] || {
+            echo "Set VUEIO_PRIVATE_CREDENTIALS_ROTATED_TAG to this exact tag only after rotating the credentials found in private history." >&2
+            exit 1
+          }
+      - name: Confirm the GitHub release does not exist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          response="$RUNNER_TEMP/release-response.json"
+          status=$(curl --silent --show-error --location --retry 3 \
+            --output "$response" \
+            --write-out '%{http_code}' \
+            --header 'Accept: application/vnd.github+json' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME")
+          case "$status" in
+            404) ;;
+            200)
+              echo "GitHub release $GITHUB_REF_NAME already exists; refusing to update it." >&2
+              exit 1
+              ;;
+            *)
+              echo "Could not safely determine whether the GitHub release exists (HTTP $status)." >&2
+              exit 1
+              ;;
+          esac
+      - name: Confirm the image tags do not exist
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          owner_type=$(gh api "repos/$GITHUB_REPOSITORY" --jq '.owner.type')
+          case "$owner_type" in
+            Organization) package_scope=orgs ;;
+            User) package_scope=users ;;
+            *)
+              echo "Unsupported repository owner type: $owner_type" >&2
+              exit 1
+              ;;
+          esac
+          for component in engine ui; do
+            package="vueio-${component}"
+            tags="$RUNNER_TEMP/${component}-tags"
+            error="$RUNNER_TEMP/${component}-package-error"
+            endpoint="${package_scope}/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}/versions?per_page=100"
+            if ! gh api --paginate "$endpoint" \
+              --jq '.[].metadata.container.tags[]?' >"$tags" 2>"$error"; then
+              if grep -q 'HTTP 404' "$error"; then
+                continue
+              fi
+              echo "Could not safely inspect image package ghcr.io/$GITHUB_REPOSITORY_OWNER/$package." >&2
+              cat "$error" >&2
+              exit 1
+            fi
+            if grep -Fxq "$GITHUB_REF_NAME" "$tags"; then
+              echo "Image tag ghcr.io/$GITHUB_REPOSITORY_OWNER/$package:$GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+              exit 1
+            fi
+          done
+
+  verify:
+    needs: preflight
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  images:
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: engine
+            context: backend
+          - component: ui
+            context: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: vars
+        name: Set canonical image name
+        shell: bash
+        run: |
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/vueio-${{ matrix.component }}" >>"$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          flavor: latest=false
+          tags: type=raw,value=${{ github.ref_name }}
+      - id: build-amd64
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/amd64
+          outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}-amd64
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-amd64
+      - id: build-arm64
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          platforms: linux/arm64
+          outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.component }}-arm64
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-arm64
+      - name: Scan exact untagged amd64 and arm64 images
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.vars.outputs.image }}
+          AMD64_DIGEST: ${{ steps.build-amd64.outputs.digest }}
+          ARM64_DIGEST: ${{ steps.build-arm64.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+          while read -r platform digest; do
+            docker run --rm \
+              -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
+              -v vueio-trivy-cache:/root/.cache/ \
+              "$scanner" image \
+              --image-src remote \
+              --platform "$platform" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              "${IMAGE_NAME}@${digest}"
+            docker run --rm \
+              -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
+              -v vueio-trivy-cache:/root/.cache/ \
+              "$scanner" image \
+              --image-src remote \
+              --platform "$platform" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              "${IMAGE_NAME}@${digest}"
+          done <<EOF
+          linux/amd64 $AMD64_DIGEST
+          linux/arm64 $ARM64_DIGEST
+          EOF
+      - name: Publish the verified multi-arch tag
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.vars.outputs.image }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          AMD64_DIGEST: ${{ steps.build-amd64.outputs.digest }}
+          ARM64_DIGEST: ${{ steps.build-arm64.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          target="${IMAGE_NAME}:${RELEASE_TAG}"
+          if output=$(docker manifest inspect "$target" 2>&1); then
+            echo "Image tag $target appeared during the build; refusing to overwrite it." >&2
+            exit 1
+          elif ! grep -Eqi 'manifest unknown|no such manifest' <<<"$output"; then
+            echo "Could not safely confirm that image tag $target is unused." >&2
+            printf '%s\n' "$output" >&2
+            exit 1
+          fi
+          docker buildx imagetools create \
+            --tag "$target" \
+            "${IMAGE_NAME}@${AMD64_DIGEST}" \
+            "${IMAGE_NAME}@${ARM64_DIGEST}"
+          docker buildx imagetools inspect "$target"
+
+  release-assets:
+    runs-on: ubuntu-latest
+    needs: images
+    permissions:
+      contents: write
+      packages: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Prepare verified release assets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir release-assets
+          cp ops/vueioctl compose.release.yml LICENSE.md TRADEMARKS.md release-assets/
+          sed "s/^VERSION=.*/VERSION=\${VUEIO_VERSION:-${GITHUB_REF_NAME}}/" \
+            install.sh >release-assets/install.sh
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          release_root="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases"
+          for asset in install.sh vueioctl compose.release.yml; do
+            sed -i \
+              -e "s|ghcr.io/your-owner|ghcr.io/${owner}|g" \
+              -e "s|https://github.com/your-owner/vueio/releases|${release_root}|g" \
+              -e "s|VUEIO_UPDATE_REPOSITORY=your-owner/vueio|VUEIO_UPDATE_REPOSITORY=${GITHUB_REPOSITORY}|g" \
+              "release-assets/$asset"
+          done
+          if grep -R -E 'your-owner|<release-tag>' release-assets; then
+            echo "Release assets still contain repository placeholders" >&2
+            exit 1
+          fi
+          chmod 0755 release-assets/install.sh release-assets/vueioctl
+      - name: Authenticate to the release registry
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          printf '%s' "$GH_TOKEN" |
+            docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Record the published multi-architecture manifests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          report=release-assets/IMAGE_DIGESTS.txt
+          : >"$report"
+          for component in engine ui; do
+            image="ghcr.io/${owner}/vueio-${component}:${GITHUB_REF_NAME}"
+            inspection=$(docker buildx imagetools inspect "$image")
+            grep -Eq '^Digest:[[:space:]]+sha256:[0-9a-f]{64}$' <<<"$inspection"
+            {
+              printf '%s\n' "$image"
+              printf '%s\n\n' "$inspection"
+            } >>"$report"
+          done
+      - name: Generate architecture-specific image SBOMs
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          for component in engine ui; do
+            for architecture in amd64 arm64; do
+              output="release-assets/vueio-${component}-linux-${architecture}.spdx.json"
+              docker run --rm \
+                -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
+                -v vueio-trivy-cache:/root/.cache/ \
+                "$scanner" image \
+                --image-src remote \
+                --platform "linux/${architecture}" \
+                --format spdx-json \
+                "ghcr.io/${owner}/vueio-${component}:${GITHUB_REF_NAME}" >"$output"
+              jq -e '.spdxVersion and .packages' "$output" >/dev/null
+            done
+          done
+      - name: Finalize release checksums
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cd release-assets
+          assets=(
+            install.sh
+            vueioctl
+            compose.release.yml
+            LICENSE.md
+            TRADEMARKS.md
+            IMAGE_DIGESTS.txt
+            vueio-engine-linux-amd64.spdx.json
+            vueio-engine-linux-arm64.spdx.json
+            vueio-ui-linux-amd64.spdx.json
+            vueio-ui-linux-arm64.spdx.json
+          )
+          for asset in "${assets[@]}"; do
+            test -s "$asset" || {
+              echo "Required release asset is missing or empty: $asset" >&2
+              exit 1
+            }
+          done
+          sha256sum "${assets[@]}" >SHA256SUMS
+          [[ $(wc -l <SHA256SUMS) == "${#assets[@]}" ]]
+      - name: Create the immutable GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          notes="$RUNNER_TEMP/vueio-release-notes.md"
+          {
+            printf 'Source-available Vueio alpha release. Review LICENSE.md before installation.\n\n'
+            printf 'Verified multi-architecture image manifests:\n\n```text\n'
+            cat release-assets/IMAGE_DIGESTS.txt
+            printf '```\n'
+          } >"$notes"
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --prerelease \
+            --title "Vueio $GITHUB_REF_NAME" \
+            --notes-file "$notes" \
+            release-assets/install.sh \
+            release-assets/compose.release.yml \
+            release-assets/vueioctl \
+            release-assets/LICENSE.md \
+            release-assets/TRADEMARKS.md \
+            release-assets/IMAGE_DIGESTS.txt \
+            release-assets/vueio-engine-linux-amd64.spdx.json \
+            release-assets/vueio-engine-linux-arm64.spdx.json \
+            release-assets/vueio-ui-linux-amd64.spdx.json \
+            release-assets/vueio-ui-linux-arm64.spdx.json \
+            release-assets/SHA256SUMS

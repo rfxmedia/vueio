@@ -1,0 +1,154 @@
+name: ${VUEIO_COMPOSE_PROJECT:-vueio}
+
+services:
+  vueio_postgres:
+    image: ${VUEIO_POSTGRES_IMAGE:-postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777}
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${VUEIO_POSTGRES_DB:-vueio}
+      POSTGRES_USER: ${VUEIO_POSTGRES_USER:-vueio}
+      POSTGRES_PASSWORD: ${VUEIO_POSTGRES_PASSWORD:?Run vueioctl install first}
+    volumes:
+      - vueio_postgres_data:/var/lib/postgresql/data
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - vueio_net
+
+  vueio_engine:
+    image: ${VUEIO_ENGINE_IMAGE:?Run vueioctl install first}
+    restart: unless-stopped
+    user: "${VUEIO_PUID:-1000}:${VUEIO_PGID:-1000}"
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=2G,mode=1777
+      - /storage:size=1M,mode=0555
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    command:
+      - /bin/sh
+      - -c
+      - umask "$${VUEIO_UMASK:-0027}" && exec uvicorn main:app --host 0.0.0.0 --port 8000 --no-access-log
+    volumes:
+      - type: bind
+        source: ${VUEIO_DATA_PATH:?Run vueioctl install first}
+        target: /app/data
+    environment:
+      MEDIA_ROOT: /storage
+      PROJECT_STORAGE_ROOTS: ${VUEIO_PROJECT_STORAGE_ROOTS:-}
+      DATA_DIR: /app/data
+      DATABASE_URL: postgresql+psycopg://${VUEIO_POSTGRES_USER:-vueio}:${VUEIO_POSTGRES_PASSWORD}@vueio_postgres:5432/${VUEIO_POSTGRES_DB:-vueio}
+      APP_ENV: ${VUEIO_APP_ENV:-production}
+      VUEIO_VERSION: ${VUEIO_VERSION:?Run vueioctl install first}
+      VUEIO_UPDATE_REPOSITORY: ${VUEIO_UPDATE_REPOSITORY:-}
+      SECRET_KEY: ${VUEIO_SECRET_KEY:?Run vueioctl install first}
+      SESSION_COOKIE_SECURE: ${VUEIO_SESSION_COOKIE_SECURE:-true}
+      CORS_ALLOW_ORIGINS: ${VUEIO_CORS_ALLOW_ORIGINS:?Run vueioctl install first}
+      VUEIO_LOCAL_HTTP: ${VUEIO_LOCAL_HTTP:-false}
+      VUEIO_SETUP_TOKEN: ${VUEIO_SETUP_TOKEN:?Run vueioctl install first}
+      VUEIO_TRUST_PROXY_HEADERS: "true"
+      VUEIO_TRUST_CLOUDFLARE: ${VUEIO_TRUST_CLOUDFLARE:-false}
+      DATA_MIN_FREE_BYTES: ${VUEIO_DATA_MIN_FREE_BYTES:-21474836480}
+      TRANSCODE_CACHE_MAX_BYTES: ${VUEIO_TRANSCODE_CACHE_MAX_BYTES:-268435456000}
+      UPLOAD_MAX_FILE_BYTES: ${VUEIO_UPLOAD_MAX_FILE_BYTES:-107374182400}
+      UPLOAD_MAX_SESSION_BYTES: ${VUEIO_UPLOAD_MAX_SESSION_BYTES:-536870912000}
+      UPLOAD_MIN_FREE_BYTES: ${VUEIO_UPLOAD_MIN_FREE_BYTES:-21474836480}
+      UPLOAD_SESSION_TTL_SECONDS: ${VUEIO_UPLOAD_SESSION_TTL_SECONDS:-86400}
+      UPLOAD_MAX_FILES_PER_SESSION: ${VUEIO_UPLOAD_MAX_FILES_PER_SESSION:-10000}
+      PUBLIC_UPLOAD_MAX_ACTIVE_SESSIONS: ${VUEIO_PUBLIC_UPLOAD_MAX_ACTIVE_SESSIONS:-25}
+      PUBLIC_UPLOAD_MAX_ACTIVE_SESSIONS_PER_CLIENT: ${VUEIO_PUBLIC_UPLOAD_MAX_ACTIVE_SESSIONS_PER_CLIENT:-5}
+      PUBLIC_UPLOAD_MAX_FILES_PER_SESSION: ${VUEIO_PUBLIC_UPLOAD_MAX_FILES_PER_SESSION:-2000}
+      PUBLIC_UPLOAD_MAX_SHARE_BYTES: ${VUEIO_PUBLIC_UPLOAD_MAX_SHARE_BYTES:-1099511627776}
+      PUBLIC_UPLOAD_CREATE_RATE_LIMIT: ${VUEIO_PUBLIC_UPLOAD_CREATE_RATE_LIMIT:-20/hour}
+      PUBLIC_UPLOAD_CHUNK_RATE_LIMIT: ${VUEIO_PUBLIC_UPLOAD_CHUNK_RATE_LIMIT:-240/minute}
+      PUBLIC_COMMENT_CREATE_RATE_LIMIT: ${VUEIO_PUBLIC_COMMENT_CREATE_RATE_LIMIT:-60/hour}
+      PUBLIC_COMMENT_BATCH_RATE_LIMIT: ${VUEIO_PUBLIC_COMMENT_BATCH_RATE_LIMIT:-240/minute}
+      PUBLIC_SHARE_PASSWORD_RATE_LIMIT: ${VUEIO_PUBLIC_SHARE_PASSWORD_RATE_LIMIT:-30/minute}
+      COMMENT_ATTACHMENT_MAX_FILE_BYTES: ${VUEIO_COMMENT_ATTACHMENT_MAX_FILE_BYTES:-268435456}
+      COMMENT_ATTACHMENT_MAX_TOTAL_BYTES: ${VUEIO_COMMENT_ATTACHMENT_MAX_TOTAL_BYTES:-524288000}
+      COMMENT_ANNOTATION_MAX_BYTES: ${VUEIO_COMMENT_ANNOTATION_MAX_BYTES:-2097152}
+      VOICE_TRANSCRIPTION_ENABLED: ${VUEIO_VOICE_TRANSCRIPTION_ENABLED:-true}
+      VUEIO_PUBLIC_BASE_URL: ${VUEIO_PUBLIC_BASE_URL:-}
+      VUEIO_UI_INDEX_URL: http://vueio_ui:8080/index.html
+      VUEIO_UMASK: ${VUEIO_UMASK:-0027}
+      PROJECT_DIRECTORY_MODE: ${VUEIO_PROJECT_DIRECTORY_MODE:-0775}
+      PROJECT_FILE_MODE: ${VUEIO_PROJECT_FILE_MODE:-0664}
+      TRANSCODE_RESOLUTION: ${VUEIO_TRANSCODE_RESOLUTION:-1080}
+      USE_HARDWARE_ACCEL: ${VUEIO_USE_HARDWARE_ACCEL:-false}
+      VUEIO_AGENT_API_KEY: ${VUEIO_AGENT_API_KEY:-}
+      VUEIO_AGENT_USER: ${VUEIO_AGENT_USER:-agent_ro}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      SEARCH_INDEX_TTL_SECONDS: ${VUEIO_SEARCH_INDEX_TTL_SECONDS:-180}
+      SEARCH_INDEX_MAX_FILES: ${VUEIO_SEARCH_INDEX_MAX_FILES:-25000}
+    depends_on:
+      vueio_postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - vueio_net
+
+  vueio_ui:
+    image: ${VUEIO_UI_IMAGE:?Run vueioctl install first}
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M,mode=1777
+      # The unprivileged image renders the runtime proxy-trust setting here.
+      - /etc/nginx/conf.d:size=1M,mode=0755,uid=101,gid=101
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+    ports:
+      - "${VUEIO_BIND_ADDRESS:-127.0.0.1}:${VUEIO_UI_PORT:-9000}:8080"
+    environment:
+      VUEIO_TRUST_UPSTREAM_PROXY: ${VUEIO_TRUST_UPSTREAM_PROXY:-false}
+    depends_on:
+      vueio_engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - vueio_net
+
+volumes:
+  vueio_postgres_data:
+    name: ${VUEIO_POSTGRES_VOLUME:-vueio_postgres_data}
+
+networks:
+  vueio_net:
+    driver: bridge

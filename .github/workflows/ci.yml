@@ -1,0 +1,430 @@
+name: CI
+
+on:
+  workflow_call:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+        env:
+          POSTGRES_DB: vueio_test
+          POSTGRES_USER: vueio
+          POSTGRES_PASSWORD: ci-postgres-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vueio -d vueio_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      USE_HARDWARE_ACCEL: "false"
+      APP_ENV: development
+      TEST_POSTGRES_URL: postgresql+psycopg://vueio:ci-postgres-password@localhost:5432/vueio_test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --upgrade pip
+      - run: pip install --require-hashes -r requirements.lock
+      - run: pip install pip-audit==2.10.1
+      - run: pip-audit -r requirements.lock
+      - id: test-suite
+        name: Detect backend test suite
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -f requirements-dev.txt ]] &&
+            find tests -type f -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "Backend tests are not included in this source snapshot."
+          fi
+      - if: steps.test-suite.outputs.present == 'true'
+        name: Install backend test dependencies
+        run: pip install -r requirements-dev.txt
+      - run: mkdir -p "${{ runner.temp }}/vueio-data" "${{ runner.temp }}/vueio-media"
+        if: steps.test-suite.outputs.present == 'true'
+      - run: pytest -q
+        if: steps.test-suite.outputs.present == 'true'
+        env:
+          DATA_DIR: ${{ runner.temp }}/vueio-data
+          MEDIA_ROOT: ${{ runner.temp }}/vueio-media
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run lint
+      - run: npm run typecheck
+      - id: test-suite
+        name: Detect frontend unit tests
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if find src -type f \( -name '*.spec.*' -o -name '*.test.*' \) -print -quit |
+            grep -q .; then
+            echo "present=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "present=false" >>"$GITHUB_OUTPUT"
+            echo "Frontend unit tests are not included in this source snapshot."
+          fi
+      - if: steps.test-suite.outputs.present == 'true'
+        name: Run frontend unit tests
+        run: npm run test:unit:run
+      - run: npx playwright-core install --with-deps chromium
+      - name: Build and smoke-test the production bundle
+        run: npm run test:prod-smoke
+
+  release-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan the complete public history for committed credentials
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scanner=ghcr.io/gitleaks/gitleaks@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+          if [[ -d backend/tests || -f ops/deploy-nas.sh ]]; then
+            echo "Private engineering tree detected; scanning the current tree."
+            mode=dir
+          else
+            echo "Public source tree detected; scanning its complete sanitized history."
+            mode=git
+          fi
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" "$scanner" \
+            "$mode" /repo --redact --no-banner
+      - name: Validate release scripts and Compose model
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          bash -n ops/vueioctl
+          sh -n install.sh
+          cp .env.release.example "$RUNNER_TEMP/vueio-release.env"
+          cat >"$RUNNER_TEMP/vueio-release.storage.yml" <<'YAML'
+          services:
+            vueio_engine:
+              volumes: []
+          YAML
+          docker compose \
+            --env-file "$RUNNER_TEMP/vueio-release.env" \
+            -f compose.release.yml \
+            -f "$RUNNER_TEMP/vueio-release.storage.yml" \
+            config -q
+      - name: Exercise the one-line bootstrap installer
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          assets="$RUNNER_TEMP/vueio-bootstrap-assets"
+          home="$RUNNER_TEMP/vueio-bootstrap-home"
+          storage="$RUNNER_TEMP/vueio-bootstrap-\$storage"
+          bin="$RUNNER_TEMP/vueio-bootstrap-bin"
+          unsafe="$RUNNER_TEMP/vueio-marker-symlink"
+          target="$RUNNER_TEMP/vueio-marker-target"
+          duplicate="$RUNNER_TEMP/vueio-marker-duplicate"
+          project="vueio-bootstrap-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          port=$(python - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )
+          cleanup() {
+            if [[ -n ${server_pid:-} ]]; then
+              kill "$server_pid" >/dev/null 2>&1 || true
+            fi
+            sudo rm -rf "$assets" "$home" "$storage" "$bin" "$unsafe" "$target" "$duplicate"
+          }
+          trap cleanup EXIT
+          version=v0.0.0-alpha.0
+          mkdir -p "$assets/download/$version" "$storage"
+          cp ops/vueioctl compose.release.yml LICENSE.md "$assets/download/$version/"
+          (
+            cd "$assets/download/$version"
+            sha256sum vueioctl compose.release.yml LICENSE.md >SHA256SUMS
+          )
+          python -m http.server "$port" --bind 127.0.0.1 --directory "$assets" >/dev/null 2>&1 &
+          server_pid=$!
+          sudo env \
+            "PATH=$PATH" \
+            VUEIO_HOME="$home" \
+            VUEIO_BIN_DIR="$bin" \
+            VUEIO_RELEASE_ROOT_URL="http://127.0.0.1:$port" \
+            VUEIO_VERSION="$version" \
+            VUEIO_NONINTERACTIVE=1 \
+            VUEIO_INITIAL_STORAGE_PATH="$storage" \
+            VUEIO_INITIAL_STORAGE_LABEL=CI \
+            VUEIO_COMPOSE_PROJECT="$project" \
+            VUEIO_SKIP_START=1 \
+            sh install.sh
+          sudo test -x "$bin/vueioctl"
+          sudo test -f "$home/.installed"
+          sudo test ! -e "$home/.installing"
+          sudo test -f "$home/LICENSE.md"
+          sudo cmp -s "$home/LICENSE.md" "$GITHUB_WORKSPACE/LICENSE.md"
+          sudo docker compose \
+            --env-file "$home/.env" \
+            -f "$home/compose.yml" \
+            -f "$home/compose.storage.yml" \
+            config -q
+
+          sudo mkdir -p "$unsafe" "$duplicate"
+          sudo ln -s "$target" "$unsafe/.vueio-storage-id"
+          if sudo env VUEIO_HOME="$home" \
+            "$bin/vueioctl" storage add Unsafe "$unsafe" rw; then
+            echo "Symbolic-link storage marker was accepted" >&2
+            exit 1
+          fi
+          sudo test ! -e "$target"
+          sudo cp "$storage/.vueio-storage-id" "$duplicate/.vueio-storage-id"
+          if sudo env VUEIO_HOME="$home" \
+            "$bin/vueioctl" storage add Duplicate "$duplicate" rw; then
+            echo "Duplicate storage identity was accepted" >&2
+            exit 1
+          fi
+      - name: Build public release images
+        run: |
+          docker build --pull -t vueio-engine-release-ci:local ./backend
+          docker build --pull -t vueio-ui-release-ci:local ./frontend
+      - name: Report all high and critical release-image findings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+          for image in vueio-engine-release-ci:local vueio-ui-release-ci:local; do
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v vueio-trivy-cache:/root/.cache/ \
+              "$scanner" image \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --exit-code 0 \
+              "$image"
+          done
+      - name: Reject fixable high and critical release-image vulnerabilities
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+          for image in vueio-engine-release-ci:local vueio-ui-release-ci:local; do
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v vueio-trivy-cache:/root/.cache/ \
+              "$scanner" image \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --exit-code 1 \
+              "$image"
+          done
+      - name: Exercise an isolated first-run installation
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          home="$RUNNER_TEMP/vueio-release-home"
+          storage="$RUNNER_TEMP/vueio-release-storage"
+          project="vueio-release-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          port=$(python - <<'PY'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(('127.0.0.1', 0))
+              print(sock.getsockname()[1])
+          PY
+          )
+
+          cleanup() {
+            if [[ -f "$home/.env" && -f "$home/compose.yml" && -f "$home/compose.storage.yml" ]]; then
+              docker compose \
+                --env-file "$home/.env" \
+                -f "$home/compose.yml" \
+                -f "$home/compose.storage.yml" \
+                down -v --remove-orphans || true
+            fi
+            docker ps -aq --filter "label=com.docker.compose.project=$project" |
+              xargs -r docker rm -f || true
+            docker volume ls -q --filter "label=com.docker.compose.project=$project" |
+              xargs -r docker volume rm -f || true
+            docker network ls -q --filter "label=com.docker.compose.project=$project" |
+              xargs -r docker network rm || true
+            rm -rf "$home" "$storage"
+          }
+          trap cleanup EXIT
+
+          mkdir -p "$storage"
+          VUEIO_HOME="$home" \
+          VUEIO_RELEASE_COMPOSE="$GITHUB_WORKSPACE/compose.release.yml" \
+          VUEIO_NONINTERACTIVE=1 \
+          VUEIO_INITIAL_STORAGE_PATH="$storage" \
+          VUEIO_INITIAL_STORAGE_LABEL=CI \
+          VUEIO_INITIAL_STORAGE_MODE=rw \
+          VUEIO_COMPOSE_PROJECT="$project" \
+          VUEIO_UI_PORT="$port" \
+          VUEIO_BIND_ADDRESS=127.0.0.1 \
+          VUEIO_ENGINE_IMAGE=vueio-engine-release-ci:local \
+          VUEIO_UI_IMAGE=vueio-ui-release-ci:local \
+          VUEIO_SKIP_PULL=1 \
+          ./ops/vueioctl install
+
+          test -f "$home/LICENSE.md"
+          cmp -s "$home/LICENSE.md" "$GITHUB_WORKSPACE/LICENSE.md"
+          VUEIO_HOME="$home" ./ops/vueioctl doctor
+          docker compose \
+            --env-file "$home/.env" \
+            -f "$home/compose.yml" \
+            -f "$home/compose.storage.yml" \
+            exec -T vueio_engine python - <<'PY'
+          from sqlalchemy import inspect
+          from app.db import engine
+
+          required = {
+              'horizons_projects',
+              'horizons_trackers',
+              'horizons_shots',
+              'media_assets',
+              'agent_api_keys',
+              'agent_mutation_receipts',
+          }
+          missing = sorted(required - set(inspect(engine).get_table_names()))
+          raise SystemExit(f'missing tables: {missing}' if missing else 0)
+          PY
+          curl --fail --silent --show-error \
+            "http://127.0.0.1:$port/api/health/ready" >/dev/null
+          python - "$port" <<'PY'
+          import json
+          import sys
+          import urllib.request
+
+          with urllib.request.urlopen(
+              f'http://127.0.0.1:{sys.argv[1]}/api/setup/status',
+              timeout=10,
+          ) as response:
+              payload = json.load(response)
+          assert payload == {
+              'setup_required': True,
+              'setup_token_required': True,
+          }, payload
+          PY
+          python - "$home" "$port" <<'PY'
+          import json
+          import sys
+          import urllib.request
+
+          home, port = sys.argv[1:]
+          values = {}
+          with open(f'{home}/.env', encoding='utf-8') as handle:
+              for line in handle:
+                  key, separator, value = line.rstrip('\n').partition('=')
+                  if separator:
+                      values[key] = value
+          request = urllib.request.Request(
+              f'http://127.0.0.1:{port}/api/setup/complete',
+              data=json.dumps({
+                  'setup_token': values['VUEIO_SETUP_TOKEN'],
+                  'team_name': 'CI Studio',
+                  'username': 'admin',
+                  'display_name': 'CI Owner',
+                  'password': 'ci-release-password',
+              }).encode(),
+              headers={'Content-Type': 'application/json'},
+              method='POST',
+          )
+          with urllib.request.urlopen(request, timeout=10) as response:
+              assert response.status == 200
+          PY
+
+          sed -i \
+            's/^VUEIO_TRUST_UPSTREAM_PROXY=.*/VUEIO_TRUST_UPSTREAM_PROXY=true/' \
+            "$home/.env"
+          docker compose \
+            --env-file "$home/.env" \
+            -f "$home/compose.yml" \
+            -f "$home/compose.storage.yml" \
+            up -d --no-deps --force-recreate vueio_ui
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "http://127.0.0.1:$port/" >/dev/null; then
+              break
+            fi
+            [[ $attempt != 30 ]] || exit 1
+            sleep 1
+          done
+          for attempt in $(seq 1 5); do
+            code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              -H 'Content-Type: application/json' \
+              -H 'X-Forwarded-For: 198.51.100.20' \
+              --data '{"username":"admin","password":"wrong"}' \
+              "http://127.0.0.1:$port/api/login")
+            [[ $code == 401 ]]
+          done
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'X-Forwarded-For: 198.51.100.20' \
+            --data '{"username":"admin","password":"wrong"}' \
+            "http://127.0.0.1:$port/api/login")
+          [[ $code == 429 ]]
+          code=$(curl --silent --output /dev/null --write-out '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -H 'X-Forwarded-For: 198.51.100.21' \
+            --data '{"username":"admin","password":"wrong"}' \
+            "http://127.0.0.1:$port/api/login")
+          [[ $code == 401 ]]
+
+          probe="$home/data/controller-restore-probe"
+          archive="$RUNNER_TEMP/vueio-controller-backup.tar.gz"
+          printf 'original\n' >"$probe"
+          VUEIO_HOME="$home" ./ops/vueioctl backup "$archive"
+          [[ $(stat -c '%a' "$archive") == 600 ]]
+          [[ $(stat -c '%a' "$archive.sha256") == 600 ]]
+          printf 'changed\n' >"$probe"
+          chmod 500 "$home/backups"
+          if VUEIO_HOME="$home" \
+            VUEIO_NONINTERACTIVE=1 \
+            VUEIO_RESTORE_CONFIRM=RESTORE \
+            ./ops/vueioctl restore "$archive"; then
+            echo "Restore continued without a safety backup" >&2
+            exit 1
+          fi
+          chmod 700 "$home/backups"
+          grep -qx 'changed' "$probe"
+          if compgen -G "$home/data.restore-*" >/dev/null; then
+            echo "Failed restore left staged data behind" >&2
+            exit 1
+          fi
+          VUEIO_HOME="$home" ./ops/vueioctl doctor
+          VUEIO_HOME="$home" \
+            VUEIO_NONINTERACTIVE=1 \
+            VUEIO_RESTORE_CONFIRM=RESTORE \
+            ./ops/vueioctl restore "$archive"
+          grep -qx 'original' "$probe"

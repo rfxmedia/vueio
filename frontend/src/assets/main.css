@@ -1,0 +1,58 @@
+/* Standalone reset retained from the previously loaded Tailwind preflight. */
+*,
+::before,
+::after,
+::backdrop {
+  box-sizing: border-box;
+  border: 0 solid;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  tab-size: 4;
+  line-height: 1.5;
+  -webkit-tap-highlight-color: transparent;
+}
+
+hr { height: 0; color: inherit; border-top-width: 1px; }
+abbr:where([title]) { text-decoration: underline dotted; }
+h1, h2, h3, h4, h5, h6 { font-size: inherit; font-weight: inherit; }
+a { color: inherit; text-decoration: inherit; }
+b, strong { font-weight: bolder; }
+small { font-size: 80%; }
+sub, sup { position: relative; vertical-align: baseline; font-size: 75%; line-height: 0; }
+sub { bottom: -0.25em; }
+sup { top: -0.5em; }
+table { border-color: inherit; border-collapse: collapse; text-indent: 0; }
+progress { vertical-align: baseline; }
+summary { display: list-item; }
+ol, ul, menu { list-style: none; }
+img, svg, video, canvas, audio, iframe, embed, object { display: block; vertical-align: middle; }
+img, video { max-width: 100%; height: auto; }
+
+button,
+input,
+select,
+optgroup,
+textarea,
+::file-selector-button {
+  border-radius: 0;
+  background-color: transparent;
+  color: inherit;
+  font: inherit;
+  font-feature-settings: inherit;
+  font-variation-settings: inherit;
+  letter-spacing: inherit;
+  opacity: 1;
+}
+
+::file-selector-button { margin-inline-end: var(--v-space-1); appearance: button; }
+::placeholder { color: color-mix(in srgb, currentColor 50%, transparent); opacity: 1; }
+textarea { resize: vertical; }
+::-webkit-search-decoration { appearance: none; }
+::-webkit-calendar-picker-indicator { line-height: 1; }
+button,
+input:where([type="button"], [type="reset"], [type="submit"]) { appearance: button; }
+[hidden]:where(:not([hidden="until-found"])) { display: none !important; }

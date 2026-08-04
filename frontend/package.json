@@ -1,0 +1,47 @@
+{
+  "name": "vueio-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "npm@11.4.2",
+  "engines": {
+    "node": ">=22.22.2 <23",
+    "npm": ">=10"
+  },
+  "scripts": {
+    "dev": "node ./node_modules/vite/bin/vite.js",
+    "build": "node ./node_modules/vite/bin/vite.js build",
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "clean-install": "npm ci",
+    "lint": "eslint .",
+    "typecheck": "vue-tsc --noEmit -p jsconfig.json",
+    "test:unit": "vitest",
+    "test:unit:run": "vitest run",
+    "test:prod-smoke": "node ./scripts/production-bundle-smoke.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run test:unit:run && npm run test:prod-smoke"
+  },
+  "dependencies": {
+    "axios": "^1.18.1",
+    "hls.js": "^1.6.14",
+    "pdfjs-dist": "^6.0.227",
+    "vue": "^3.3.8",
+    "vue-router": "^4.2.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@vitejs/plugin-vue": "6.0.8",
+    "@vue/test-utils": "2.4.11",
+    "eslint": "10.8.0",
+    "eslint-plugin-vue": "10.10.0",
+    "globals": "16.3.0",
+    "jsdom": "26.1.0",
+    "playwright-chromium": "^1.61.1",
+    "typescript": "5.8.3",
+    "vite": "8.1.5",
+    "vitest": "4.1.10",
+    "vue-tsc": "3.3.8"
+  },
+  "overrides": {
+    "js-beautify": "2.0.3"
+  }
+}

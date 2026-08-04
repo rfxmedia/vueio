@@ -1,0 +1,263 @@
+/* Shared admin-page composition. Keep every selector anchored so these
+   settings patterns cannot affect similarly named controls elsewhere. */
+:where(.admin-page) .settings-panel {
+  display: grid;
+  gap: 14px;
+  width: min(100%, 720px);
+  max-width: 760px;
+}
+
+:where(.admin-page) .settings-form-panel {
+  max-width: 680px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-inline) 28%, transparent);
+}
+
+:where(.admin-page) .settings-eyebrow {
+  margin: 0 0 6px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+:where(.admin-page) .settings-title {
+  margin: 0;
+  color: var(--v-text);
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+:where(.admin-page) .settings-copy {
+  margin: 6px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-base);
+  line-height: 1.45;
+}
+
+:where(.admin-page) .admin-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-3);
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--v-divider-subtle);
+  background: transparent;
+}
+
+:where(.admin-page) .admin-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--v-space-2);
+}
+
+:where(.admin-page) .admin-search-wrap {
+  position: relative;
+  flex: 0 1 220px;
+  min-width: 150px;
+  max-width: 260px;
+  min-height: 34px;
+  border-radius: var(--v-radius-md);
+}
+
+:where(.admin-page) .admin-search-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  color: var(--v-text-muted);
+  transform: translateY(-50%);
+}
+
+:where(.admin-page) .admin-search-input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0 0 0 26px;
+  border: 0;
+  background: transparent;
+  color: var(--v-text);
+}
+
+:where(.admin-page) .admin-filter-row,
+:where(.admin-page) .admin-badge-row {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+:where(.admin-page) .admin-filter-row {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+}
+
+:where(.admin-page) .admin-toolbar-actions .admin-filter-row {
+  flex: 0 0 auto;
+}
+
+:where(.admin-page) .admin-chip,
+:where(.admin-page) .admin-badge {
+  min-height: 20px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--v-radius-full);
+  background: transparent;
+  font-size: var(--v-text-xs);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+:where(.admin-page) .admin-chip {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: var(--v-button-radius);
+  color: var(--v-text-muted);
+  cursor: pointer;
+}
+
+:where(.admin-page) .admin-chip.active,
+:where(.admin-page) .admin-badge.success {
+  background: color-mix(in srgb, var(--v-accent-muted) 52%, transparent);
+  color: var(--v-accent-hover);
+}
+
+:where(.admin-page) .admin-badge:not(.success):not(.danger):not(.warn) {
+  border-color: color-mix(in srgb, var(--v-border) 48%, transparent);
+  background: color-mix(in srgb, var(--v-bg-field) 34%, transparent);
+  color: var(--v-text-muted);
+}
+
+:where(.admin-page) .admin-badge.danger {
+  background: color-mix(in srgb, var(--v-danger-text) 10%, transparent);
+  color: var(--v-danger-text);
+}
+
+:where(.admin-page) .admin-badge.warn {
+  background: color-mix(in srgb, var(--v-warning) 10%, transparent);
+  color: var(--v-warning);
+}
+
+:where(.admin-page) .share-count-pill,
+:where(.admin-page) .share-status-pill {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: var(--v-radius-full);
+  font-size: var(--v-text-xs);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+:where(.admin-page) .share-count-pill.is-active,
+:where(.admin-page) .share-status-pill.success {
+  background: color-mix(in srgb, var(--v-accent-muted) 50%, transparent);
+  color: var(--v-accent-hover);
+}
+
+:where(.admin-page) .share-count-pill.is-expired,
+:where(.admin-page) .share-status-pill.warn {
+  background: color-mix(in srgb, var(--v-warning) 12%, transparent);
+  color: var(--v-warning);
+}
+
+:where(.admin-page) .share-count-pill.is-revoked,
+:where(.admin-page) .share-status-pill.danger {
+  background: color-mix(in srgb, var(--v-danger-text) 12%, transparent);
+  color: var(--v-danger-text);
+}
+
+:where(.admin-page) .admin-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--v-space-2);
+  max-width: 480px;
+}
+
+:where(.admin-page) .settings-panel .admin-card-actions {
+  max-width: none;
+  justify-content: flex-start;
+}
+
+:where(.admin-page) .admin-empty {
+  margin: 12px 14px 14px;
+  padding: 18px;
+  border: 1px dashed color-mix(in srgb, var(--v-border) 68%, transparent);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-inline) 24%, transparent);
+  color: var(--v-text-muted);
+  text-align: center;
+}
+
+:where(.admin-page) .admin-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+:where(.admin-page) .admin-note {
+  margin: 0;
+  color: var(--v-text-dim);
+  font-size: var(--v-text-base);
+  line-height: 1.45;
+}
+
+@media (max-width: 768px) {
+  :where(.admin-page) .settings-form-panel {
+    padding: 14px;
+    border-radius: var(--v-radius-md);
+  }
+
+  :where(.admin-page) .admin-toolbar {
+    gap: 7px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  :where(.admin-page) .admin-search-wrap {
+    flex: 0 0 132px;
+    min-width: 132px;
+    max-width: 132px;
+  }
+
+  :where(.admin-page) .admin-search-input {
+    padding: 8px 10px 8px 30px;
+    font-size: var(--v-text-base);
+  }
+
+  :where(.admin-page) .admin-search-icon {
+    left: 9px;
+    width: 13px;
+    height: 13px;
+  }
+
+  :where(.admin-page) .admin-filter-row {
+    gap: 5px;
+  }
+
+  :where(.admin-page) .admin-card-actions {
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+
+  :where(.admin-page) .admin-card-actions .v-btn {
+    flex: 0 0 auto;
+    min-width: 0;
+    justify-content: center;
+  }
+}

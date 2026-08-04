@@ -1,0 +1,1205 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+PROGRAM=${0##*/}
+SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+VUEIO_HOME=${VUEIO_HOME:-/opt/vueio}
+COMPOSE_FILE="$VUEIO_HOME/compose.yml"
+STORAGE_COMPOSE_FILE="$VUEIO_HOME/compose.storage.yml"
+ENV_FILE="$VUEIO_HOME/.env"
+STORAGE_DIR="$VUEIO_HOME/storage.d"
+BACKUP_DIR="$VUEIO_HOME/backups"
+LICENSE_FILE="$VUEIO_HOME/LICENSE.md"
+
+die() {
+  printf 'Error: %s\n' "$*" >&2
+  exit 1
+}
+
+note() {
+  printf '%s\n' "$*"
+}
+
+warn() {
+  printf 'Warning: %s\n' "$*" >&2
+}
+
+[[ $VUEIO_HOME = /* && $VUEIO_HOME != / ]] ||
+  die "VUEIO_HOME must be an absolute directory other than /"
+
+usage() {
+  cat <<EOF
+Usage: $PROGRAM <command> [arguments]
+
+  install                         Configure and start a new installation
+  start | stop | restart | status
+  version                         Show the installed release and images
+  setup-token                    Show the one-time first-run setup token
+  logs [service]                  Follow container logs
+  doctor                          Check configuration, storage, and services
+  backup [archive.tar.gz]         Back up Vueio state (not source media)
+  restore <archive.tar.gz>        Restore Vueio state after confirmation
+  update <vX.Y.Z-alpha.N>         Back up, refresh release files, and update
+  storage list
+  storage add <label> <path> [ro|rw]
+  storage remove <label> [--yes]
+  exposure set <https://url> [--cloudflare]
+                                  Prepare Vueio for an HTTPS proxy or tunnel
+  exposure local                  Return to local HTTP bootstrap mode
+
+Set VUEIO_HOME to use a location other than /opt/vueio.
+EOF
+}
+
+require_command() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required"
+}
+
+require_installed() {
+  [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] ||
+    die "Vueio is not configured in $VUEIO_HOME. Run '$PROGRAM install' first."
+}
+
+compose() {
+  docker compose \
+    --env-file "$ENV_FILE" \
+    -f "$COMPOSE_FILE" \
+    -f "$STORAGE_COMPOSE_FILE" \
+    "$@"
+}
+
+wait_for_engine() {
+  for _ in {1..30}; do
+    if compose ps --status running -q vueio_engine 2>/dev/null | grep -q . &&
+      compose exec -T vueio_engine python -c \
+        "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/ready', timeout=3).read()" \
+        >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+env_value() {
+  local key=$1
+  sed -n "s/^${key}=//p" "$ENV_FILE" | tail -n 1
+}
+
+set_env() {
+  local key=$1 value=$2 tmp
+  tmp=$(mktemp "$VUEIO_HOME/.env.XXXXXX")
+  awk -v key="$key" -v value="$value" '
+    BEGIN { found = 0 }
+    index($0, key "=") == 1 {
+      if (!found) print key "=" value
+      found = 1
+      next
+    }
+    { print }
+    END { if (!found) print key "=" value }
+  ' "$ENV_FILE" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$ENV_FILE"
+}
+
+random_hex() {
+  local bytes=${1:-32}
+  if command -v openssl >/dev/null 2>&1; then
+    openssl rand -hex "$bytes"
+  else
+    od -An -N "$bytes" -tx1 /dev/urandom | tr -d ' \n'
+  fi
+}
+
+validate_port() {
+  if [[ ! $1 =~ ^[0-9]+$ ]] || ((10#$1 < 1 || 10#$1 > 65535)); then
+    die "Port must be between 1 and 65535"
+  fi
+}
+
+validate_mode() {
+  [[ $1 == ro || $1 == rw ]] || die "Storage mode must be 'ro' or 'rw'"
+}
+
+validate_label() {
+  [[ -n $1 && $1 =~ ^[[:alnum:]][[:alnum:]\ ._-]*$ ]] ||
+    die "Labels may contain letters, numbers, spaces, dots, underscores, and dashes"
+}
+
+normalized_storage_label() {
+  printf '%s' "$1" |
+    tr '[:upper:]' '[:lower:]' |
+    sed -E 's/[^a-z0-9_-]+/-/g; s/^-+//; s/-+$//'
+}
+
+paths_overlap() {
+  [[ $1 == "$2" || $1 == "$2/"* || $2 == "$1/"* ]]
+}
+
+validate_storage_path() {
+  local path=$1 internal
+  if printf '%s' "$path" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    die "Storage paths cannot contain control characters"
+  fi
+  [[ $path != / ]] || die "The host root cannot be registered as project storage"
+  for internal in "$VUEIO_HOME" /dev /proc /run /sys; do
+    internal=$(realpath -m "$internal")
+    if paths_overlap "$path" "$internal"; then
+      die "Storage must not overlap Vueio or operating-system internals: $internal"
+    fi
+  done
+}
+
+yaml_quote() {
+  local value=$1
+  value=${value//\\/\\\\}
+  value=${value//\"/\\\"}
+  # Compose interpolates dollars even inside quoted YAML strings.
+  value=${value//\$/\$\$}
+  printf '"%s"' "$value"
+}
+
+storage_records() {
+  [[ -d "$STORAGE_DIR" ]] || return 0
+  find "$STORAGE_DIR" -maxdepth 1 -type f -name '*.root' -print0 |
+    sort -z |
+    while IFS= read -r -d '' record; do
+      local id label path mode sentinel
+      id=${record##*/}
+      id=${id%.root}
+      {
+        IFS= read -r label
+        IFS= read -r path
+        IFS= read -r mode
+        IFS= read -r sentinel || true
+      } <"$record"
+      printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "$path" "$mode" "$sentinel"
+    done
+}
+
+render_storage() {
+  local tmp roots first record id label path mode sentinel
+  local -a records=()
+  mapfile -t records < <(storage_records)
+  for record in "${records[@]}"; do
+    IFS=$'\t' read -r id label path mode sentinel <<<"$record"
+    [[ -n ${id:-} ]] || continue
+    [[ $sentinel =~ ^[a-f0-9]{32,128}$ ]] ||
+      die "Storage '$label' has no valid identity marker recorded. Remove and re-add it after preparing $path/.vueio-storage-id."
+  done
+
+  tmp=$(mktemp "$VUEIO_HOME/compose.storage.XXXXXX")
+  roots='{'
+  first=true
+  {
+    printf 'services:\n'
+    printf '  vueio_engine:\n'
+    if ((${#records[@]} == 0)); then
+      printf '    volumes: []\n'
+    else
+      printf '    volumes:\n'
+    fi
+    for record in "${records[@]}"; do
+      IFS=$'\t' read -r id label path mode sentinel <<<"$record"
+      [[ -n ${id:-} ]] || continue
+      printf '      - type: bind\n'
+      printf '        source: %s\n' "$(yaml_quote "$path")"
+      printf '        target: /storage/root-%s\n' "$id"
+      if [[ $mode == ro ]]; then
+        printf '        read_only: true\n'
+      else
+        printf '        read_only: false\n'
+      fi
+      printf '        bind:\n'
+      printf '          create_host_path: false\n'
+      if [[ $first == true ]]; then
+        first=false
+      else
+        roots+=','
+      fi
+      roots+="\"$label\":{\"path\":\"/storage/root-$id\",\"sentinel\":\"$sentinel\"}"
+    done
+  } >"$tmp"
+  roots+='}'
+  mv "$tmp" "$STORAGE_COMPOSE_FILE"
+  set_env VUEIO_PROJECT_STORAGE_ROOTS "$roots"
+}
+
+next_storage_id() {
+  local max=0 id
+  while IFS=$'\t' read -r id _; do
+    [[ $id =~ ^[0-9]+$ ]] || continue
+    ((10#$id > max)) && max=$((10#$id))
+  done < <(storage_records)
+  printf '%03d\n' "$((max + 1))"
+}
+
+storage_add() {
+  local label=${1:-} path=${2:-} mode=${3:-rw} id record sentinel sentinel_file sentinel_tmp normalized_label
+  local marker_created=false duplicate=false
+  [[ -n $label && -n $path ]] || die "Usage: $PROGRAM storage add <label> <path> [ro|rw]"
+  validate_label "$label"
+  validate_mode "$mode"
+  [[ -d "$path" ]] || die "Storage path does not exist or is not a directory: $path"
+  path=$(realpath "$path")
+  validate_storage_path "$path"
+  normalized_label=$(normalized_storage_label "$label")
+  while IFS=$'\t' read -r _ existing_label existing_path _ _; do
+    [[ $existing_label != "$label" ]] || die "A storage root named '$label' already exists"
+    [[ $(normalized_storage_label "$existing_label") != "$normalized_label" ]] ||
+      die "Storage labels must remain distinct after normalization: '$existing_label' and '$label'"
+    if paths_overlap "$existing_path" "$path"; then
+      die "Storage roots cannot overlap: $existing_path"
+    fi
+  done < <(storage_records)
+
+  sentinel_file="$path/.vueio-storage-id"
+  if [[ -L $sentinel_file ]]; then
+    die "Storage identity marker must not be a symbolic link: $sentinel_file"
+  elif [[ -e $sentinel_file ]]; then
+    [[ -f $sentinel_file ]] ||
+      die "Storage identity marker must be a regular file: $sentinel_file"
+    sentinel=$(
+      dd if="$sentinel_file" iflag=nofollow,nonblock bs=256 count=1 status=none 2>/dev/null
+    ) || die "Vueio could not safely read the storage identity marker: $sentinel_file"
+    [[ $sentinel =~ ^[a-f0-9]{32,128}$ ]] ||
+      die "Storage sentinel is invalid: $sentinel_file"
+  else
+    while :; do
+      sentinel=$(random_hex 24)
+      duplicate=false
+      while IFS=$'\t' read -r _ _ _ _ existing_sentinel; do
+        if [[ -n $existing_sentinel && $existing_sentinel == "$sentinel" ]]; then
+          duplicate=true
+          break
+        fi
+      done < <(storage_records)
+      [[ $duplicate == false ]] && break
+    done
+
+    sentinel_tmp=$(mktemp "$path/.vueio-storage-id.XXXXXX") ||
+      die "Vueio could not prepare a storage identity marker in: $path"
+    if ! printf '%s\n' "$sentinel" >"$sentinel_tmp" ||
+      ! chmod 0444 "$sentinel_tmp"; then
+      rm -f -- "$sentinel_tmp"
+      die "Vueio could not prepare the storage identity marker: $sentinel_file"
+    fi
+    if ! ln -- "$sentinel_tmp" "$sentinel_file" 2>/dev/null; then
+      rm -f -- "$sentinel_tmp"
+      if [[ -e $sentinel_file || -L $sentinel_file ]]; then
+        die "Storage identity marker appeared while storage was being added; verify it and retry: $sentinel_file"
+      fi
+      die "Vueio could not atomically create the storage identity marker: $sentinel_file"
+    fi
+    rm -f -- "$sentinel_tmp"
+    marker_created=true
+    if [[ ${VUEIO_INSTALL_IN_PROGRESS:-false} == true ]]; then
+      VUEIO_INSTALL_CREATED_STORAGE_MARKER=$sentinel_file
+      VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=$sentinel
+    fi
+  fi
+  [[ -r $sentinel_file ]] ||
+    die "Storage identity marker is not readable: $sentinel_file"
+
+  while IFS=$'\t' read -r _ existing_label _ _ existing_sentinel; do
+    if [[ -n $existing_sentinel && $existing_sentinel == "$sentinel" ]]; then
+      if [[ $marker_created == true ]]; then
+        rm -f -- "$sentinel_file"
+      fi
+      die "Storage identity marker is already registered as '$existing_label'; create a distinct storage root marker"
+    fi
+  done < <(storage_records)
+
+  id=$(next_storage_id)
+  record="$STORAGE_DIR/$id.root"
+  printf '%s\n%s\n%s\n%s\n' "$label" "$path" "$mode" "$sentinel" >"$record"
+  chmod 600 "$record"
+  render_storage
+  note "Added '$label' ($mode): $path"
+  if compose ps -q vueio_engine 2>/dev/null | grep -q .; then
+    note "Applying storage changes requires a brief Vueio restart."
+    compose up -d --no-deps --force-recreate vueio_engine vueio_ui
+    doctor
+  fi
+}
+
+storage_list() {
+  local found=false
+  printf '%-4s  %-24s  %-4s  %s\n' ID LABEL MODE HOST_PATH
+  while IFS=$'\t' read -r id label path mode _; do
+    found=true
+    printf '%-4s  %-24s  %-4s  %s\n' "$id" "$label" "$mode" "$path"
+  done < <(storage_records)
+  [[ $found == true ]] || note "(no storage roots configured)"
+}
+
+storage_remove() {
+  local label=${1:-} confirm=${2:-} record=
+  [[ -n $label ]] || die "Usage: $PROGRAM storage remove <label> [--yes]"
+  while IFS=$'\t' read -r id existing_label _ _ _; do
+    if [[ $existing_label == "$label" ]]; then
+      record="$STORAGE_DIR/$id.root"
+      break
+    fi
+  done < <(storage_records)
+  [[ -n $record ]] || die "No storage root named '$label'"
+
+  if [[ $confirm != --yes && ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    printf "Remove '%s' from Vueio? Files will not be deleted, but projects there will be offline. [y/N] " "$label"
+    read -r confirm
+    [[ $confirm == y || $confirm == Y ]] || return 0
+  elif [[ $confirm != --yes && ${VUEIO_NONINTERACTIVE:-0} == 1 ]]; then
+    die "Pass --yes when removing storage non-interactively"
+  fi
+
+  rm -f "$record"
+  render_storage
+  note "Removed '$label'. No source files were changed."
+  if compose ps -q vueio_engine 2>/dev/null | grep -q .; then
+    note "Applying storage changes requires a brief Vueio restart."
+    compose up -d --no-deps --force-recreate vueio_engine vueio_ui
+    doctor
+  fi
+}
+
+show_version() {
+  require_installed
+  note "Vueio release: $(env_value VUEIO_VERSION)"
+  note "Engine image: $(env_value VUEIO_ENGINE_IMAGE)"
+  note "UI image: $(env_value VUEIO_UI_IMAGE)"
+}
+
+show_setup_token() {
+  require_installed
+  note "$(env_value VUEIO_SETUP_TOKEN)"
+}
+
+install_vueio() {
+  require_command docker
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+
+  local source_compose source_license version port bind local_url puid pgid default_uid default_gid
+  local initial_path initial_label initial_mode
+  local compose_project postgres_volume
+  source_compose=${VUEIO_RELEASE_COMPOSE:-"$SCRIPT_DIR/../compose.release.yml"}
+  source_license=${VUEIO_RELEASE_LICENSE:-"$SCRIPT_DIR/../LICENSE.md"}
+  version=${VUEIO_VERSION:-}
+  [[ $version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$ ]] ||
+    die "VUEIO_VERSION must be an immutable vX.Y.Z-alpha.N release tag without leading zeroes"
+  [[ -f "$source_compose" ]] || die "compose.release.yml was not found beside this release"
+  [[ -f "$source_license" ]] || die "LICENSE.md was not found beside this release"
+
+  port=${VUEIO_UI_PORT:-9000}
+  bind=${VUEIO_BIND_ADDRESS:-127.0.0.1}
+  validate_port "$port"
+  default_uid=$(id -u)
+  default_gid=$(id -g)
+  if [[ $default_uid == 0 ]]; then
+    default_uid=1000
+    default_gid=1000
+  fi
+  puid=${VUEIO_PUID:-${SUDO_UID:-$default_uid}}
+  pgid=${VUEIO_PGID:-${SUDO_GID:-$default_gid}}
+  [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || die "PUID and PGID must be numeric"
+  local_url=${VUEIO_LOCAL_URL:-http://127.0.0.1:$port}
+  compose_project=${VUEIO_COMPOSE_PROJECT:-vueio}
+  postgres_volume=${VUEIO_POSTGRES_VOLUME:-${compose_project}_postgres_data}
+  [[ $compose_project =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] ||
+    die "VUEIO_COMPOSE_PROJECT contains unsupported characters"
+
+  initial_path=${VUEIO_INITIAL_STORAGE_PATH:-}
+  initial_label=${VUEIO_INITIAL_STORAGE_LABEL:-Projects}
+  initial_mode=${VUEIO_INITIAL_STORAGE_MODE:-rw}
+  if [[ -z $initial_path && ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    printf 'Project storage folder (must already exist): '
+    read -r initial_path
+    [[ -n $initial_path ]] || die "At least one project storage folder is required"
+    printf 'Display name [Projects]: '
+    read -r initial_label
+    initial_label=${initial_label:-Projects}
+  elif [[ -z $initial_path ]]; then
+    die "Set VUEIO_INITIAL_STORAGE_PATH for a non-interactive installation"
+  fi
+  validate_label "$initial_label"
+  validate_mode "$initial_mode"
+  [[ -d "$initial_path" ]] || die "Storage path does not exist or is not a directory: $initial_path"
+  initial_path=$(realpath "$initial_path")
+  validate_storage_path "$initial_path"
+
+  if [[ -f "$VUEIO_HOME/.installing" && ! -f "$VUEIO_HOME/.installed" ]]; then
+    grep -qx 'vueio-install-v1' "$VUEIO_HOME/.installing" ||
+      die "Unrecognized incomplete-install marker in $VUEIO_HOME; refusing to remove that directory"
+    warn "Removing an incomplete prior installation before retrying."
+    if [[ -f $ENV_FILE && -f $COMPOSE_FILE && -f $STORAGE_COMPOSE_FILE ]]; then
+      # This volume belongs only to a setup that never reached `.installed`.
+      # Leaving it behind makes the safety preflight reject every retry.
+      compose down -v --remove-orphans ||
+        die "Could not remove the incomplete installation's Docker resources; $VUEIO_HOME was preserved"
+    fi
+    rm -rf -- "$VUEIO_HOME"
+  fi
+  [[ ! -e "$ENV_FILE" ]] || die "An installation already exists in $VUEIO_HOME"
+  if [[ -d $VUEIO_HOME ]] && find "$VUEIO_HOME" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+    die "Installation directory is not empty: $VUEIO_HOME"
+  fi
+  if docker ps -aq --filter "label=com.docker.compose.project=$compose_project" | grep -q . ||
+    docker network ls -q --filter "label=com.docker.compose.project=$compose_project" | grep -q . ||
+    docker volume inspect "$postgres_volume" >/dev/null 2>&1; then
+    die "Docker resources already exist for project '$compose_project'. Choose a unique VUEIO_COMPOSE_PROJECT instead of risking another installation."
+  fi
+
+  mkdir -p "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$VUEIO_HOME/data"
+  printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installing"
+  # EXIT traps run after Bash has released function-local variables.
+  VUEIO_INSTALL_RESOURCES_MAY_EXIST=false
+  VUEIO_INSTALL_IN_PROGRESS=true
+  VUEIO_INSTALL_CREATED_STORAGE_MARKER=
+  VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=
+  cleanup_failed_install() {
+    local status=$? marker_value='' resources_removed=true
+    trap - EXIT INT TERM
+    set +e
+    if [[ -f "$VUEIO_HOME/.installing" ]]; then
+      if [[ $VUEIO_INSTALL_RESOURCES_MAY_EXIST == true && -f $ENV_FILE && -f $COMPOSE_FILE && -f $STORAGE_COMPOSE_FILE ]]; then
+        compose down -v --remove-orphans >/dev/null 2>&1 || resources_removed=false
+      fi
+      if [[ $resources_removed != true ]]; then
+        warn "Docker cleanup failed; incomplete state was preserved in $VUEIO_HOME for a safe retry."
+        exit "$status"
+      fi
+      if [[ -n ${VUEIO_INSTALL_CREATED_STORAGE_MARKER:-} &&
+        -n ${VUEIO_INSTALL_CREATED_STORAGE_SENTINEL:-} &&
+        -f $VUEIO_INSTALL_CREATED_STORAGE_MARKER &&
+        ! -L $VUEIO_INSTALL_CREATED_STORAGE_MARKER ]]; then
+        marker_value=$(
+          dd if="$VUEIO_INSTALL_CREATED_STORAGE_MARKER" iflag=nofollow,nonblock bs=256 count=1 status=none 2>/dev/null
+        ) || marker_value=
+        if [[ $marker_value == "$VUEIO_INSTALL_CREATED_STORAGE_SENTINEL" ]]; then
+          rm -f -- "$VUEIO_INSTALL_CREATED_STORAGE_MARKER"
+        fi
+      fi
+      rm -rf -- "$VUEIO_HOME"
+      warn "Incomplete installation state was removed. Run '$PROGRAM install' to retry."
+    fi
+    exit "$status"
+  }
+  trap cleanup_failed_install EXIT INT TERM
+
+  cp "$source_compose" "$COMPOSE_FILE"
+  install -m 0644 "$source_license" "$LICENSE_FILE"
+  cat >"$ENV_FILE" <<EOF
+VUEIO_VERSION=$version
+VUEIO_COMPOSE_PROJECT=$compose_project
+VUEIO_UI_PORT=$port
+VUEIO_BIND_ADDRESS=$bind
+VUEIO_DATA_PATH=$VUEIO_HOME/data
+VUEIO_PUID=$puid
+VUEIO_PGID=$pgid
+VUEIO_UMASK=${VUEIO_UMASK:-0027}
+VUEIO_PROJECT_DIRECTORY_MODE=${VUEIO_PROJECT_DIRECTORY_MODE:-0775}
+VUEIO_PROJECT_FILE_MODE=${VUEIO_PROJECT_FILE_MODE:-0664}
+VUEIO_UPLOAD_MAX_FILE_BYTES=${VUEIO_UPLOAD_MAX_FILE_BYTES:-107374182400}
+VUEIO_UPLOAD_MAX_SESSION_BYTES=${VUEIO_UPLOAD_MAX_SESSION_BYTES:-536870912000}
+VUEIO_UPLOAD_MIN_FREE_BYTES=${VUEIO_UPLOAD_MIN_FREE_BYTES:-21474836480}
+VUEIO_DATA_MIN_FREE_BYTES=${VUEIO_DATA_MIN_FREE_BYTES:-21474836480}
+VUEIO_TRANSCODE_CACHE_MAX_BYTES=${VUEIO_TRANSCODE_CACHE_MAX_BYTES:-268435456000}
+VUEIO_POSTGRES_DB=vueio
+VUEIO_POSTGRES_USER=vueio
+VUEIO_POSTGRES_PASSWORD=$(random_hex 32)
+VUEIO_POSTGRES_VOLUME=$postgres_volume
+VUEIO_SECRET_KEY=$(random_hex 48)
+VUEIO_SETUP_TOKEN=$(random_hex 24)
+VUEIO_APP_ENV=production
+VUEIO_LOCAL_HTTP=true
+VUEIO_SESSION_COOKIE_SECURE=false
+VUEIO_CORS_ALLOW_ORIGINS=$local_url
+VUEIO_PUBLIC_BASE_URL=
+VUEIO_TRUST_CLOUDFLARE=false
+VUEIO_TRUST_UPSTREAM_PROXY=false
+VUEIO_PROJECT_STORAGE_ROOTS={}
+VUEIO_ENGINE_REPOSITORY=${VUEIO_ENGINE_REPOSITORY:-ghcr.io/rfxmedia/vueio-engine}
+VUEIO_UI_REPOSITORY=${VUEIO_UI_REPOSITORY:-ghcr.io/rfxmedia/vueio-ui}
+VUEIO_RELEASE_ROOT_URL=${VUEIO_RELEASE_ROOT_URL:-https://github.com/rfxmedia/vueio/releases}
+VUEIO_UPDATE_REPOSITORY=${VUEIO_UPDATE_REPOSITORY:-rfxmedia/vueio}
+VUEIO_ENGINE_IMAGE=${VUEIO_ENGINE_IMAGE:-${VUEIO_ENGINE_REPOSITORY:-ghcr.io/rfxmedia/vueio-engine}:$version}
+VUEIO_UI_IMAGE=${VUEIO_UI_IMAGE:-${VUEIO_UI_REPOSITORY:-ghcr.io/rfxmedia/vueio-ui}:$version}
+EOF
+  chmod 600 "$ENV_FILE"
+  chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR"
+  chown "$puid:$pgid" "$VUEIO_HOME/data" 2>/dev/null ||
+    warn "Could not set data ownership to $puid:$pgid; verify it with '$PROGRAM doctor'"
+  render_storage
+
+  storage_add "$initial_label" "$initial_path" "$initial_mode"
+
+  if [[ ${VUEIO_SKIP_START:-0} != 1 ]]; then
+    if [[ ${VUEIO_SKIP_PULL:-0} != 1 ]]; then
+      compose pull
+    fi
+    VUEIO_INSTALL_RESOURCES_MAY_EXIST=true
+    compose up -d
+    doctor
+  fi
+  printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installed"
+  rm -f "$VUEIO_HOME/.installing"
+  VUEIO_INSTALL_IN_PROGRESS=false
+  VUEIO_INSTALL_CREATED_STORAGE_MARKER=
+  VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=
+  trap - EXIT INT TERM
+  note "Local URL: $local_url"
+  note "First-run setup token: $(env_value VUEIO_SETUP_TOKEN)"
+  warn "Local HTTP mode is not safe for direct internet exposure."
+}
+
+doctor() {
+  require_installed
+  local failed=0 local_http data_path puid pgid id label mode path sentinel marker actual_sentinel ui_ready=false
+  note "Vueio release: $(env_value VUEIO_VERSION)"
+  note "Configured origin: $(env_value VUEIO_CORS_ALLOW_ORIGINS)"
+  note "Checking Docker configuration..."
+  compose config -q || failed=1
+
+  data_path=$(env_value VUEIO_DATA_PATH)
+  puid=$(env_value VUEIO_PUID)
+  pgid=$(env_value VUEIO_PGID)
+  if [[ -d $data_path ]]; then
+    note "OK: application data directory exists"
+  else
+    warn "Application data directory is missing: $data_path"
+    failed=1
+  fi
+  while IFS=$'\t' read -r id label path mode sentinel; do
+    marker="$path/.vueio-storage-id"
+    if [[ ! -d $path ]]; then
+      warn "Storage '$label' is unavailable: $path"
+      failed=1
+    elif [[ ! $sentinel =~ ^[a-f0-9]{32,128}$ ]]; then
+      warn "Storage '$label' has no valid identity marker recorded; remove and re-add it after preparing $marker"
+      failed=1
+    elif [[ -L $marker || ! -f $marker ]]; then
+      warn "Storage '$label' is missing its regular identity marker: $marker"
+      failed=1
+    else
+      actual_sentinel=$(
+        dd if="$marker" iflag=nofollow,nonblock bs=256 count=1 status=none 2>/dev/null
+      ) || actual_sentinel=
+      if [[ $actual_sentinel != "$sentinel" ]]; then
+        warn "Storage '$label' has the wrong mount identity; the expected filesystem may be disconnected"
+        failed=1
+      else
+        note "OK: storage '$label' is available with the expected mount identity ($mode)"
+      fi
+    fi
+  done < <(storage_records)
+
+  local_http=$(env_value VUEIO_LOCAL_HTTP)
+  if [[ $local_http == true ]]; then
+    warn "Local HTTP bootstrap mode is enabled. Do not expose this port directly to the internet."
+  else
+    note "OK: secure-cookie/public URL mode is enabled"
+  fi
+
+  if compose ps --status running -q vueio_postgres 2>/dev/null | grep -q .; then
+    if compose exec -T vueio_postgres pg_isready \
+      -U "$(env_value VUEIO_POSTGRES_USER)" \
+      -d "$(env_value VUEIO_POSTGRES_DB)" >/dev/null; then
+      note "OK: PostgreSQL is responding"
+    else
+      warn "PostgreSQL is running but not ready"
+      failed=1
+    fi
+  else
+    warn "PostgreSQL is not running"
+    failed=1
+  fi
+
+  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+    if compose exec -T vueio_engine python -c \
+      "import os,sys; sys.exit(0 if os.access('/app/data', os.R_OK | os.W_OK) else 1)"; then
+      note "OK: engine user $puid:$pgid can read and write application data"
+    else
+      warn "Engine user $puid:$pgid cannot read and write application data"
+      failed=1
+    fi
+    while IFS=$'\t' read -r id label _ mode sentinel; do
+      if compose exec -T vueio_engine python -c \
+        "import os,sys; from pathlib import Path; p=Path('/storage/root-$id'); s='$sentinel'; m=p/'.vueio-storage-id'; ok=bool(s) and p.is_dir() and os.access(p, os.R_OK) and m.is_file() and not m.is_symlink() and m.read_text().rstrip('\\n')==s; sys.exit(0 if ok else 1)"; then
+        if [[ $mode == rw ]] && ! compose exec -T vueio_engine python -c \
+          "import os,sys; sys.exit(0 if os.access('/storage/root-$id', os.W_OK) else 1)"; then
+          warn "Engine cannot write read/write storage '$label'"
+          failed=1
+        else
+          note "OK: engine can access storage '$label' as $mode"
+        fi
+      else
+        warn "Engine cannot read storage '$label'"
+        failed=1
+      fi
+    done < <(storage_records)
+  else
+    warn "Vueio engine is not running; container permission checks were skipped"
+    failed=1
+  fi
+
+  # A newly created UI container can briefly report "running" before Docker
+  # accepts exec requests. Give first boot the same bounded readiness window as
+  # the Compose health checks instead of treating that startup race as failure.
+  for _ in {1..30}; do
+    if compose ps --status running -q vueio_ui 2>/dev/null | grep -q . &&
+      compose exec -T vueio_ui wget -qO- http://127.0.0.1:8080/api/setup/status >/dev/null 2>&1; then
+      ui_ready=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ $ui_ready == true ]]; then
+    note "OK: Vueio UI and API are responding"
+  else
+    warn "Vueio UI or API did not become ready"
+    failed=1
+  fi
+
+  ((failed == 0)) || die "One or more checks failed"
+  note "Vueio passed all required checks."
+}
+
+backup_vueio() (
+  set -Eeuo pipefail
+  umask 077
+  require_installed
+  local destination=${1:-} stamp tmp archive_tmp='' checksum_tmp='' was_running=false
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  destination=${destination:-"$BACKUP_DIR/vueio-$stamp.tar.gz"}
+  [[ $destination = /* ]] || destination="$(pwd)/$destination"
+  [[ ! -d $destination ]] || die "Backup destination is a directory: $destination"
+  mkdir -p "$(dirname "$destination")"
+  archive_tmp=$(mktemp "$(dirname "$destination")/.vueio-backup.XXXXXX")
+  checksum_tmp=$(mktemp "$(dirname "$destination")/.vueio-checksum.XXXXXX") || {
+    rm -f -- "$archive_tmp"
+    die "Could not create the backup checksum"
+  }
+  tmp=$(mktemp -d "$VUEIO_HOME/.backup.XXXXXX") || {
+    rm -f -- "$archive_tmp" "$checksum_tmp"
+    die "Could not create backup staging"
+  }
+  trap 'rm -rf "$tmp"; rm -f -- "${archive_tmp:-}" "${checksum_tmp:-}"; if [[ $was_running == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT INT TERM
+
+  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+    was_running=true
+    compose stop vueio_engine >/dev/null
+  fi
+  compose exec -T vueio_postgres pg_dump \
+    -U "$(env_value VUEIO_POSTGRES_USER)" \
+    -d "$(env_value VUEIO_POSTGRES_DB)" \
+    -Fc >"$tmp/database.dump"
+  [[ -s "$tmp/database.dump" ]] || die "PostgreSQL produced an empty backup"
+  compose exec -T vueio_postgres pg_restore --list <"$tmp/database.dump" >/dev/null ||
+    die "PostgreSQL backup validation failed"
+  cp "$ENV_FILE" "$tmp/environment"
+  cp "$COMPOSE_FILE" "$STORAGE_COMPOSE_FILE" "$tmp/"
+  cp -a "$STORAGE_DIR" "$tmp/storage.d"
+  mkdir "$tmp/data"
+  tar -C "$(env_value VUEIO_DATA_PATH)" \
+    --hard-dereference \
+    --exclude='./cache' \
+    --exclude='./packages/tmp' \
+    -cf - . |
+    tar -C "$tmp/data" -xf -
+  {
+    printf 'format=1\n'
+    printf 'created_at=%s\n' "$stamp"
+    printf 'version=%s\n' "$(env_value VUEIO_VERSION)"
+    printf 'scope=database,application-data,configuration-reference\n'
+    printf 'source_media_included=false\n'
+    printf 'rebuildable_cache_included=false\n'
+  } >"$tmp/manifest"
+  python3 - "$tmp" <<'PY' || die "Application data contains entries that cannot be restored safely"
+import os
+import pathlib
+import stat
+import sys
+
+root = pathlib.Path(sys.argv[1])
+entry_count = 0
+total_bytes = 0
+try:
+    for directory, subdirectories, filenames in os.walk(root, followlinks=False):
+        for name in [*subdirectories, *filenames]:
+            entry_count += 1
+            # The final archive also contains its root and checksum manifest.
+            if entry_count > 99_998:
+                raise ValueError('member limit')
+            relative = (pathlib.Path(directory, name).relative_to(root)).as_posix()
+            encoded = relative.encode('utf-8', errors='surrogateescape')
+            if (
+                len(encoded) > 4096
+                or '\\' in relative
+                or any(ord(character) < 32 or ord(character) == 127 for character in relative)
+                or any(
+                    len(part.encode('utf-8', errors='surrogateescape')) > 255
+                    for part in relative.split('/')
+                )
+            ):
+                raise ValueError('unsafe path')
+            entry = os.lstat(root / relative)
+            if stat.S_ISREG(entry.st_mode):
+                total_bytes += entry.st_size
+                if total_bytes > 2 * 1024 * 1024 * 1024 * 1024:
+                    raise ValueError('expanded size limit')
+            elif not stat.S_ISDIR(entry.st_mode):
+                raise ValueError('link or special entry')
+except Exception:
+    raise SystemExit(1)
+PY
+  (
+    cd "$tmp"
+    # The destination is excluded explicitly; redirection creates it before find runs.
+    # shellcheck disable=SC2094
+    find . -type f ! -name checksums.sha256 -print0 |
+      sort -z |
+      xargs -0 sha256sum >checksums.sha256
+  )
+  tar --hard-dereference -C "$tmp" -czf "$archive_tmp" .
+  sha256sum "$archive_tmp" |
+    sed "s#  .*#  $(basename "$destination")#" >"$checksum_tmp"
+  mv -f -- "$archive_tmp" "$destination"
+  archive_tmp=
+  mv -f -- "$checksum_tmp" "$destination.sha256"
+  checksum_tmp=
+  if [[ $was_running == true ]]; then
+    if [[ ${VUEIO_BACKUP_LEAVE_ENGINE_STOPPED:-0} != 1 ]]; then
+      compose start vueio_engine >/dev/null
+      wait_for_engine || die "Vueio engine did not become ready after the backup"
+    fi
+    was_running=false
+  fi
+  trap - EXIT INT TERM
+  rm -rf "$tmp"
+  note "Backup created: $destination"
+  note "Checksum created: $destination.sha256"
+  warn "Original project media is not included; back up storage roots separately."
+)
+
+restore_vueio() (
+  set -Eeuo pipefail
+  umask 077
+  require_installed
+  require_command python3
+  local archive=${1:-} source_archive confirmation tmp safety data_path data_parent staged_data='' old_data stamp
+  local safety_db required_kb available_kb archive_bytes engine_stopped=false old_data_moved=false db_restored=false
+  [[ -f $archive ]] || die "Usage: $PROGRAM restore <archive.tar.gz>"
+  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    printf 'Restore this backup and replace current Vueio state? Type RESTORE: '
+    read -r confirmation
+    [[ $confirmation == RESTORE ]] || return 0
+  elif [[ ${VUEIO_RESTORE_CONFIRM:-} != RESTORE ]]; then
+    die "Set VUEIO_RESTORE_CONFIRM=RESTORE for a non-interactive restore"
+  fi
+
+  source_archive=$(cd -P -- "$(dirname -- "$archive")" && pwd)/$(basename -- "$archive")
+  tmp=$(mktemp -d "$VUEIO_HOME/.restore.XXXXXX")
+  trap 'rm -rf "$tmp"; [[ -z ${staged_data:-} ]] || rm -rf -- "$staged_data"; if [[ $engine_stopped == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT INT TERM
+  archive="$tmp/input.tar.gz"
+  cp -- "$source_archive" "$archive"
+  chmod 0600 "$archive"
+  if [[ -f "$source_archive.sha256" ]]; then
+    if ! python3 - "$archive" "$source_archive.sha256" "$(basename -- "$source_archive")" <<'PY'
+import hashlib
+import pathlib
+import re
+import sys
+
+archive = pathlib.Path(sys.argv[1])
+checksum = pathlib.Path(sys.argv[2])
+expected_name = sys.argv[3]
+try:
+    if checksum.stat().st_size > 4096:
+        raise ValueError('oversized checksum file')
+    lines = [line for line in checksum.read_text(encoding='utf-8').splitlines() if line]
+    if len(lines) != 1:
+        raise ValueError('invalid checksum file')
+    match = re.fullmatch(r'([0-9a-fA-F]{64}) [ *](.+)', lines[0])
+    if not match or match.group(2) != expected_name:
+        raise ValueError('checksum target mismatch')
+    digest = hashlib.sha256()
+    with archive.open('rb') as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
+            digest.update(chunk)
+    if not __import__('hmac').compare_digest(digest.hexdigest(), match.group(1).lower()):
+        raise ValueError('checksum mismatch')
+except Exception:
+    raise SystemExit(1)
+PY
+    then
+      die "Backup archive checksum failed"
+    fi
+  else
+    warn "No adjacent archive checksum was found; validating internal contents only"
+  fi
+  archive_bytes=$(python3 - "$archive" <<'PY'
+import posixpath
+import sys
+import tarfile
+
+allowed_files = {
+    'checksums.sha256',
+    'compose.storage.yml',
+    'compose.yml',
+    'database.dump',
+    'environment',
+    'manifest',
+}
+allowed_roots = {'data', 'storage.d'}
+seen = set()
+total_bytes = 0
+member_count = 0
+max_member_count = 100_000
+max_total_bytes = 2 * 1024 * 1024 * 1024 * 1024
+
+try:
+    with tarfile.open(sys.argv[1], mode='r|gz') as archive:
+        while True:
+            member = archive.next()
+            if member is None:
+                break
+            archive.members.clear()
+            member_count += 1
+            if member_count > max_member_count:
+                raise ValueError('member limit')
+            raw_name = member.name
+            encoded_name = raw_name.encode('utf-8', errors='surrogateescape')
+            raw_parts = raw_name.split('/')
+            normalized = posixpath.normpath(raw_name)
+            while normalized.startswith('./'):
+                normalized = normalized[2:]
+            if (
+                not normalized
+                or normalized == '.'
+                or raw_name.startswith('/')
+                or len(encoded_name) > 4096
+                or any(part == '..' for part in raw_parts)
+                or any(
+                    len(part.encode('utf-8', errors='surrogateescape')) > 255
+                    for part in raw_parts
+                    if part not in {'', '.'}
+                )
+                or any(ord(character) < 32 or ord(character) == 127 for character in raw_name)
+                or normalized == '..'
+                or normalized.startswith('../')
+                or '\\' in raw_name
+            ):
+                if member.isdir() and normalized in {'', '.'}:
+                    continue
+                raise ValueError('unsafe member path')
+            if normalized in seen:
+                raise ValueError('duplicate member')
+            seen.add(normalized)
+            if member.issym() or member.islnk() or member.isdev():
+                raise ValueError('link or special member')
+            if not (member.isfile() or member.isdir()):
+                raise ValueError('unsupported member type')
+            top_level = normalized.split('/', 1)[0]
+            if top_level in allowed_roots:
+                if normalized == top_level and not member.isdir():
+                    raise ValueError('invalid root member')
+            elif normalized in allowed_files:
+                if not member.isfile():
+                    raise ValueError('invalid required member')
+            else:
+                raise ValueError('unexpected top-level member')
+            if member.isfile():
+                if member.size < 0 or member.size > max_total_bytes:
+                    raise ValueError('member size limit')
+                if normalized == 'checksums.sha256' and member.size > 256 * 1024 * 1024:
+                    raise ValueError('checksum manifest size limit')
+                total_bytes += member.size
+                if total_bytes > max_total_bytes:
+                    raise ValueError('expanded size limit')
+except Exception:
+    print('Backup archive violates the Vueio restore policy.', file=sys.stderr)
+    raise SystemExit(1)
+
+print(total_bytes)
+PY
+  ) || die "Backup archive preflight failed"
+  required_kb=$(((archive_bytes + 1023) / 1024))
+  available_kb=$(df -Pk "$VUEIO_HOME" | awk 'NR == 2 {print $4}')
+  ((available_kb > required_kb)) ||
+    die "Restore staging needs at least ${required_kb} KiB free"
+  tar -C "$tmp" \
+    --extract --gzip --file "$archive" \
+    --no-same-owner --no-same-permissions --no-overwrite-dir
+  [[ -f "$tmp/manifest" && -f "$tmp/database.dump" && -f "$tmp/checksums.sha256" && -d "$tmp/data" ]] ||
+    die "Not a valid Vueio backup"
+  grep -qx 'format=1' "$tmp/manifest" || die "Unsupported backup format"
+  python3 - "$tmp" <<'PY' || die "Backup checksum manifest is unsafe"
+import os
+import pathlib
+import posixpath
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+expected = set()
+line_pattern = re.compile(r'^([0-9a-f]{64}) ([ *])(\./.+)$')
+try:
+    for line in (root / 'checksums.sha256').read_text(encoding='utf-8').splitlines():
+        match = line_pattern.fullmatch(line)
+        if not match or line.startswith('\\'):
+            raise ValueError('invalid checksum line')
+        relative = match.group(3)[2:]
+        normalized = posixpath.normpath(relative)
+        if (
+            normalized in {'', '.', '..'}
+            or normalized.startswith('../')
+            or normalized.startswith('/')
+            or '\\' in relative
+            or normalized == 'input.tar.gz'
+            or normalized in expected
+        ):
+            raise ValueError('unsafe checksum path')
+        target = root / normalized
+        if target.is_symlink() or not target.is_file():
+            raise ValueError('checksum target is not a regular file')
+        expected.add(normalized)
+
+    actual = {
+        pathlib.Path(directory, filename).relative_to(root).as_posix()
+        for directory, _subdirectories, filenames in os.walk(root, followlinks=False)
+        for filename in filenames
+        if pathlib.Path(directory, filename)
+        not in {root / 'checksums.sha256', root / 'input.tar.gz'}
+    }
+    if expected != actual:
+        raise ValueError('checksum inventory mismatch')
+except Exception:
+    print('Backup checksum manifest violates the Vueio restore policy.', file=sys.stderr)
+    raise SystemExit(1)
+PY
+  (cd "$tmp" && sha256sum --strict --quiet -c checksums.sha256) ||
+    die "Backup contents failed validation"
+
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  data_path=$(env_value VUEIO_DATA_PATH)
+  data_parent=$(dirname "$data_path")
+  staged_data="${data_path}.restore-$stamp"
+  old_data="${data_path}.pre-restore-$stamp"
+
+  required_kb=$(du -sk "$tmp/data" | awk '{print $1}')
+  available_kb=$(df -Pk "$data_parent" | awk 'NR == 2 {print $4}')
+  ((available_kb > required_kb)) ||
+    die "Restore needs at least ${required_kb} KiB free beside $data_path"
+  mkdir "$staged_data"
+  tar -C "$tmp/data" -cf - . | tar -C "$staged_data" -xf -
+  chown -R "$(env_value VUEIO_PUID):$(env_value VUEIO_PGID)" "$staged_data"
+
+  # Take the recovery point only after staging, then keep the engine stopped.
+  # No application writes can occur between this snapshot and the state swap.
+  safety="$BACKUP_DIR/pre-restore-$stamp.tar.gz"
+  VUEIO_BACKUP_LEAVE_ENGINE_STOPPED=1 backup_vueio "$safety"
+  engine_stopped=true
+  safety_db="$tmp/safety-database.dump"
+  tar -xOzf "$safety" ./database.dump >"$safety_db"
+  [[ -s $safety_db ]] || die "Safety backup did not contain a database dump"
+
+  # Invoked by the EXIT/INT/TERM trap below.
+  # shellcheck disable=SC2329
+  rollback_restore() {
+    local status=$?
+    trap - EXIT INT TERM
+    set +e
+    warn "Restore did not complete; attempting to return Vueio to its previous state."
+    compose stop vueio_engine >/dev/null 2>&1
+    local recovered=true
+    if [[ $db_restored == true ]]; then
+      compose exec -T vueio_postgres pg_restore \
+        --clean --if-exists --single-transaction --no-owner --no-acl \
+        -U "$(env_value VUEIO_POSTGRES_USER)" \
+        -d "$(env_value VUEIO_POSTGRES_DB)" <"$safety_db" ||
+        recovered=false
+    fi
+    if [[ $old_data_moved == true ]]; then
+      rm -rf -- "$data_path"
+      mv "$old_data" "$data_path" || recovered=false
+    fi
+    rm -rf -- "$staged_data"
+    if [[ $recovered == true ]]; then
+      compose up -d >/dev/null 2>&1 || recovered=false
+    fi
+    rm -rf "$tmp"
+    if [[ $recovered == true ]]; then
+      warn "The previous Vueio state was restored. Safety backup: $safety"
+    else
+      warn "Automatic recovery was incomplete. Vueio was left stopped to protect the data."
+      warn "Use the safety backup for recovery: $safety"
+    fi
+    exit "$status"
+  }
+  trap rollback_restore EXIT INT TERM
+
+  mv "$data_path" "$old_data"
+  old_data_moved=true
+  mv "$staged_data" "$data_path"
+  compose exec -T vueio_postgres pg_restore \
+    --clean --if-exists --single-transaction --no-owner --no-acl \
+    -U "$(env_value VUEIO_POSTGRES_USER)" \
+    -d "$(env_value VUEIO_POSTGRES_DB)" <"$tmp/database.dump"
+  db_restored=true
+  compose up -d
+  doctor
+  engine_stopped=false
+  trap - EXIT INT TERM
+  rm -rf "$tmp"
+  note "Restore completed. Safety backup: $safety"
+  note "Previous application data retained temporarily at: $old_data"
+  note "After you verify the restore, reclaim its space with: sudo rm -rf -- '$old_data'"
+  note "Current host paths and secrets were retained; the archived configuration is reference-only."
+)
+
+update_vueio() (
+  set -Eeuo pipefail
+  require_installed
+  local version=${1:-} release_root asset_base stage controller_target current_version
+  [[ -n $version ]] || die "Usage: $PROGRAM update <vX.Y.Z-alpha.N>"
+  [[ $version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$ ]] ||
+    die "Release version must be an immutable vX.Y.Z-alpha.N tag without leading zeroes"
+  current_version=$(env_value VUEIO_VERSION)
+  note "Updating Vueio from $current_version to $version."
+  require_command curl
+  release_root=$(env_value VUEIO_RELEASE_ROOT_URL)
+  release_root=${release_root:-https://github.com/rfxmedia/vueio/releases}
+  asset_base="$release_root/download/$version"
+  stage=$(mktemp -d "$VUEIO_HOME/.update.XXXXXX")
+  trap 'rm -rf "$stage"' EXIT
+  if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
+    curl -fsSL "$asset_base/SHA256SUMS" -o "$stage/SHA256SUMS"
+    curl -fsSL "$asset_base/compose.release.yml" -o "$stage/compose.release.yml"
+    curl -fsSL "$asset_base/vueioctl" -o "$stage/vueioctl"
+    curl -fsSL "$asset_base/LICENSE.md" -o "$stage/LICENSE.md"
+    grep -Eq '[[:space:]]vueioctl$' "$stage/SHA256SUMS" ||
+      die "Release checksums do not include vueioctl"
+    grep -Eq '[[:space:]]compose\.release\.yml$' "$stage/SHA256SUMS" ||
+      die "Release checksums do not include compose.release.yml"
+    grep -Eq '[[:space:]]LICENSE\.md$' "$stage/SHA256SUMS" ||
+      die "Release checksums do not include LICENSE.md"
+    (cd "$stage" && sha256sum --ignore-missing -c SHA256SUMS)
+    bash -n "$stage/vueioctl"
+    docker compose --env-file "$ENV_FILE" \
+      -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" config -q
+  fi
+  if [[ ${VUEIO_SKIP_PULL:-0} != 1 ]]; then
+    if ! docker pull "$(env_value VUEIO_ENGINE_REPOSITORY):$version" ||
+      ! docker pull "$(env_value VUEIO_UI_REPOSITORY):$version"; then
+      die "Update images could not be downloaded. The installed release was not changed."
+    fi
+  fi
+  backup_vueio
+  if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
+    install -m 0644 "$stage/compose.release.yml" "$COMPOSE_FILE"
+    install -m 0644 "$stage/LICENSE.md" "$LICENSE_FILE"
+    controller_target=$(readlink -f "$0")
+    install -m 0755 "$stage/vueioctl" "$controller_target"
+  fi
+  set_env VUEIO_VERSION "$version"
+  set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$version"
+  set_env VUEIO_UI_IMAGE "$(env_value VUEIO_UI_REPOSITORY):$version"
+
+  compose up -d ||
+    die "The new release did not start. It may already have upgraded the database; fix forward or restore the backup instead of downgrading."
+  doctor ||
+    die "The new release needs attention. It may already have upgraded the database; inspect '$PROGRAM logs' and fix forward or restore the backup."
+  note "Vueio is running release $version"
+  trap - EXIT
+  rm -rf "$stage"
+)
+
+exposure_set() {
+  local url=${1:-} proxy=${2:-}
+  [[ $url =~ ^https://[^/[:space:]]+/?$ ]] ||
+    die "Use an HTTPS origin such as https://vue.example.com (no path)"
+  [[ $url != *'@'* && $url != *'?'* && $url != *'#'* && $url != *'\'* ]] ||
+    die "Use an HTTPS origin without credentials, a path, a query, or a fragment"
+  [[ -z $proxy || $proxy == --cloudflare ]] ||
+    die "The only supported exposure option is --cloudflare"
+  url=${url%/}
+  set_env VUEIO_PUBLIC_BASE_URL "$url"
+  set_env VUEIO_CORS_ALLOW_ORIGINS "$url"
+  set_env VUEIO_SESSION_COOKIE_SECURE true
+  set_env VUEIO_LOCAL_HTTP false
+  set_env VUEIO_TRUST_CLOUDFLARE "$([[ $proxy == --cloudflare ]] && printf true || printf false)"
+  set_env VUEIO_TRUST_UPSTREAM_PROXY "$([[ $proxy == --cloudflare ]] && printf false || printf true)"
+  set_env VUEIO_BIND_ADDRESS 127.0.0.1
+  note "If your proxy is not ready, recover with: $PROGRAM exposure local"
+  compose up -d
+  doctor
+  note "Secure public origin configured: $url"
+  [[ $proxy == --cloudflare ]] && note "Cloudflare client-address forwarding is trusted."
+  note "Vueio does not create the tunnel or reverse proxy; point yours at the local Vueio port."
+}
+
+exposure_local() {
+  (($# == 0)) || die "Usage: $PROGRAM exposure local"
+  local url
+  url="http://127.0.0.1:$(env_value VUEIO_UI_PORT)"
+  set_env VUEIO_PUBLIC_BASE_URL ""
+  set_env VUEIO_CORS_ALLOW_ORIGINS "$url"
+  set_env VUEIO_SESSION_COOKIE_SECURE false
+  set_env VUEIO_LOCAL_HTTP true
+  set_env VUEIO_TRUST_CLOUDFLARE false
+  set_env VUEIO_TRUST_UPSTREAM_PROXY false
+  set_env VUEIO_BIND_ADDRESS 127.0.0.1
+  compose up -d
+  warn "Local HTTP mode enabled on loopback only. Do not expose this port directly to the internet."
+}
+
+main() {
+  local command=${1:-}
+  shift || true
+  case "$command" in
+    install) install_vueio "$@" ;;
+    start) require_installed; compose up -d ;;
+    stop) require_installed; compose stop ;;
+    restart) require_installed; compose restart ;;
+    status) require_installed; compose ps ;;
+    version) show_version ;;
+    setup-token) show_setup_token ;;
+    logs)
+      require_installed
+      if (($#)); then
+        compose logs -f "$@"
+      else
+        compose logs -f
+      fi
+      ;;
+    doctor) doctor ;;
+    backup) backup_vueio "$@" ;;
+    restore) restore_vueio "$@" ;;
+    update) update_vueio "$@" ;;
+    storage)
+      require_installed
+      local action=${1:-}
+      shift || true
+      case "$action" in
+        list) storage_list ;;
+        add) storage_add "$@" ;;
+        remove) storage_remove "$@" ;;
+        *) die "Usage: $PROGRAM storage <list|add|remove>" ;;
+      esac
+      ;;
+    exposure)
+      require_installed
+      local action=${1:-}
+      shift || true
+      case "$action" in
+        set) exposure_set "$@" ;;
+        local) exposure_local "$@" ;;
+        *) die "Usage: $PROGRAM exposure <set|local>" ;;
+      esac
+      ;;
+    -h|--help|help|'') usage ;;
+    *) die "Unknown command: $command" ;;
+  esac
+}
+
+main "$@"

@@ -1,0 +1,9 @@
+d8493e0ac76a198b309a8be6f74b3101e235f773ffe5d6b378278cd7e4177992  download.moonshine.ai/model/small-streaming-en/quantized/adapter.ort
+6e57d1361717e00d73336a0c3beafedae784b1e537905ad253dee33db4007466  download.moonshine.ai/model/small-streaming-en/quantized/cross_kv.ort
+d5adfcfaa6e582144791f1568bd0f683852c7bfbb8c79acad97499da05e4ffcf  download.moonshine.ai/model/small-streaming-en/quantized/decoder_kv.ort
+3b21d02eff6aa5651524ada4271d37c1d7bba4eb3d256415074f2cfdbaeb526a  download.moonshine.ai/model/small-streaming-en/quantized/encoder.ort
+e086451043c1c8652a9614e4a4a81d5807221b611584a3cf31f73779d5900003  download.moonshine.ai/model/small-streaming-en/quantized/frontend.ort
+26f02b6afb22d60871a5efd85c3d38e569cc0ddb6c5eb6e93d3260152ae8a47a  download.moonshine.ai/model/small-streaming-en/quantized/streaming_config.json
+6884b35fd6377d4c4d32336a0bc152f36b64d1e45b6503683cdc238250a8472d  download.moonshine.ai/model/small-streaming-en/quantized/tokenizer.bin
+79abb40b6849cf7c013e83a3f276a0d822bb94c3edcc9ad003d38815c2cf37d4  download.moonshine.ai/model/spelling-en/spelling_cnn.ort
+1d297cb4801652ccea6cecfd2973338f7cfdf99b7b77a5f5988548cb77ff11f4  download.moonshine.ai/model/spelling-en/spelling_cnn_meta.json
