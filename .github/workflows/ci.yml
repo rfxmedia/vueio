@@ -293,6 +293,7 @@ jobs:
           VUEIO_COMPOSE_PROJECT="$project" \
           VUEIO_UI_PORT="$port" \
           VUEIO_BIND_ADDRESS=127.0.0.1 \
+          VUEIO_VERSION=v0.0.0-alpha.0 \
           VUEIO_ENGINE_IMAGE=vueio-engine-release-ci:local \
           VUEIO_UI_IMAGE=vueio-ui-release-ci:local \
           VUEIO_SKIP_PULL=1 \
