@@ -61,7 +61,7 @@ sudo sh ./install.sh
 The one-line form runs the same installer:
 
 ```bash
-curl -fsSL https://github.com/rfxmedia/vueio/releases/download/v0.1.0-alpha.1/install.sh \
+curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh \
   | sudo sh
 ```
 

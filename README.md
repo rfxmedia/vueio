@@ -28,7 +28,7 @@ Source media needs its own storage capacity and is not included in the 40 GiB
 guideline.
 
 ```bash
-curl -fsSL https://github.com/rfxmedia/vueio/releases/download/<release-tag>/install.sh | sudo sh
+curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh | sudo sh
 ```
 
 The installer:
