@@ -222,6 +222,8 @@ jobs:
         run: |
           docker build --pull -t vueio-engine-release-ci:local ./backend
           docker build --pull -t vueio-ui-release-ci:local ./frontend
+          docker tag vueio-engine-release-ci:local vueio-engine-release-ci:v0.0.0-alpha.0
+          docker tag vueio-ui-release-ci:local vueio-ui-release-ci:v0.0.0-alpha.0
           docker run --rm vueio-engine-release-ci:local sh -c \
             'test -s /app/moonshine-models/MOONSHINE_LICENSE.txt && find /usr/share/doc -name copyright -type f -print -quit | grep -q .'
           docker run --rm --entrypoint sh vueio-ui-release-ci:local -c \
@@ -301,8 +303,8 @@ jobs:
           VUEIO_UI_PORT="$port" \
           VUEIO_BIND_ADDRESS=127.0.0.1 \
           VUEIO_VERSION=v0.0.0-alpha.0 \
-          VUEIO_ENGINE_IMAGE=vueio-engine-release-ci:local \
-          VUEIO_UI_IMAGE=vueio-ui-release-ci:local \
+          VUEIO_ENGINE_REPOSITORY=vueio-engine-release-ci \
+          VUEIO_UI_REPOSITORY=vueio-ui-release-ci \
           VUEIO_SKIP_PULL=1 \
           ./ops/vueioctl install
 
