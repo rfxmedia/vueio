@@ -180,7 +180,8 @@ jobs:
           )
           python -m http.server "$port" --bind 127.0.0.1 --directory "$assets" >/dev/null 2>&1 &
           server_pid=$!
-          curl -fsSL "http://127.0.0.1:$port/install.sh" | sudo env \
+          curl -fsSL --retry 10 --retry-connrefused --retry-delay 1 \
+            "http://127.0.0.1:$port/install.sh" | sudo env \
             "PATH=$PATH" \
             VUEIO_HOME="$home" \
             VUEIO_BIN_DIR="$bin" \
