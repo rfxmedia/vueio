@@ -3,6 +3,7 @@
     :modelValue="show"
     size="md"
     class="project-settings-modal-shell"
+    :aria-labelledby="settingsTitleId"
     :presentation="isMobile ? 'sheet' : 'dialog'"
     :mobile-full-height="isMobile"
     @update:modelValue="close"
@@ -11,7 +12,10 @@
       <VModalHeader @close="close">
         <div class="ps-head">
           <div class="ps-head-eyebrow v-eyebrow">{{ scope === 'tracker' ? 'Tracker Settings' : 'Project Settings' }}</div>
-          <div class="ps-head-title v-truncate">{{ scope === 'tracker' ? (tracker?.name || 'Tracker') : (project?.title || 'Project') }}</div>
+          <h2 :id="settingsTitleId" class="ps-head-title v-truncate">{{ scope === 'tracker' ? (tracker?.name || 'Tracker') : (project?.title || 'Project') }}</h2>
+          <p class="ps-head-subtitle">
+            {{ scope === 'tracker' ? 'Choose which review tools are available for this tracker.' : 'Manage project details, storage, and access.' }}
+          </p>
         </div>
       </VModalHeader>
     </template>
@@ -20,15 +24,14 @@
       <!-- ─── Hero card: thumbnail + status snapshot + change ───────── -->
       <section v-if="scope === 'project'" class="ps-hero">
         <div class="ps-hero-thumb" :class="{ 'is-empty': !thumbnailUrl }">
-          <img v-if="thumbnailUrl" :src="thumbnailUrl" alt="Project thumbnail" />
-          <svg v-else class="icon"><use href="#icon-project" /></svg>
+          <img v-if="thumbnailUrl" :src="thumbnailUrl" alt="" />
+          <svg v-else class="icon" aria-hidden="true"><use href="#icon-project" /></svg>
         </div>
         <div class="ps-hero-meta">
           <div class="ps-hero-status">
             <span class="ps-status-dot" :style="{ background: getStatusColor(draftStatus) }" aria-hidden="true"></span>
             <span class="ps-hero-status-label">{{ statusLabel(draftStatus) }}</span>
             <template v-if="dueDateFormatted">
-              <span class="ps-hero-meta-dot" aria-hidden="true">·</span>
               <span class="ps-hero-due">Due {{ dueDateFormatted }}</span>
             </template>
           </div>
@@ -47,7 +50,7 @@
 
       <!-- ─── Details ─────────────────────────────────────────────── -->
       <section v-if="scope === 'project'" class="ps-section">
-        <div class="v-section-label v-section-label--ruled">
+        <div class="v-section-label">
           <h3>Details</h3>
         </div>
         <div class="ps-form-grid">
@@ -110,7 +113,7 @@
 
       <!-- ─── Tracker Tools ──────────────────────────────────────── -->
       <section v-if="scope === 'tracker'" class="ps-section">
-        <div class="v-section-label v-section-label--ruled">
+        <div class="v-section-label">
           <h3>Tracker Tools</h3>
         </div>
 
@@ -146,6 +149,17 @@
                 />
                 <span class="v-switch-track" aria-hidden="true"><span class="v-switch-thumb"></span></span>
               </label>
+            </div>
+
+            <div
+              v-if="tool.key === 'version_review' && pendingPublicationCount"
+              class="ps-tool-notice"
+            >
+              <svg class="icon" aria-hidden="true"><use href="#icon-clock" /></svg>
+              <div>
+                <strong>{{ pendingPublicationCount }} version{{ pendingPublicationCount === 1 ? '' : 's' }} awaiting publication</strong>
+                <span>Changing this setting will not publish existing versions. Owners can resolve them from the version menu.</span>
+              </div>
             </div>
 
             <div v-if="tool.access" class="ps-tool-access">
@@ -318,7 +332,7 @@
       </section>
 
       <section v-if="scope === 'project'" class="ps-section">
-        <div class="v-section-label v-section-label--ruled">
+        <div class="v-section-label">
           <h3>Project storage</h3>
           <span v-if="project.storage_read_only" class="v-tag">Read only</span>
         </div>
@@ -329,7 +343,13 @@
             </div>
             <div class="ps-storage-copy">
               <strong>Some media is offline</strong>
-              <span>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} missing at this location. Relocate the project or restore the files to reconnect playback.</span>
+              <span>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} missing. Search the working folder to reconnect files that were moved.</span>
+            </div>
+            <div v-if="canEditProject" class="ps-storage-actions">
+              <button type="button" class="v-btn v-btn-primary v-btn-sm" @click="openRelinkMedia">
+                <svg class="icon"><use href="#icon-search" /></svg>
+                Find media…
+              </button>
             </div>
           </div>
 
@@ -356,7 +376,7 @@
 
       <!-- ─── Team ────────────────────────────────────────────────── -->
       <section v-if="scope === 'project'" class="ps-section">
-        <div class="v-section-label v-section-label--ruled">
+        <div class="v-section-label">
           <h3>Team</h3>
           <span v-if="teamMembers.length" class="v-section-count">{{ teamMembers.length }}</span>
         </div>
@@ -529,6 +549,7 @@ const props = defineProps({
   updateTeamMember: { type: Function, default: () => {} },
   removeTeamMember: { type: Function, default: () => {} },
   openRelocateProject: { type: Function, default: () => {} },
+  openRelinkMedia: { type: Function, default: () => {} },
   openMigrateProject: { type: Function, default: () => {} },
 })
 
@@ -543,6 +564,7 @@ const emit = defineEmits([
 ])
 
 const availableTeamCandidates = computed(() => props.teamOptions.filter(candidate => !candidate?.is_member && candidate?.id))
+const settingsTitleId = computed(() => `project-settings-title-${props.scope === 'tracker' ? 'tracker' : 'project'}`)
 const trackerSettings = computed(() => normalizeTrackerSettings(props.draftSettings, { preserveDeliveryMessage: true }))
 const accessOptions = TRACKER_TOOL_ACCESS_OPTIONS
 const teamName = computed(() => String(props.appIdentity?.team_name || '').trim() || 'Vue')
@@ -588,9 +610,9 @@ const toolRows = computed(() => [
   },
   {
     key: 'version_review',
-    name: 'Review new versions',
+    name: 'Approve versions before sharing',
     icon: '#icon-eye',
-    hint: 'Hold new versions from share links until an owner publishes them.',
+    hint: 'New versions stay internal until an owner publishes them.',
     enabled: trackerSettings.value.version_review.enabled,
   },
   {
@@ -603,6 +625,14 @@ const toolRows = computed(() => [
 ])
 
 const EDITABLE_TEAM_ROLES = new Set(['viewer', 'editor', 'owner'])
+
+const pendingPublicationCount = computed(() => (
+  (props.tracker?.shots || []).reduce((count, shot) => (
+    count + (shot?.versions || []).filter(version => (
+      String(version?.share_state || '').trim().toLowerCase() === 'pending'
+    )).length
+  ), 0)
+))
 
 const STATUS_COLORS = {
   not_started: 'var(--v-status-draft)',
@@ -742,53 +772,78 @@ const dueDateFormatted = computed(() => {
 /* ─── Modal sizing ─────────────────────────────────── */
 :global(.project-settings-modal-shell.v-modal-lg),
 :global(.project-settings-modal-shell.v-modal-md) {
-  max-width: 600px;
+  max-width: 664px;
+  max-height: min(calc(100dvh - 48px), 780px);
+  --v-modal-header-padding: 20px 22px 18px;
+  --v-modal-body-padding: 20px 22px 26px;
+  --v-modal-footer-padding: 14px 22px 18px;
+  --v-modal-bg: color-mix(in srgb, var(--v-surface-canvas) 96%, var(--v-bg-base));
+  --v-modal-header-bg: color-mix(in srgb, var(--v-surface-panel) 82%, var(--v-modal-bg));
+  --v-modal-footer-bg: color-mix(in srgb, var(--v-surface-panel) 82%, var(--v-modal-bg));
+  border-color: color-mix(in srgb, var(--v-surface-border-strong) 86%, transparent);
+  box-shadow:
+    0 28px 72px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
 }
 
 :deep(.v-modal-body) {
-  gap: 18px;
+  gap: 0;
+  scrollbar-gutter: stable;
+}
+
+:deep(.v-modal-footer) {
+  min-height: 68px;
 }
 
 /* ─── Header ───────────────────────────────────────── */
 .ps-head {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
   width: 100%;
 }
 
-
 .ps-head-title {
+  margin: 0;
   font-size: var(--v-text-2xl);
   font-weight: 700;
-  letter-spacing: 0;
+  line-height: 1.22;
+  letter-spacing: -0.015em;
   color: var(--v-text);
+}
+
+.ps-head-subtitle {
+  max-width: 52ch;
+  margin: 1px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
 }
 
 /* ─── Body shell ───────────────────────────────────── */
 .ps-body {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-5);
+  gap: 26px;
 }
 
 /* ─── Hero card ────────────────────────────────────── */
 .ps-hero {
   display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 14px;
-  align-items: stretch;
-  padding: var(--v-space-3);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-raised);
-  border: 1px solid var(--v-surface-border-soft);
-  box-shadow: var(--v-surface-shadow-raised);
+  grid-template-columns: 144px minmax(0, 1fr);
+  gap: var(--v-space-4);
+  align-items: center;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 76%, transparent);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-panel) 72%, var(--v-modal-bg));
+  box-shadow: none;
 }
 
 .ps-hero-thumb {
   position: relative;
-  width: 120px;
+  width: 144px;
   aspect-ratio: 16 / 9;
   display: flex;
   align-items: center;
@@ -817,10 +872,10 @@ const dueDateFormatted = computed(() => {
 }
 
 .ps-hero-meta {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-4);
   min-width: 0;
 }
 
@@ -828,7 +883,7 @@ const dueDateFormatted = computed(() => {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: var(--v-space-2);
+  gap: 8px;
   font-size: var(--v-text-base);
   color: var(--v-text-secondary);
   min-width: 0;
@@ -839,18 +894,16 @@ const dueDateFormatted = computed(() => {
   font-weight: 600;
 }
 
-.ps-hero-meta-dot {
-  color: var(--v-text-dim);
-  opacity: 0.6;
-}
-
 .ps-hero-due {
+  margin-left: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--v-divider-subtle);
   color: var(--v-text-muted);
   font-variant-numeric: tabular-nums;
 }
 
 .ps-hero-btn {
-  align-self: flex-start;
+  justify-self: end;
   gap: 6px;
 }
 
@@ -871,7 +924,13 @@ const dueDateFormatted = computed(() => {
 .ps-section {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-3);
+  gap: 14px;
+}
+
+.ps-section > .v-section-label {
+  padding: 0;
+  color: color-mix(in srgb, var(--v-text-secondary) 84%, var(--v-text-muted));
+  letter-spacing: 0.13em;
 }
 
 /* ─── Form grid ────────────────────────────────────── */
@@ -879,10 +938,10 @@ const dueDateFormatted = computed(() => {
   display: grid;
   gap: 0;
   padding: 0;
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-raised);
-  box-shadow: var(--v-surface-shadow-raised);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 78%, transparent);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-raised) 76%, var(--v-modal-bg));
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -891,7 +950,7 @@ const dueDateFormatted = computed(() => {
   grid-template-columns: 38px minmax(0, 1fr) auto;
   gap: 11px;
   align-items: start;
-  padding: var(--v-space-3);
+  padding: 13px 14px;
 }
 
 .ps-storage-row + .ps-storage-row {
@@ -899,20 +958,20 @@ const dueDateFormatted = computed(() => {
 }
 
 .ps-storage-icon {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: var(--v-radius-md);
   color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-inline));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface-inline));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 16%, transparent);
 }
 
 .ps-storage-alert .ps-storage-icon {
   color: var(--v-warning);
-  background: color-mix(in srgb, var(--v-warning) 9%, var(--v-surface-inline));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-warning) 20%, transparent);
+  background: color-mix(in srgb, var(--v-warning) 7%, var(--v-surface-inline));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-warning) 16%, transparent);
 }
 
 .ps-storage-icon .icon { width: 16px; height: 16px; }
@@ -938,7 +997,7 @@ const dueDateFormatted = computed(() => {
 .ps-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--v-space-3);
+  gap: 14px 12px;
 }
 
 .ps-field {
@@ -961,12 +1020,12 @@ const dueDateFormatted = computed(() => {
 .ps-input,
 .ps-textarea {
   font-size: var(--v-text-md);
-  font-weight: 500;
+  font-weight: 450;
   color: var(--v-text);
 }
 
 .ps-input {
-  height: 38px;
+  height: 42px;
 }
 
 .ps-input-date {
@@ -985,7 +1044,7 @@ const dueDateFormatted = computed(() => {
 }
 
 .ps-textarea {
-  min-height: 80px;
+  min-height: 88px;
   resize: vertical;
   padding-top: 10px;
   padding-bottom: 10px;
@@ -996,7 +1055,7 @@ const dueDateFormatted = computed(() => {
 .ps-control-pill {
   position: relative;
   width: 100%;
-  height: 38px;
+  height: 42px;
   padding: 0 12px 0 14px;
   border-radius: var(--v-button-radius);
   font-size: var(--v-text-base);
@@ -1075,14 +1134,14 @@ const dueDateFormatted = computed(() => {
 .ps-tool-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .ps-tool-card {
-  border-radius: var(--v-radius-lg);
-  border: 1px solid var(--v-surface-border-soft);
-  background: var(--v-surface-raised);
-  box-shadow: var(--v-surface-shadow-raised);
+  border-radius: var(--v-radius-md);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 78%, transparent);
+  background: color-mix(in srgb, var(--v-surface-raised) 76%, var(--v-modal-bg));
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1091,24 +1150,23 @@ const dueDateFormatted = computed(() => {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--v-space-3);
   align-items: center;
-  padding: var(--v-space-3);
+  padding: 13px 14px;
 }
 
 .ps-tool-card.is-disabled {
-  background: color-mix(in srgb, var(--v-surface-raised) 58%, var(--v-surface-canvas));
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset;
+  background: color-mix(in srgb, var(--v-surface-raised) 48%, var(--v-modal-bg));
 }
 
 .ps-tool-icon {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
   border-radius: var(--v-radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--v-surface-inset) 80%, var(--v-surface-raised));
+  background: color-mix(in srgb, var(--v-surface-inset) 72%, var(--v-surface-raised));
   color: var(--v-accent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 17%, transparent);
   flex: 0 0 auto;
 }
 
@@ -1153,6 +1211,41 @@ const dueDateFormatted = computed(() => {
 .ps-tool-switch {
   align-items: center;
   gap: 0;
+}
+
+.ps-tool-notice {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 9px;
+  margin: 0 12px 12px 62px;
+  padding: 10px 0 0;
+  color: var(--v-warning);
+  border-top: 1px solid color-mix(in srgb, var(--v-warning) 18%, transparent);
+}
+
+.ps-tool-notice > .icon {
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+}
+
+.ps-tool-notice > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ps-tool-notice strong {
+  color: color-mix(in srgb, var(--v-warning) 78%, var(--v-text));
+  font-size: var(--v-text-sm);
+  font-weight: 650;
+}
+
+.ps-tool-notice span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.4;
 }
 
 .ps-tool-access {
@@ -1259,8 +1352,8 @@ const dueDateFormatted = computed(() => {
   align-items: center;
   padding: 10px;
   border-radius: var(--v-button-radius);
-  background: color-mix(in srgb, var(--v-surface-canvas) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--v-surface-canvas) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 64%, transparent);
 }
 
 .ps-delivery-logo-mark {
@@ -1342,8 +1435,8 @@ const dueDateFormatted = computed(() => {
   gap: var(--v-space-2);
   padding: 10px;
   border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-surface-canvas) 82%, transparent);
-  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--v-surface-canvas) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 64%, transparent);
 }
 
 .ps-delivery-links-head,
@@ -1428,9 +1521,9 @@ const dueDateFormatted = computed(() => {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 64%, transparent);
   border-radius: var(--v-button-radius);
-  background: color-mix(in srgb, var(--v-surface-canvas) 82%, transparent);
+  background: color-mix(in srgb, var(--v-surface-canvas) 68%, transparent);
   color: var(--v-text);
   text-align: left;
   cursor: pointer;
@@ -1487,10 +1580,10 @@ const dueDateFormatted = computed(() => {
 .ps-team-list {
   display: flex;
   flex-direction: column;
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-raised);
-  border: 1px solid var(--v-surface-border-soft);
-  box-shadow: var(--v-surface-shadow-raised);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-raised) 76%, var(--v-modal-bg));
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 78%, transparent);
+  box-shadow: none;
   overflow: hidden;
 }
 
@@ -1499,7 +1592,8 @@ const dueDateFormatted = computed(() => {
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: var(--v-space-3);
   align-items: center;
-  padding: 10px 12px;
+  min-height: 56px;
+  padding: 10px 14px;
   border-bottom: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 52%, transparent);
 }
 
@@ -1591,9 +1685,9 @@ const dueDateFormatted = computed(() => {
   align-items: center;
   gap: 14px;
   padding: var(--v-space-4);
-  border-radius: var(--v-radius-lg);
-  border: 1px dashed color-mix(in srgb, var(--v-surface-border-soft) 84%, transparent);
-  background: color-mix(in srgb, var(--v-surface-raised) 54%, var(--v-surface-canvas));
+  border-radius: var(--v-radius-md);
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--v-surface-raised) 58%, var(--v-modal-bg));
 }
 
 .ps-empty-icon-wrap {
@@ -1644,7 +1738,7 @@ const dueDateFormatted = computed(() => {
   position: relative;
   display: flex;
   align-items: center;
-  height: 38px;
+  height: 42px;
   padding: 0 36px 0 36px;
   border-radius: var(--v-radius-md);
   border: 1px solid var(--v-control-border);
@@ -1715,7 +1809,7 @@ const dueDateFormatted = computed(() => {
 
 .ps-team-add-btn {
   gap: 6px;
-  height: 34px;
+  height: 38px;
 }
 
 .ps-team-add-btn .icon {
@@ -1725,39 +1819,79 @@ const dueDateFormatted = computed(() => {
 
 /* ─── Mobile ───────────────────────────────────────── */
 @media (max-width: 768px) {
+  :global(.project-settings-modal-shell.v-modal-lg.is-sheet.is-mobile-full-height),
+  :global(.project-settings-modal-shell.v-modal-md.is-sheet.is-mobile-full-height) {
+    min-height: calc(100dvh - 8px);
+    max-height: calc(100dvh - 8px);
+    --v-modal-header-padding: 18px 16px 16px;
+    --v-modal-body-padding: 16px 16px 22px;
+    --v-modal-footer-padding: 12px 16px max(16px, env(safe-area-inset-bottom));
+  }
+
   .ps-storage-row { grid-template-columns: 38px minmax(0, 1fr); }
   .ps-storage-actions { grid-column: 1 / -1; }
-  .ps-storage-actions .v-btn { flex: 1; }
+  .ps-storage-actions .v-btn { flex: 1; min-height: 44px; }
   :deep(.v-modal-body) {
-    gap: 14px;
+    gap: 0;
+    scrollbar-gutter: auto;
+  }
+
+  :deep(.v-modal-footer) {
+    min-height: 68px;
+  }
+
+  :global(.project-settings-modal-shell .v-modal-footer > .v-btn) {
+    height: 44px;
+    min-height: 44px;
   }
 
   .ps-body {
-    gap: 18px;
+    gap: 22px;
   }
 
   .ps-hero {
-    grid-template-columns: 88px minmax(0, 1fr);
+    grid-template-columns: 96px minmax(0, 1fr);
     gap: var(--v-space-3);
     padding: 10px;
   }
 
   .ps-hero-thumb {
-    width: 88px;
+    width: 96px;
+  }
+
+  .ps-hero-meta {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .ps-hero-btn {
+    justify-self: start;
+    min-height: 44px;
   }
 
   .ps-form-grid {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 12px;
   }
 
   .ps-field.is-half {
     grid-column: auto;
   }
 
+  .ps-input,
+  .ps-control-pill,
+  .ps-team-compose-user {
+    height: 44px;
+  }
+
+  .ps-textarea {
+    min-height: 96px;
+  }
+
   .ps-tool-row {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 10px;
+    padding: 12px;
   }
 
   .ps-tool-icon {
@@ -1775,6 +1909,10 @@ const dueDateFormatted = computed(() => {
   .ps-tool-access {
     flex-direction: column;
     align-items: stretch;
+    margin-left: 56px;
+  }
+
+  .ps-tool-notice {
     margin-left: 56px;
   }
 
@@ -1813,6 +1951,13 @@ const dueDateFormatted = computed(() => {
 
   .ps-tool-access-toggle .v-view-toggle-btn {
     flex: 1 1 0;
+    min-height: 40px;
+    height: 40px;
+  }
+
+  .ps-tool-delivery .v-btn,
+  .ps-delivery-preview-link {
+    min-height: 44px;
   }
 
   .ps-team-row {
@@ -1822,7 +1967,7 @@ const dueDateFormatted = computed(() => {
       "avatar copy"
       "actions actions";
     gap: 10px 12px;
-    padding: var(--v-space-3);
+    padding: 12px;
   }
 
   .ps-avatar {
@@ -1836,7 +1981,15 @@ const dueDateFormatted = computed(() => {
   .ps-team-actions {
     grid-area: actions;
     width: 100%;
-    grid-template-columns: minmax(0, 1fr) var(--v-btn-height-sm);
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+
+  .ps-team-actions .ps-team-remove.v-btn-icon,
+  .ps-team-actions .ps-team-remove-slot {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
   }
 
   .ps-role-pill {
@@ -1859,7 +2012,7 @@ const dueDateFormatted = computed(() => {
 
   .ps-team-add-btn {
     flex: 0 0 auto;
-    height: 38px;
+    height: 44px;
   }
 }
 </style>

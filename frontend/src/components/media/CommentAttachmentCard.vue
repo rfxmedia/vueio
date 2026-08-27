@@ -44,10 +44,12 @@ defineEmits(['open'])
 const isReference = computed(() => props.attachment?.attachment_type === 'reference')
 const referenceLabel = computed(() => ({
   media_asset: props.attachment?.kind === 'pdf' ? 'Project PDF' : 'Project file',
+  folder: 'Project folder',
   tracker: 'Vue Tracker',
   page: 'Dashboard',
 }[props.attachment?.target_type] || 'Project asset'))
 const referenceIcon = computed(() => ({
+  folder: '#icon-folder',
   tracker: '#icon-project',
   page: '#icon-layout',
 }[props.attachment?.target_type] || ({
@@ -65,9 +67,9 @@ const referenceIcon = computed(() => ({
   min-width: 0;
   max-width: 100%;
   padding: 0;
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 74%, transparent);
   border-radius: var(--v-radius-sm);
-  background: var(--v-surface-tint-strong);
+  background: var(--v-surface-inset);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -76,12 +78,12 @@ const referenceIcon = computed(() => ({
 
 .comment-attachment:hover {
   border-color: var(--v-control-border-hover);
-  background: color-mix(in srgb, var(--v-surface-inline-strong) 62%, transparent);
+  background: var(--v-surface-inset-hover);
 }
 
 .comment-attachment.is-image {
-  width: 72px;
-  height: 48px;
+  width: 88px;
+  height: 56px;
   overflow: hidden;
   padding: 0;
 }
@@ -95,9 +97,9 @@ const referenceIcon = computed(() => ({
 
 .comment-attachment.is-file,
 .comment-attachment.is-reference {
-  max-width: min(100%, 220px);
-  min-height: 36px;
-  padding: 5px 7px;
+  max-width: min(100%, 248px);
+  min-height: 40px;
+  padding: 6px 8px;
 }
 
 .comment-attachment__icon {
@@ -108,8 +110,8 @@ const referenceIcon = computed(() => ({
   height: 24px;
   flex: 0 0 auto;
   border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--v-accent) 22%, var(--v-control-border));
-  background: color-mix(in srgb, var(--v-accent) 10%, transparent);
+  border: 0;
+  background: var(--v-accent-subtle);
   color: var(--v-accent);
 }
 

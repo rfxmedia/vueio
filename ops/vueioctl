@@ -9,10 +9,27 @@ STORAGE_COMPOSE_FILE="$VUEIO_HOME/compose.storage.yml"
 ENV_FILE="$VUEIO_HOME/.env"
 STORAGE_DIR="$VUEIO_HOME/storage.d"
 BACKUP_DIR="$VUEIO_HOME/backups"
+LOG_DIR="$VUEIO_HOME/logs"
+UPDATE_STATE_FILE="$VUEIO_HOME/.update-state"
 LICENSE_FILE="$VUEIO_HOME/LICENSE.md"
+RELEASE_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)(\.dev\.(0|[1-9][0-9]*))?$'
+
+if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
+  RESET=$'\033[0m'
+  BOLD=$'\033[1m'
+  GREEN=$'\033[32m'
+  MINT=$'\033[38;5;121m'
+  YELLOW=$'\033[33m'
+else
+  RESET=
+  BOLD=
+  GREEN=
+  MINT=
+  YELLOW=
+fi
 
 die() {
-  printf 'Error: %s\n' "$*" >&2
+  printf '%sError:%s %s\n' "$BOLD" "$RESET" "$*" >&2
   exit 1
 }
 
@@ -21,7 +38,26 @@ note() {
 }
 
 warn() {
-  printf 'Warning: %s\n' "$*" >&2
+  printf '%s!%s %s\n' "$YELLOW" "$RESET" "$*" >&2
+}
+
+title() {
+  printf '\n%s%s%s%s\n' "$BOLD" "$MINT" "$*" "$RESET"
+}
+
+step() {
+  printf '%s→%s %s\n' "$MINT" "$RESET" "$*"
+}
+
+success() {
+  printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"
+}
+
+confirm() {
+  local answer
+  printf '%s [Y/n] ' "$1"
+  read -r answer
+  [[ -z $answer || $answer == y || $answer == Y || $answer == yes || $answer == YES ]]
 }
 
 [[ $VUEIO_HOME = /* && $VUEIO_HOME != / ]] ||
@@ -36,10 +72,13 @@ Usage: $PROGRAM <command> [arguments]
   version                         Show the installed release and images
   setup-token                    Show the one-time first-run setup token
   logs [service]                  Follow container logs
-  doctor                          Check configuration, storage, and services
+  doctor [--fix]                  Check configuration, storage, and services
   backup [archive.tar.gz]         Back up Vueio state (not source media)
+  backups                         List available backups
   restore <archive.tar.gz>        Restore Vueio state after confirmation
-  update <vX.Y.Z-alpha.N>         Back up, refresh release files, and update
+  rollback                        Restore the latest pre-update backup
+  update <release-tag>            Back up, refresh release files, and update
+  channel <stable|nightly>        Select which releases Vueio follows
   storage list
   storage add <label> <path> [ro|rw]
   storage remove <label> [--yes]
@@ -58,6 +97,32 @@ require_command() {
 require_installed() {
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] ||
     die "Vueio is not configured in $VUEIO_HOME. Run '$PROGRAM install' first."
+}
+
+validate_release_tag() {
+  [[ ${1:-} =~ $RELEASE_TAG_PATTERN ]] ||
+    die "Release version must be vX.Y.Z-alpha.N or vX.Y.Z-alpha.N.dev.M without leading zeroes"
+}
+
+is_nightly_tag() {
+  [[ ${1:-} =~ \.dev\.[0-9]+$ ]]
+}
+
+validate_channel() {
+  [[ ${1:-} == stable || ${1:-} == nightly ]] ||
+    die "Update channel must be 'stable' or 'nightly'"
+}
+
+version_key() {
+  validate_release_tag "$1"
+  [[ $1 =~ $RELEASE_TAG_PATTERN ]]
+  printf '%010d%010d%010d%010d%010d\n' \
+    "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}" "${BASH_REMATCH[3]}" \
+    "${BASH_REMATCH[4]}" "$([[ -n ${BASH_REMATCH[6]:-} ]] && printf '%s' "${BASH_REMATCH[6]}" || printf '%s' 0)"
+}
+
+version_is_newer() {
+  [[ $(version_key "$1") > $(version_key "$2") ]]
 }
 
 compose() {
@@ -118,6 +183,10 @@ validate_port() {
   fi
 }
 
+port_in_use() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1
+}
+
 validate_mode() {
   [[ $1 == ro || $1 == rw ]] || die "Storage mode must be 'ro' or 'rw'"
 }
@@ -176,6 +245,26 @@ storage_records() {
       } <"$record"
       printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$label" "$path" "$mode" "$sentinel"
     done
+}
+
+storage_marker_matches() {
+  local marker=$1 expected=$2 actual
+  [[ ! -L $marker && -f $marker ]] || return 1
+  actual=$(
+    dd if="$marker" iflag=nofollow,nonblock bs=256 count=1 status=none 2>/dev/null
+  ) || return 1
+  [[ $actual == "$expected" ]]
+}
+
+require_storage_mounts() {
+  local _id label path _mode sentinel marker
+  while IFS=$'\t' read -r _id label path _mode sentinel; do
+    marker="$path/.vueio-storage-id"
+    if [[ ! -d $path || ! $sentinel =~ ^[a-f0-9]{32,128}$ ]] ||
+      ! storage_marker_matches "$marker" "$sentinel"; then
+      die "Storage '$label' is unavailable or mounted with a different identity. Reconnect the expected filesystem before starting Vueio."
+    fi
+  done < <(storage_records)
 }
 
 render_storage() {
@@ -366,8 +455,27 @@ storage_remove() {
 show_version() {
   require_installed
   note "Vueio release: $(env_value VUEIO_VERSION)"
+  note "Update channel: $(env_value VUEIO_CHANNEL || printf stable)"
   note "Engine image: $(env_value VUEIO_ENGINE_IMAGE)"
   note "UI image: $(env_value VUEIO_UI_IMAGE)"
+}
+
+set_channel() {
+  require_installed
+  local next=${1:-} current
+  validate_channel "$next"
+  current=$(env_value VUEIO_CHANNEL)
+  current=${current:-stable}
+  if [[ $current == "$next" ]]; then
+    note "Vueio is already on the $next channel."
+    return 0
+  fi
+  set_env VUEIO_CHANNEL "$next"
+  if [[ $current == stable && $next == nightly ]]; then
+    note "Vueio now follows the nightly channel. Check Updates or run the suggested update command when a newer nightly is available."
+  else
+    note "Vueio now follows the stable channel. Your installed nightly will stay in place until a newer stable release is published. Database migrations are one-way, so switching channels never downgrades the running version."
+  fi
 }
 
 show_setup_token() {
@@ -378,21 +486,48 @@ show_setup_token() {
 install_vueio() {
   require_command docker
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+  docker info >/dev/null 2>&1 || die "Docker is installed but is not running"
 
-  local source_compose source_license version port bind local_url puid pgid default_uid default_gid
-  local initial_path initial_label initial_mode
+  local source_compose source_license version channel port bind local_url puid pgid default_uid default_gid
+  local initial_path initial_label initial_mode default_initial_path candidate
   local compose_project postgres_volume
+  local create_initial_path=false port_was_explicit=false
   source_compose=${VUEIO_RELEASE_COMPOSE:-"$SCRIPT_DIR/../compose.release.yml"}
   source_license=${VUEIO_RELEASE_LICENSE:-"$SCRIPT_DIR/../LICENSE.md"}
   version=${VUEIO_VERSION:-}
-  [[ $version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$ ]] ||
-    die "VUEIO_VERSION must be an immutable vX.Y.Z-alpha.N release tag without leading zeroes"
+  validate_release_tag "$version"
+  channel=${VUEIO_CHANNEL:-stable}
+  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 && -z ${VUEIO_CHANNEL:-} ]]; then
+    title "Update channel"
+    note "Stable receives reviewed releases. Nightly receives newer test builds too."
+    printf 'Channel [stable]: '
+    read -r channel
+    channel=${channel:-stable}
+  fi
+  validate_channel "$channel"
+  if [[ $channel == stable ]] && is_nightly_tag "$version"; then
+    die "A nightly release requires VUEIO_CHANNEL=nightly"
+  fi
   [[ -f "$source_compose" ]] || die "compose.release.yml was not found beside this release"
   [[ -f "$source_license" ]] || die "LICENSE.md was not found beside this release"
 
+  [[ -n ${VUEIO_UI_PORT:-} || -n ${VUEIO_LOCAL_URL:-} ]] && port_was_explicit=true
   port=${VUEIO_UI_PORT:-9000}
   bind=${VUEIO_BIND_ADDRESS:-127.0.0.1}
   validate_port "$port"
+  if port_in_use "$port"; then
+    if [[ $port_was_explicit == true ]]; then
+      die "Port $port is already in use. Choose another with VUEIO_UI_PORT."
+    fi
+    for candidate in {9001..9010}; do
+      if ! port_in_use "$candidate"; then
+        warn "Port 9000 is busy, so Vueio will use port $candidate."
+        port=$candidate
+        break
+      fi
+    done
+    port_in_use "$port" && die "Ports 9000 through 9010 are already in use. Set VUEIO_UI_PORT to an available port."
+  fi
   default_uid=$(id -u)
   default_gid=$(id -g)
   if [[ $default_uid == 0 ]]; then
@@ -408,23 +543,33 @@ install_vueio() {
   [[ $compose_project =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] ||
     die "VUEIO_COMPOSE_PROJECT contains unsupported characters"
 
+  title "Vueio setup"
+  note "This will install Vueio $version with its own database and private configuration."
+
+  default_initial_path=${VUEIO_DEFAULT_STORAGE_PATH:-/var/lib/vueio/projects}
   initial_path=${VUEIO_INITIAL_STORAGE_PATH:-}
   initial_label=${VUEIO_INITIAL_STORAGE_LABEL:-Projects}
   initial_mode=${VUEIO_INITIAL_STORAGE_MODE:-rw}
   if [[ -z $initial_path && ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
-    printf 'Project storage folder (must already exist): '
+    title "Project storage"
+    note "This is where Vueio will keep original project files."
+    note "Press Enter to use the safe local default, or enter an existing mounted folder."
+    printf 'Storage folder [%s]: ' "$default_initial_path"
     read -r initial_path
-    [[ -n $initial_path ]] || die "At least one project storage folder is required"
-    printf 'Display name [Projects]: '
-    read -r initial_label
-    initial_label=${initial_label:-Projects}
+    initial_path=${initial_path:-$default_initial_path}
   elif [[ -z $initial_path ]]; then
     die "Set VUEIO_INITIAL_STORAGE_PATH for a non-interactive installation"
   fi
   validate_label "$initial_label"
   validate_mode "$initial_mode"
-  [[ -d "$initial_path" ]] || die "Storage path does not exist or is not a directory: $initial_path"
-  initial_path=$(realpath "$initial_path")
+  if [[ -d $initial_path ]]; then
+    initial_path=$(realpath "$initial_path")
+  elif [[ $initial_path == "$default_initial_path" && ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    initial_path=$(realpath -m "$initial_path")
+    create_initial_path=true
+  else
+    die "Storage folder does not exist: $initial_path. Create or mount it first, then run the installer again."
+  fi
   validate_storage_path "$initial_path"
 
   if [[ -f "$VUEIO_HOME/.installing" && ! -f "$VUEIO_HOME/.installed" ]]; then
@@ -449,13 +594,26 @@ install_vueio() {
     die "Docker resources already exist for project '$compose_project'. Choose a unique VUEIO_COMPOSE_PROJECT instead of risking another installation."
   fi
 
-  mkdir -p "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$VUEIO_HOME/data"
+  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    title "Ready to install"
+    note "Web address: $local_url"
+    note "Project storage: $initial_path"
+    note "Vueio will not receive access to any other host folder."
+    confirm "Continue?" || {
+      note "Installation cancelled. Nothing was changed."
+      return 0
+    }
+  fi
+
+  step "Creating private configuration"
+  mkdir -p "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$LOG_DIR" "$VUEIO_HOME/data"
   printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installing"
   # EXIT traps run after Bash has released function-local variables.
   VUEIO_INSTALL_RESOURCES_MAY_EXIST=false
   VUEIO_INSTALL_IN_PROGRESS=true
   VUEIO_INSTALL_CREATED_STORAGE_MARKER=
   VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=
+  VUEIO_INSTALL_CREATED_STORAGE_DIR=
   cleanup_failed_install() {
     local status=$? marker_value='' resources_removed=true
     trap - EXIT INT TERM
@@ -479,6 +637,9 @@ install_vueio() {
           rm -f -- "$VUEIO_INSTALL_CREATED_STORAGE_MARKER"
         fi
       fi
+      if [[ -n ${VUEIO_INSTALL_CREATED_STORAGE_DIR:-} ]]; then
+        rmdir -- "$VUEIO_INSTALL_CREATED_STORAGE_DIR" 2>/dev/null || true
+      fi
       rm -rf -- "$VUEIO_HOME"
       warn "Incomplete installation state was removed. Run '$PROGRAM install' to retry."
     fi
@@ -490,6 +651,7 @@ install_vueio() {
   install -m 0644 "$source_license" "$LICENSE_FILE"
   cat >"$ENV_FILE" <<EOF
 VUEIO_VERSION=$version
+VUEIO_CHANNEL=$channel
 VUEIO_COMPOSE_PROJECT=$compose_project
 VUEIO_UI_PORT=$port
 VUEIO_BIND_ADDRESS=$bind
@@ -526,19 +688,30 @@ VUEIO_ENGINE_IMAGE=${VUEIO_ENGINE_IMAGE:-${VUEIO_ENGINE_REPOSITORY:-ghcr.io/rfxm
 VUEIO_UI_IMAGE=${VUEIO_UI_IMAGE:-${VUEIO_UI_REPOSITORY:-ghcr.io/rfxmedia/vueio-ui}:$version}
 EOF
   chmod 600 "$ENV_FILE"
-  chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR"
+  chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$LOG_DIR"
   chown "$puid:$pgid" "$VUEIO_HOME/data" 2>/dev/null ||
     warn "Could not set data ownership to $puid:$pgid; verify it with '$PROGRAM doctor'"
   render_storage
+
+  if [[ $create_initial_path == true ]]; then
+    mkdir -p -- "$initial_path"
+    chown "$puid:$pgid" "$initial_path" 2>/dev/null ||
+      warn "Could not set project storage ownership to $puid:$pgid"
+    VUEIO_INSTALL_CREATED_STORAGE_DIR=$initial_path
+    success "Created project storage at $initial_path"
+  fi
 
   storage_add "$initial_label" "$initial_path" "$initial_mode"
 
   if [[ ${VUEIO_SKIP_START:-0} != 1 ]]; then
     if [[ ${VUEIO_SKIP_PULL:-0} != 1 ]]; then
+      step "Downloading Vueio containers"
       compose pull
     fi
     VUEIO_INSTALL_RESOURCES_MAY_EXIST=true
+    step "Starting the database and Vueio services"
     compose up -d
+    step "Running installation safety checks"
     doctor
   fi
   printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installed"
@@ -546,19 +719,110 @@ EOF
   VUEIO_INSTALL_IN_PROGRESS=false
   VUEIO_INSTALL_CREATED_STORAGE_MARKER=
   VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=
+  VUEIO_INSTALL_CREATED_STORAGE_DIR=
   trap - EXIT INT TERM
-  note "Local URL: $local_url"
-  note "First-run setup token: $(env_value VUEIO_SETUP_TOKEN)"
+  title "Vueio is ready"
+  success "Installation completed successfully"
+  printf '\nOpen: %s%s%s\n' "$BOLD" "$local_url" "$RESET"
+  printf 'Setup code: %s%s%s\n\n' "$BOLD" "$(env_value VUEIO_SETUP_TOKEN)" "$RESET"
+  note "Open the address in a browser and enter the setup code to create the owner account."
   warn "Local HTTP mode is not safe for direct internet exposure."
 }
 
 doctor() {
   require_installed
-  local failed=0 local_http data_path puid pgid id label mode path sentinel marker actual_sentinel ui_ready=false
+  local fix=false local_http data_path puid pgid id label mode path sentinel marker ui_ready=false
+  local version channel engine_image ui_image expected_engine expected_ui probe available_kb
+  local -a issues=()
+  case ${1:-} in
+    '') ;;
+    --fix) fix=true ;;
+    *) die "Usage: $PROGRAM doctor [--fix]" ;;
+  esac
+
+  version=$(env_value VUEIO_VERSION)
+  channel=$(env_value VUEIO_CHANNEL)
+  channel=${channel:-stable}
+  if [[ $fix == true ]]; then
+    [[ ! -f $UPDATE_STATE_FILE ]] ||
+      die "An interrupted update must recover first. Re-run the same update command."
+    note "Applying safe repairs..."
+    find "$VUEIO_HOME" -maxdepth 1 -type d \
+      \( -name '.update.*' -o -name '.release-check.*' \) \
+      -exec rm -rf -- {} +
+    if [[ -z $(env_value VUEIO_CHANNEL) ]]; then
+      set_env VUEIO_CHANNEL stable
+      channel=stable
+    fi
+    if [[ $version =~ $RELEASE_TAG_PATTERN ]]; then
+      expected_engine="$(env_value VUEIO_ENGINE_REPOSITORY):$version"
+      expected_ui="$(env_value VUEIO_UI_REPOSITORY):$version"
+      set_env VUEIO_ENGINE_IMAGE "$expected_engine"
+      set_env VUEIO_UI_IMAGE "$expected_ui"
+    fi
+    mkdir -p "$BACKUP_DIR" "$LOG_DIR"
+    chmod 700 "$BACKUP_DIR" "$LOG_DIR"
+    compose up -d
+  fi
+
   note "Vueio release: $(env_value VUEIO_VERSION)"
+  note "Update channel: $channel"
   note "Configured origin: $(env_value VUEIO_CORS_ALLOW_ORIGINS)"
   note "Checking Docker configuration..."
-  compose config -q || failed=1
+  if ! compose config -q; then
+    issues+=("Fix the Docker Compose configuration, then run '$PROGRAM doctor' again.")
+  fi
+
+  if [[ ! $version =~ $RELEASE_TAG_PATTERN ]]; then
+    warn "Installed release tag is invalid: $version"
+    issues+=("Restore VUEIO_VERSION to the exact release tag that is installed.")
+  fi
+  if [[ $channel != stable && $channel != nightly ]]; then
+    warn "Update channel is invalid: $channel"
+    issues+=("Run '$PROGRAM channel stable' or '$PROGRAM channel nightly'.")
+  fi
+
+  engine_image=$(env_value VUEIO_ENGINE_IMAGE)
+  ui_image=$(env_value VUEIO_UI_IMAGE)
+  expected_engine="$(env_value VUEIO_ENGINE_REPOSITORY):$version"
+  expected_ui="$(env_value VUEIO_UI_REPOSITORY):$version"
+  if [[ $engine_image != "$expected_engine" || $ui_image != "$expected_ui" ]]; then
+    warn "Container image pins do not match the installed release"
+    issues+=("Run '$PROGRAM doctor --fix' to reconcile the image pins safely.")
+  else
+    note "OK: container image pins match $version"
+  fi
+
+  if [[ -f $UPDATE_STATE_FILE && ${VUEIO_UPDATE_IN_PROGRESS:-0} != 1 ]]; then
+    warn "An incomplete update state is present: $UPDATE_STATE_FILE"
+    issues+=("Re-run the same update command so Vueio can recover before retrying.")
+  elif [[ -f $UPDATE_STATE_FILE ]]; then
+    note "OK: the current update owns its recovery state"
+  else
+    note "OK: no partial update is waiting for recovery"
+  fi
+
+  if [[ -d $BACKUP_DIR ]] && probe=$(mktemp "$BACKUP_DIR/.write-test.XXXXXX" 2>/dev/null); then
+    rm -f "$probe"
+    note "OK: backup directory is writable"
+  else
+    warn "Backup directory is not writable: $BACKUP_DIR"
+    issues+=("Correct the permissions on $BACKUP_DIR before updating or backing up.")
+  fi
+  if [[ -d $LOG_DIR ]] && probe=$(mktemp "$LOG_DIR/.write-test.XXXXXX" 2>/dev/null); then
+    rm -f "$probe"
+    note "OK: update log directory is writable"
+  else
+    warn "Update log directory is not writable: $LOG_DIR"
+    issues+=("Correct the permissions on $LOG_DIR before updating.")
+  fi
+  available_kb=$(df -Pk "$VUEIO_HOME" | awk 'NR == 2 {print $4}')
+  if ((available_kb >= 2 * 1024 * 1024)); then
+    note "OK: at least 2 GiB of update headroom is available"
+  else
+    warn "Less than 2 GiB is free on the Vueio filesystem"
+    issues+=("Free at least 2 GiB before downloading an update.")
+  fi
 
   data_path=$(env_value VUEIO_DATA_PATH)
   puid=$(env_value VUEIO_PUID)
@@ -567,29 +831,24 @@ doctor() {
     note "OK: application data directory exists"
   else
     warn "Application data directory is missing: $data_path"
-    failed=1
+    issues+=("Restore or recreate the configured application data directory.")
   fi
   while IFS=$'\t' read -r id label path mode sentinel; do
     marker="$path/.vueio-storage-id"
     if [[ ! -d $path ]]; then
       warn "Storage '$label' is unavailable: $path"
-      failed=1
+      issues+=("Reconnect storage '$label' at $path.")
     elif [[ ! $sentinel =~ ^[a-f0-9]{32,128}$ ]]; then
       warn "Storage '$label' has no valid identity marker recorded; remove and re-add it after preparing $marker"
-      failed=1
+      issues+=("Remove and re-add storage '$label' after preparing its identity marker.")
     elif [[ -L $marker || ! -f $marker ]]; then
       warn "Storage '$label' is missing its regular identity marker: $marker"
-      failed=1
+      issues+=("Restore the identity marker for storage '$label'.")
+    elif ! storage_marker_matches "$marker" "$sentinel"; then
+      warn "Storage '$label' has the wrong mount identity; the expected filesystem may be disconnected"
+      issues+=("Reconnect the expected filesystem for storage '$label'.")
     else
-      actual_sentinel=$(
-        dd if="$marker" iflag=nofollow,nonblock bs=256 count=1 status=none 2>/dev/null
-      ) || actual_sentinel=
-      if [[ $actual_sentinel != "$sentinel" ]]; then
-        warn "Storage '$label' has the wrong mount identity; the expected filesystem may be disconnected"
-        failed=1
-      else
-        note "OK: storage '$label' is available with the expected mount identity ($mode)"
-      fi
+      note "OK: storage '$label' is available with the expected mount identity ($mode)"
     fi
   done < <(storage_records)
 
@@ -607,11 +866,11 @@ doctor() {
       note "OK: PostgreSQL is responding"
     else
       warn "PostgreSQL is running but not ready"
-      failed=1
+      issues+=("Run '$PROGRAM doctor --fix' to restart unhealthy services.")
     fi
   else
     warn "PostgreSQL is not running"
-    failed=1
+    issues+=("Run '$PROGRAM doctor --fix' to start PostgreSQL.")
   fi
 
   if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
@@ -620,7 +879,7 @@ doctor() {
       note "OK: engine user $puid:$pgid can read and write application data"
     else
       warn "Engine user $puid:$pgid cannot read and write application data"
-      failed=1
+      issues+=("Correct ownership or permissions on $data_path for $puid:$pgid.")
     fi
     while IFS=$'\t' read -r id label _ mode sentinel; do
       if compose exec -T vueio_engine python -c \
@@ -628,18 +887,18 @@ doctor() {
         if [[ $mode == rw ]] && ! compose exec -T vueio_engine python -c \
           "import os,sys; sys.exit(0 if os.access('/storage/root-$id', os.W_OK) else 1)"; then
           warn "Engine cannot write read/write storage '$label'"
-          failed=1
+          issues+=("Correct write access for storage '$label'.")
         else
           note "OK: engine can access storage '$label' as $mode"
         fi
       else
         warn "Engine cannot read storage '$label'"
-        failed=1
+        issues+=("Correct read access for storage '$label'.")
       fi
     done < <(storage_records)
   else
     warn "Vueio engine is not running; container permission checks were skipped"
-    failed=1
+    issues+=("Run '$PROGRAM doctor --fix' to restart the Vueio engine.")
   fi
 
   # A newly created UI container can briefly report "running" before Docker
@@ -657,11 +916,72 @@ doctor() {
     note "OK: Vueio UI and API are responding"
   else
     warn "Vueio UI or API did not become ready"
-    failed=1
+    issues+=("Run '$PROGRAM doctor --fix', then inspect '$PROGRAM logs' if readiness still fails.")
   fi
 
-  ((failed == 0)) || die "One or more checks failed"
-  note "Vueio passed all required checks."
+  if ((${#issues[@]})); then
+    warn "${#issues[@]} issue(s) need attention:"
+    local issue_number=1 issue
+    for issue in "${issues[@]}"; do
+      printf '%d. %s\n' "$issue_number" "$issue" >&2
+      issue_number=$((issue_number + 1))
+    done
+    die "Vueio needs attention"
+  fi
+  success "Everything looks healthy."
+}
+
+backup_manifest_value() {
+  local archive=$1 key=$2
+  tar -xOzf "$archive" ./manifest 2>/dev/null |
+    sed -n "s/^${key}=//p" |
+    tail -n 1
+}
+
+prune_backups() {
+  local keep=${VUEIO_BACKUP_KEEP:-5} latest_pre_update='' archive kept=0
+  local -a archives=()
+  [[ $keep =~ ^[1-9][0-9]*$ ]] || die "VUEIO_BACKUP_KEEP must be a positive number"
+  mapfile -t archives < <(
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.tar.gz' -printf '%T@\t%p\n' |
+      sort -rn |
+      cut -f2-
+  )
+  for archive in "${archives[@]}"; do
+    if [[ ${archive##*/} == pre-update-* ]]; then
+      latest_pre_update=$archive
+      break
+    fi
+  done
+  for archive in "${archives[@]}"; do
+    if ((kept < keep)) || [[ -n $latest_pre_update && $archive == "$latest_pre_update" ]]; then
+      kept=$((kept + 1))
+      continue
+    fi
+    rm -f -- "$archive" "$archive.sha256"
+  done
+}
+
+list_backups() {
+  require_installed
+  local archive version created kind size found=false
+  local -a archives=()
+  mapfile -t archives < <(
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name '*.tar.gz' -printf '%T@\t%p\n' |
+      sort -rn |
+      cut -f2-
+  )
+  printf '%-18s  %-26s  %-12s  %9s\n' CREATED VERSION TYPE SIZE
+  for archive in "${archives[@]}"; do
+    version=$(backup_manifest_value "$archive" version)
+    created=$(backup_manifest_value "$archive" created_at)
+    kind=$(backup_manifest_value "$archive" kind)
+    size=$(du -h "$archive" | awk '{print $1}')
+    [[ -n $version && -n $created ]] || continue
+    found=true
+    printf '%-18s  %-26s  %-12s  %9s\n' "$created" "$version" "${kind:-manual}" "$size"
+  done
+  [[ $found == true ]] || note "(no backups available)"
 }
 
 backup_vueio() (
@@ -669,6 +989,7 @@ backup_vueio() (
   umask 077
   require_installed
   local destination=${1:-} stamp tmp archive_tmp='' checksum_tmp='' was_running=false
+  local kind=${VUEIO_BACKUP_KIND:-manual} target_version=${VUEIO_BACKUP_TARGET_VERSION:-}
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   destination=${destination:-"$BACKUP_DIR/vueio-$stamp.tar.gz"}
   [[ $destination = /* ]] || destination="$(pwd)/$destination"
@@ -710,6 +1031,8 @@ backup_vueio() (
     printf 'format=1\n'
     printf 'created_at=%s\n' "$stamp"
     printf 'version=%s\n' "$(env_value VUEIO_VERSION)"
+    printf 'kind=%s\n' "$kind"
+    printf 'target_version=%s\n' "$target_version"
     printf 'scope=database,application-data,configuration-reference\n'
     printf 'source_media_included=false\n'
     printf 'rebuildable_cache_included=false\n'
@@ -779,6 +1102,9 @@ PY
   note "Backup created: $destination"
   note "Checksum created: $destination.sha256"
   warn "Original project media is not included; back up storage roots separately."
+  case "$destination" in
+    "$BACKUP_DIR"/*) prune_backups ;;
+  esac
 )
 
 restore_vueio() (
@@ -1004,7 +1330,7 @@ PY
   [[ -s $safety_db ]] || die "Safety backup did not contain a database dump"
 
   # Invoked by the EXIT/INT/TERM trap below.
-  # shellcheck disable=SC2329
+  # shellcheck disable=SC2317,SC2329
   rollback_restore() {
     local status=$?
     trap - EXIT INT TERM
@@ -1046,55 +1372,281 @@ PY
     -U "$(env_value VUEIO_POSTGRES_USER)" \
     -d "$(env_value VUEIO_POSTGRES_DB)" <"$tmp/database.dump"
   db_restored=true
+  if [[ -n ${VUEIO_RESTORE_REPIN_VERSION:-} ]]; then
+    validate_release_tag "$VUEIO_RESTORE_REPIN_VERSION"
+    set_env VUEIO_VERSION "$VUEIO_RESTORE_REPIN_VERSION"
+    set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$VUEIO_RESTORE_REPIN_VERSION"
+    set_env VUEIO_UI_IMAGE "$(env_value VUEIO_UI_REPOSITORY):$VUEIO_RESTORE_REPIN_VERSION"
+  fi
   compose up -d
   doctor
   engine_stopped=false
   trap - EXIT INT TERM
   rm -rf "$tmp"
   note "Restore completed. Safety backup: $safety"
-  note "Previous application data retained temporarily at: $old_data"
-  note "After you verify the restore, reclaim its space with: sudo rm -rf -- '$old_data'"
+  if [[ ${VUEIO_RESTORE_DISCARD_REPLACED_DATA:-0} == 1 ]]; then
+    rm -rf -- "$old_data"
+    note "The failed candidate's replaced application data was discarded after recovery."
+  else
+    note "Previous application data retained temporarily at: $old_data"
+    note "After you verify the restore, reclaim its space with: sudo rm -rf -- '$old_data'"
+  fi
   note "Current host paths and secrets were retained; the archived configuration is reference-only."
 )
+
+pull_release_images() {
+  local version=$1
+  if [[ ${VUEIO_SKIP_PULL:-0} == 1 ]]; then
+    return 0
+  fi
+  docker pull "$(env_value VUEIO_ENGINE_REPOSITORY):$version"
+  docker pull "$(env_value VUEIO_UI_REPOSITORY):$version"
+}
+
+rollback_vueio() {
+  require_installed
+  local archive='' version created confirmation
+  archive=$(
+    find "$BACKUP_DIR" -maxdepth 1 -type f -name 'pre-update-*.tar.gz' -printf '%T@\t%p\n' |
+      sort -rn |
+      head -n 1 |
+      cut -f2-
+  )
+  [[ -n $archive && -f $archive ]] || die "No pre-update safety backup is available"
+  version=$(backup_manifest_value "$archive" version)
+  created=$(backup_manifest_value "$archive" created_at)
+  validate_release_tag "$version"
+
+  note "This returns Vueio to version $version and the data as it was at $created."
+  warn "Anything created or changed since that backup will be lost. Project files and media are not changed."
+  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    printf 'Type RESTORE to continue: '
+    read -r confirmation
+    [[ $confirmation == RESTORE ]] || {
+      note "Rollback cancelled. Nothing was changed."
+      return 0
+    }
+  elif [[ ${VUEIO_RESTORE_CONFIRM:-} != RESTORE ]]; then
+    die "Set VUEIO_RESTORE_CONFIRM=RESTORE for a non-interactive rollback"
+  fi
+
+  step "Downloading the previous version before stopping Vueio"
+  pull_release_images "$version"
+  VUEIO_NONINTERACTIVE=1 \
+    VUEIO_RESTORE_CONFIRM=RESTORE \
+    VUEIO_RESTORE_REPIN_VERSION="$version" \
+    restore_vueio "$archive"
+  success "Vueio was returned to $version."
+}
+
+state_value() {
+  local key=$1
+  [[ -f $UPDATE_STATE_FILE ]] || return 0
+  sed -n "s/^${key}=//p" "$UPDATE_STATE_FILE" | tail -n 1
+}
+
+write_update_state() {
+  local phase=$1 previous=$2 requested=$3 backup=${4:-} tmp
+  tmp=$(mktemp "$VUEIO_HOME/.update-state.XXXXXX")
+  {
+    printf 'phase=%s\n' "$phase"
+    printf 'previous_version=%s\n' "$previous"
+    printf 'requested_version=%s\n' "$requested"
+    printf 'backup=%s\n' "$backup"
+    printf 'log=%s\n' "${UPDATE_LOG_FILE:-}"
+  } >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$UPDATE_STATE_FILE"
+}
+
+update_stage() {
+  local number=$1 name=$2 message=$3
+  note "Step $number/7 — $message"
+  write_update_state "$name" "$UPDATE_PREVIOUS_VERSION" "$UPDATE_REQUESTED_VERSION" "${UPDATE_BACKUP:-}"
+  if [[ ${VUEIO_UPDATE_FAIL_AT:-} == "$name" ]]; then
+    die "Update interruption rehearsal at stage: $name"
+  fi
+}
+
+verify_release_for_channel() {
+  local version=$1 channel repository response token_header=()
+  channel=$(env_value VUEIO_CHANNEL)
+  channel=${channel:-stable}
+  validate_channel "$channel"
+  if [[ $channel == stable ]] && is_nightly_tag "$version"; then
+    die "The stable channel cannot install nightly builds. Run '$PROGRAM channel nightly' first."
+  fi
+  if [[ ${VUEIO_SKIP_RELEASE_VALIDATION:-0} == 1 || (
+    ${VUEIO_SKIP_ASSET_REFRESH:-0} == 1 && ${VUEIO_SKIP_PULL:-0} == 1
+  ) ]]; then
+    return 0
+  fi
+  repository=$(env_value VUEIO_UPDATE_REPOSITORY)
+  [[ $repository =~ ^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9._-]*$ &&
+    $repository != "$(printf '%s%s' 'your-' 'owner')"/* ]] ||
+    die "The public release repository is not configured"
+  response=$(mktemp "$VUEIO_HOME/.release-check.XXXXXX")
+  if [[ -n ${VUEIO_UPDATE_GITHUB_TOKEN:-} ]]; then
+    token_header=(-H "Authorization: Bearer $VUEIO_UPDATE_GITHUB_TOKEN")
+  fi
+  curl -fsSL \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' \
+    "${token_header[@]}" \
+    "https://api.github.com/repos/$repository/releases/tags/$version" \
+    -o "$response" || {
+      rm -f "$response"
+      die "Release $version was not found in the configured repository"
+    }
+  python3 - "$response" "$version" <<'PY' || {
+import json
+import sys
+
+path, requested = sys.argv[1:]
+release = json.load(open(path, encoding='utf-8'))
+nightly = '.dev.' in requested
+valid = (
+    release.get('tag_name') == requested
+    and not release.get('draft')
+    and bool(release.get('prerelease')) == nightly
+)
+raise SystemExit(0 if valid else 1)
+PY
+    rm -f "$response"
+    die "Release $version is not published in the expected channel"
+  }
+  rm -f "$response"
+}
+
+update_preflight() {
+  local version=$1 data_kb available_kb required_kb probe
+  require_command curl
+  require_command docker
+  require_command python3
+  docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
+  docker info >/dev/null 2>&1 || die "Docker is installed but is not running"
+  mkdir -p "$BACKUP_DIR" "$LOG_DIR"
+  probe=$(mktemp "$BACKUP_DIR/.write-test.XXXXXX") || die "The backup directory is not writable"
+  rm -f "$probe"
+  data_kb=$(du -sk "$(env_value VUEIO_DATA_PATH)" | awk '{print $1}')
+  available_kb=$(df -Pk "$VUEIO_HOME" | awk 'NR == 2 {print $4}')
+  required_kb=$((data_kb + 2 * 1024 * 1024))
+  ((available_kb > required_kb)) ||
+    die "The update needs about $((required_kb / 1024)) MiB free for its backup and container images"
+  verify_release_for_channel "$version"
+  doctor
+}
+
+recover_incomplete_update() {
+  [[ -f $UPDATE_STATE_FILE ]] || return 0
+  local previous requested backup
+  previous=$(state_value previous_version)
+  requested=$(state_value requested_version)
+  backup=$(state_value backup)
+  warn "A previous update to ${requested:-an unknown version} was interrupted."
+  if [[ -n $previous && -n $backup && -f $backup ]]; then
+    warn "Restoring the pre-update safety backup before retrying."
+    VUEIO_NONINTERACTIVE=1 \
+    VUEIO_RESTORE_CONFIRM=RESTORE \
+    VUEIO_RESTORE_REPIN_VERSION="$previous" \
+    VUEIO_RESTORE_DISCARD_REPLACED_DATA=1 \
+    VUEIO_SKIP_PULL=1 \
+      restore_vueio "$backup"
+  else
+    warn "No completed safety backup was recorded, so the existing version will be restarted."
+    compose up -d
+    doctor
+  fi
+  rm -f "$UPDATE_STATE_FILE"
+}
+
+update_failure_handler() {
+  local status=$1 phase=${2:-an unknown stage}
+  trap - EXIT INT TERM
+  set +e
+  [[ $status != 0 ]] || return 0
+  warn "The update failed during $phase."
+  if [[ -n ${UPDATE_BACKUP:-} && -f ${UPDATE_BACKUP:-} ]]; then
+    warn "Vueio is restoring your previous version automatically."
+    if VUEIO_NONINTERACTIVE=1 \
+      VUEIO_RESTORE_CONFIRM=RESTORE \
+      VUEIO_RESTORE_REPIN_VERSION="$UPDATE_PREVIOUS_VERSION" \
+      VUEIO_RESTORE_DISCARD_REPLACED_DATA=1 \
+      VUEIO_SKIP_PULL=1 \
+      restore_vueio "$UPDATE_BACKUP"; then
+      rm -f "$UPDATE_STATE_FILE"
+      warn "Your previous version was restored automatically."
+    else
+      warn "Automatic restore needs attention. Run: sudo $PROGRAM doctor"
+    fi
+  else
+    compose up -d >/dev/null 2>&1 || true
+    rm -f "$UPDATE_STATE_FILE"
+    warn "The installed version was not changed."
+  fi
+  [[ -z ${UPDATE_LOG_FILE:-} ]] || warn "Update log: $UPDATE_LOG_FILE"
+  exit "$status"
+}
 
 update_vueio() (
   set -Eeuo pipefail
   require_installed
-  local version=${1:-} release_root asset_base stage controller_target current_version
-  [[ -n $version ]] || die "Usage: $PROGRAM update <vX.Y.Z-alpha.N>"
-  [[ $version =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$ ]] ||
-    die "Release version must be an immutable vX.Y.Z-alpha.N tag without leading zeroes"
+  local version=${1:-} release_root asset_base stage controller_target current_version stamp
+  [[ -n $version ]] || die "Usage: $PROGRAM update <release-tag>"
+  validate_release_tag "$version"
+  VUEIO_UPDATE_IN_PROGRESS=1
+  export VUEIO_UPDATE_IN_PROGRESS
+  recover_incomplete_update
   current_version=$(env_value VUEIO_VERSION)
+  validate_release_tag "$current_version"
+  if [[ $version == "$current_version" ]]; then
+    doctor
+    note "Vueio $version is already installed. Nothing was changed."
+    return 0
+  fi
+  if ! version_is_newer "$version" "$current_version"; then
+    die "$version is older than the installed $current_version. Updates never run migrations backward; use '$PROGRAM rollback' to restore a pre-update backup."
+  fi
+
+  UPDATE_PREVIOUS_VERSION=$current_version
+  UPDATE_REQUESTED_VERSION=$version
+  UPDATE_BACKUP=
+  export UPDATE_PREVIOUS_VERSION UPDATE_REQUESTED_VERSION UPDATE_BACKUP
+  trap 'status=$?; update_failure_handler "$status" "$(state_value phase)"' EXIT INT TERM
   note "Updating Vueio from $current_version to $version."
-  require_command curl
+
+  update_stage 1 preflight "Checking Docker, disk space, release availability, and current health…"
+  update_preflight "$version"
+
+  update_stage 2 assets "Verifying the release files (usually a few seconds)…"
   release_root=$(env_value VUEIO_RELEASE_ROOT_URL)
   release_root=${release_root:-https://github.com/rfxmedia/vueio/releases}
   asset_base="$release_root/download/$version"
   stage=$(mktemp -d "$VUEIO_HOME/.update.XXXXXX")
-  trap 'rm -rf "$stage"' EXIT
   if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
     curl -fsSL "$asset_base/SHA256SUMS" -o "$stage/SHA256SUMS"
     curl -fsSL "$asset_base/compose.release.yml" -o "$stage/compose.release.yml"
     curl -fsSL "$asset_base/vueioctl" -o "$stage/vueioctl"
     curl -fsSL "$asset_base/LICENSE.md" -o "$stage/LICENSE.md"
-    grep -Eq '[[:space:]]vueioctl$' "$stage/SHA256SUMS" ||
-      die "Release checksums do not include vueioctl"
-    grep -Eq '[[:space:]]compose\.release\.yml$' "$stage/SHA256SUMS" ||
-      die "Release checksums do not include compose.release.yml"
-    grep -Eq '[[:space:]]LICENSE\.md$' "$stage/SHA256SUMS" ||
-      die "Release checksums do not include LICENSE.md"
+    grep -Eq '[[:space:]]vueioctl$' "$stage/SHA256SUMS" || die "Release checksums do not include vueioctl"
+    grep -Eq '[[:space:]]compose\.release\.yml$' "$stage/SHA256SUMS" || die "Release checksums do not include compose.release.yml"
+    grep -Eq '[[:space:]]LICENSE\.md$' "$stage/SHA256SUMS" || die "Release checksums do not include LICENSE.md"
     (cd "$stage" && sha256sum --ignore-missing -c SHA256SUMS)
     bash -n "$stage/vueioctl"
-    docker compose --env-file "$ENV_FILE" \
-      -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" config -q
+    docker compose --env-file "$ENV_FILE" -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" config -q
   fi
-  if [[ ${VUEIO_SKIP_PULL:-0} != 1 ]]; then
-    if ! docker pull "$(env_value VUEIO_ENGINE_REPOSITORY):$version" ||
-      ! docker pull "$(env_value VUEIO_UI_REPOSITORY):$version"; then
-      die "Update images could not be downloaded. The installed release was not changed."
-    fi
-  fi
-  backup_vueio
+
+  update_stage 3 images "Downloading the new containers before downtime (usually a few minutes)…"
+  pull_release_images "$version"
+
+  update_stage 4 backup "Backing up your database and application data (usually under a minute)…"
+  stamp=$(date -u +%Y%m%dT%H%M%SZ)
+  UPDATE_BACKUP="$BACKUP_DIR/pre-update-$stamp.tar.gz"
+  export UPDATE_BACKUP
+  write_update_state backup "$current_version" "$version" "$UPDATE_BACKUP"
+  VUEIO_BACKUP_KIND=pre-update VUEIO_BACKUP_TARGET_VERSION="$version" backup_vueio "$UPDATE_BACKUP"
+
+  update_stage 5 install "Pinning the verified release…"
   if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
     install -m 0644 "$stage/compose.release.yml" "$COMPOSE_FILE"
     install -m 0644 "$stage/LICENSE.md" "$LICENSE_FILE"
@@ -1105,20 +1657,54 @@ update_vueio() (
   set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$version"
   set_env VUEIO_UI_IMAGE "$(env_value VUEIO_UI_REPOSITORY):$version"
 
-  compose up -d ||
-    die "The new release did not start. It may already have upgraded the database; fix forward or restore the backup instead of downgrading."
-  doctor ||
-    die "The new release needs attention. It may already have upgraded the database; inspect '$PROGRAM logs' and fix forward or restore the backup."
-  note "Vueio is running release $version"
-  trap - EXIT
+  update_stage 6 restart "Restarting Vueio and applying database migrations (usually under a minute)…"
+  compose up -d
+  wait_for_engine || die "The updated engine did not become ready"
+
+  update_stage 7 health "Running final safety checks…"
+  doctor
   rm -rf "$stage"
+  rm -f "$UPDATE_STATE_FILE"
+  trap - EXIT INT TERM
+  success "Vueio is running release $version."
 )
 
+cleanup_update_logs() {
+  local log
+  local -a logs=()
+  mapfile -t logs < <(find "$LOG_DIR" -maxdepth 1 -type f -name 'update-*.log' -printf '%T@\t%p\n' | sort -rn | cut -f2-)
+  for log in "${logs[@]:10}"; do
+    rm -f -- "$log"
+  done
+}
+
+run_logged_update() {
+  require_installed
+  local stamp status
+  mkdir -p "$LOG_DIR"
+  chmod 700 "$LOG_DIR"
+  stamp=$(date -u +%Y%m%dT%H%M%S%NZ)
+  UPDATE_LOG_FILE="$LOG_DIR/update-$stamp.log"
+  export UPDATE_LOG_FILE
+  touch "$UPDATE_LOG_FILE"
+  chmod 600 "$UPDATE_LOG_FILE"
+  cleanup_update_logs
+  set +e
+  update_vueio "$@" > >(tee -a "$UPDATE_LOG_FILE") 2> >(tee -a "$UPDATE_LOG_FILE" >&2)
+  status=$?
+  set -e
+  if ((status != 0)); then
+    warn "Update failed. Review $UPDATE_LOG_FILE, then run: sudo $PROGRAM doctor"
+  fi
+  return "$status"
+}
+
 exposure_set() {
-  local url=${1:-} proxy=${2:-}
+  local url=${1:-} proxy=${2:-} backslash
+  printf -v backslash '\x5c'
   [[ $url =~ ^https://[^/[:space:]]+/?$ ]] ||
     die "Use an HTTPS origin such as https://vue.example.com (no path)"
-  [[ $url != *'@'* && $url != *'?'* && $url != *'#'* && $url != *'\'* ]] ||
+  [[ $url != *'@'* && $url != *'?'* && $url != *'#'* && $url != *"$backslash"* ]] ||
     die "Use an HTTPS origin without credentials, a path, a query, or a fragment"
   [[ -z $proxy || $proxy == --cloudflare ]] ||
     die "The only supported exposure option is --cloudflare"
@@ -1158,9 +1744,9 @@ main() {
   shift || true
   case "$command" in
     install) install_vueio "$@" ;;
-    start) require_installed; compose up -d ;;
+    start) require_installed; require_storage_mounts; compose up -d ;;
     stop) require_installed; compose stop ;;
-    restart) require_installed; compose restart ;;
+    restart) require_installed; require_storage_mounts; compose restart ;;
     status) require_installed; compose ps ;;
     version) show_version ;;
     setup-token) show_setup_token ;;
@@ -1172,10 +1758,13 @@ main() {
         compose logs -f
       fi
       ;;
-    doctor) doctor ;;
+    doctor) doctor "$@" ;;
     backup) backup_vueio "$@" ;;
+    backups) list_backups ;;
     restore) restore_vueio "$@" ;;
-    update) update_vueio "$@" ;;
+    rollback) rollback_vueio ;;
+    update) run_logged_update "$@" ;;
+    channel) set_channel "$@" ;;
     storage)
       require_installed
       local action=${1:-}

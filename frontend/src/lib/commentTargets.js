@@ -29,7 +29,7 @@ export function buildVersionCommentBatchTarget(version) {
   })
 }
 
-export function chunkCommentTargets(targets, maxItems = 24) {
+export function chunkCommentTargets(targets, maxItems = 80) {
   const normalized = []
   for (const target of targets || []) {
     if (!target?.path) continue

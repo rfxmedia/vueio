@@ -62,7 +62,6 @@ def _recover_pending_voice_notes() -> int:
             if recovered >= MAX_PENDING_TRANSCRIPTIONS:
                 break
             attachments = load_attachment_list(comment)
-            changed = False
             for attachment in attachments:
                 status = attachment.get('transcription_status')
                 attachment_id = str(attachment.get('id') or '')
@@ -73,19 +72,33 @@ def _recover_pending_voice_notes() -> int:
                     and status in (None, 'queued', 'processing')
                     and enqueue_voice_note_transcription(comment.id, attachment_id)
                 ):
-                    if status is None:
-                        attachment['transcription_status'] = 'queued'
-                        changed = True
                     recovered += 1
-            if changed:
-                comment.attachments_data = json.dumps(attachments)
-        db.commit()
     return recovered
+
+
+def _lock_and_reload_comment(db, comment_id: int) -> Comment | None:
+    comment = db.query(Comment).filter(Comment.id == comment_id).first()
+    if comment is None:
+        return None
+    from app.services.tracker_events import lock_tracker_for_comment_target
+
+    lock_tracker_for_comment_target(
+        db,
+        project_id=comment.project_id,
+        shot_version_id=comment.horizons_shot_version_id,
+        media_asset_id=comment.horizons_media_asset_id,
+    )
+    return (
+        db.query(Comment)
+        .populate_existing()
+        .filter(Comment.id == comment_id)
+        .first()
+    )
 
 
 def _load_job(comment_id: int, attachment_id: str) -> Path | None:
     with SessionLocal() as db:
-        comment = db.query(Comment).filter(Comment.id == comment_id).first()
+        comment = _lock_and_reload_comment(db, comment_id)
         if comment is None:
             return None
         attachments = load_attachment_list(comment)
@@ -107,7 +120,7 @@ def _load_job(comment_id: int, attachment_id: str) -> Path | None:
 
 def _save_result(comment_id: int, attachment_id: str, *, transcription: str | None, status: str) -> None:
     with SessionLocal() as db:
-        comment = db.query(Comment).filter(Comment.id == comment_id).first()
+        comment = _lock_and_reload_comment(db, comment_id)
         if comment is None:
             return
         attachments = load_attachment_list(comment)

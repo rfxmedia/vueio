@@ -73,3 +73,63 @@ export function segmentTextLinks(value) {
 
   return segments.length ? segments : [{ type: 'text', text: source }]
 }
+
+function findMentionMarker(text, marker, fromIndex) {
+  let index = text.indexOf(marker, fromIndex)
+  while (index >= 0) {
+    const before = index > 0 ? text[index - 1] : ''
+    const afterIndex = index + marker.length
+    const after = text[afterIndex] || ''
+    const afterNext = text[afterIndex + 1] || ''
+    const startsAtBoundary = !before || /\s/.test(before)
+    const endsAtBoundary = !after
+      || /\s/.test(after)
+      || /[,;:!?\])}'"]/.test(after)
+      || (after === '.' && (!afterNext || /\s/.test(afterNext)))
+    if (startsAtBoundary && endsAtBoundary) return index
+    index = text.indexOf(marker, index + 1)
+  }
+  return -1
+}
+
+export function segmentCommentText(value, references = []) {
+  const mentionReferences = (Array.isArray(references) ? references : [])
+    .map(reference => ({
+      reference,
+      marker: sanitizeUiText(reference?.marker).trim(),
+    }))
+    .filter(item => item.marker.startsWith('@') && item.marker.length <= 120)
+    .sort((left, right) => right.marker.length - left.marker.length)
+
+  if (!mentionReferences.length) return segmentTextLinks(value)
+
+  return segmentTextLinks(value).flatMap(segment => {
+    if (segment.type !== 'text' || !segment.text) return [segment]
+    const result = []
+    let cursor = 0
+    while (cursor < segment.text.length) {
+      let nextIndex = -1
+      let nextMention = null
+      for (const mention of mentionReferences) {
+        const index = findMentionMarker(segment.text, mention.marker, cursor)
+        if (index < 0) continue
+        if (nextIndex < 0 || index < nextIndex || (index === nextIndex && mention.marker.length > nextMention.marker.length)) {
+          nextIndex = index
+          nextMention = mention
+        }
+      }
+      if (!nextMention) {
+        result.push({ type: 'text', text: segment.text.slice(cursor) })
+        break
+      }
+      if (nextIndex > cursor) result.push({ type: 'text', text: segment.text.slice(cursor, nextIndex) })
+      result.push({ type: 'mention', text: nextMention.marker, reference: nextMention.reference })
+      cursor = nextIndex + nextMention.marker.length
+    }
+    return result.length ? result : [segment]
+  })
+}
+
+export function textRendersMentionMarker(text, reference) {
+  return segmentCommentText(text, [reference]).some(segment => segment.type === 'mention')
+}

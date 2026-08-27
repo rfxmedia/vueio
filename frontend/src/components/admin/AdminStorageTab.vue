@@ -33,7 +33,7 @@
         </div>
         <button class="v-btn v-btn-danger" :disabled="transcodesResetting" @click="$emit('reset-transcodes')">
           <svg class="icon" :class="{ spinning: transcodesResetting }"><use href="#icon-refresh" /></svg>
-          {{ transcodesResetting ? 'Resetting' : 'Reset Transcodes' }}
+          {{ transcodesResetting ? 'Resetting' : 'Reset transcodes' }}
         </button>
       </section>
     </div>
@@ -59,12 +59,17 @@ defineEmits(['reset-transcodes'])
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(340px, 0.8fr);
   gap: var(--v-space-4);
-  padding: 18px;
+  padding-top: var(--v-space-4);
 }
 
 .storage-explainer {
   display: grid;
-  gap: var(--v-space-2);
+  gap: var(--v-space-1);
+  padding: var(--v-space-2);
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .storage-explainer-item {
@@ -120,7 +125,8 @@ defineEmits(['reset-transcodes'])
   padding: 16px;
   border: 1px solid color-mix(in srgb, var(--v-danger) 24%, var(--v-border));
   border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-danger) 4%, var(--v-surface-inline));
+  background: color-mix(in srgb, var(--v-danger) 4%, var(--v-surface-canvas));
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .storage-danger-zone h3 {
@@ -145,7 +151,7 @@ defineEmits(['reset-transcodes'])
 @media (max-width: 768px) {
   .storage-settings-body {
     gap: var(--v-space-3);
-    padding: 12px;
+    padding-top: var(--v-space-3);
   }
 }
 </style>

@@ -1,12 +1,20 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import api, { getApiErrorDetail, getApiErrorMessage } from '../lib/api'
-import { getMediaKind } from '../lib/mediaEntity'
+import { getMediaKind, mediaEntitiesMatch } from '../lib/mediaEntity'
 import { formatVersionDateLabel, formatVersionDateShortLabel } from '../utils/formatters'
 import { formatVersionLabel } from '../utils/versionLabels'
 import { notify } from '../utils/toasts'
 
+const versionOrderCache = new WeakMap()
+
 function sortShotVersions(shot) {
-  return [...(shot?.versions || [])].sort((a, b) => {
+  const source = shot?.versions || []
+  const cached = shot && versionOrderCache.get(shot)
+  if (cached?.source === source && cached.sourceLength === source.length && cached.sorted) {
+    return cached.sorted
+  }
+
+  const sorted = [...source].sort((a, b) => {
     const labelA = parseVersionOrder(a?.label ?? a?.version)
     const labelB = parseVersionOrder(b?.label ?? b?.version)
     if (labelA !== null && labelB !== null && labelA !== labelB) return labelA - labelB
@@ -15,6 +23,15 @@ function sortShotVersions(shot) {
     if (createdA !== createdB) return createdA - createdB
     return String(a?.label ?? a?.version ?? '').localeCompare(String(b?.label ?? b?.version ?? ''))
   })
+
+  if (shot) {
+    versionOrderCache.set(shot, {
+      source,
+      sourceLength: source.length,
+      sorted,
+    })
+  }
+  return sorted
 }
 
 export function orderTrackerViewerVersions(shot, { preserveServerOrder = false } = {}) {
@@ -44,6 +61,8 @@ export function useTrackerViewerController({
   openImage,
   openPdf,
   openTracker,
+  recordTrackerMediaView = () => {},
+  invalidateTrackerPayloads = () => {},
   prepareVersionPicker,
   currentProjectRef,
   currentTrackerRef,
@@ -118,14 +137,7 @@ export function useTrackerViewerController({
   }
 
   function versionMatchesMedia(version, media = currentMedia()) {
-    if (!version || !media) return false
-    const currentVersionId = media.horizons_shot_version_id || media.version_id
-    const currentMediaAssetId = media.horizons_media_asset_id || media.media_asset_id
-    const currentMediaPath = media.path || ''
-
-    if (currentVersionId && version.id === currentVersionId) return true
-    if (currentMediaAssetId && version.media_asset_id === currentMediaAssetId) return true
-    return !!currentMediaPath && (version.path || version.file_path || '') === currentMediaPath
+    return mediaEntitiesMatch(version, media)
   }
 
   function getVersionDisplayLabel(version, fallbackIndex = null) {
@@ -153,6 +165,7 @@ export function useTrackerViewerController({
           label: String(version.label || version.version || index + 1),
         })),
       })
+      invalidateTrackerPayloads()
       shot._originalId = shot.shot_id
     } catch (error) {
       console.error('Failed to save shot')
@@ -351,6 +364,7 @@ export function useTrackerViewerController({
     if (item.is_image === true) openImage(item)
     else if (item.is_pdf === true) openPdf(item)
     else openVideo(item)
+    void recordTrackerMediaView(shot, version, mode)
   }
 
   function openTrackerViewerShot(shot, mode = 'latest', options = {}) {
@@ -478,12 +492,16 @@ export function useTrackerViewerController({
     if (!newer) {
       versionComparePrimaryVersion.value = findAdjacentCompareVersion(next, -1) || versionComparePrimaryVersion.value
       versionCompareSecondaryVersion.value = next
+      void recordTrackerMediaView(currentTrackerViewerShot.value, versionComparePrimaryVersion.value, 'latest')
+      void recordTrackerMediaView(currentTrackerViewerShot.value, versionCompareSecondaryVersion.value, 'latest')
       return
     }
     const sameOrNewer = getTrackerVersionCompareKey(next) === getTrackerVersionCompareKey(versionCompareSecondaryVersion.value) ||
       findCompareVersionIndex(next) >= findCompareVersionIndex(versionCompareSecondaryVersion.value)
     versionComparePrimaryVersion.value = next
     if (sameOrNewer) versionCompareSecondaryVersion.value = newer
+    void recordTrackerMediaView(currentTrackerViewerShot.value, versionComparePrimaryVersion.value, 'latest')
+    void recordTrackerMediaView(currentTrackerViewerShot.value, versionCompareSecondaryVersion.value, 'latest')
   }
   function setVersionCompareSecondary(key) {
     const next = findCompareVersionByKey(key)
@@ -492,12 +510,16 @@ export function useTrackerViewerController({
     if (!older) {
       versionComparePrimaryVersion.value = next
       versionCompareSecondaryVersion.value = findAdjacentCompareVersion(next, 1) || versionCompareSecondaryVersion.value
+      void recordTrackerMediaView(currentTrackerViewerShot.value, versionComparePrimaryVersion.value, 'latest')
+      void recordTrackerMediaView(currentTrackerViewerShot.value, versionCompareSecondaryVersion.value, 'latest')
       return
     }
     const sameOrOlder = getTrackerVersionCompareKey(next) === getTrackerVersionCompareKey(versionComparePrimaryVersion.value) ||
       findCompareVersionIndex(versionComparePrimaryVersion.value) >= findCompareVersionIndex(next)
     versionCompareSecondaryVersion.value = next
     if (sameOrOlder) versionComparePrimaryVersion.value = older
+    void recordTrackerMediaView(currentTrackerViewerShot.value, versionComparePrimaryVersion.value, 'latest')
+    void recordTrackerMediaView(currentTrackerViewerShot.value, versionCompareSecondaryVersion.value, 'latest')
   }
   async function startTrackerVersionCompare(shot = null) {
     const targetShot = shot || currentTrackerViewerShot.value
@@ -522,6 +544,8 @@ export function useTrackerViewerController({
     versionCompareSecondaryVersion.value = secondaryVersion
     versionCompareMode.value = 'side-by-side'
     versionCompareActive.value = true
+    void recordTrackerMediaView(targetShot, primaryVersion, 'latest')
+    void recordTrackerMediaView(targetShot, secondaryVersion, 'latest')
   }
   function exitVersionCompare() {
     versionCompareActive.value = false
@@ -530,7 +554,7 @@ export function useTrackerViewerController({
   }
 
   const trackerViewerShots = computed(() => {
-    if (!currentTrackerRef.value || !currentMediaRef.value?._openedFromTracker || !isViewingVideo.value) return []
+    if (!currentTrackerRef.value || !currentMediaRef.value?._openedFromTracker) return []
     const mode = trackerViewerMode.value || 'latest'
     return trackerShotsForDisplay.value.filter(shot => Boolean(buildTrackerViewerItem(shot, mode)))
   })
@@ -538,8 +562,11 @@ export function useTrackerViewerController({
     ? trackerViewerShots.value.findIndex(shot => shot?.shot_id === currentTrackerViewerShot.value?.shot_id)
     : -1)
   const showTrackerViewerStepper = computed(() => !versionCompareActive.value && Boolean(
-    currentTrackerRef.value && currentMediaRef.value?._openedFromTracker && isViewingVideo.value &&
+    currentTrackerRef.value && currentMediaRef.value?._openedFromTracker &&
     trackerViewerShots.value.length > 1 && currentTrackerViewerIndex.value >= 0,
+  ))
+  const showTrackerViewerKeyboardGuide = computed(() => !versionCompareActive.value && Boolean(
+    currentMediaRef.value?._openedFromTracker && currentTrackerViewerShot.value,
   ))
   const trackerViewerSequenceLabel = computed(() => currentTrackerViewerIndex.value < 0
     ? ''
@@ -575,7 +602,66 @@ export function useTrackerViewerController({
     const index = currentTrackerViewerIndex.value + direction
     if (index >= 0 && index < trackerViewerShots.value.length) {
       openTrackerViewerShot(trackerViewerShots.value[index], trackerViewerMode.value || 'latest')
+      return true
     }
+    return false
+  }
+  function stepTrackerViewerVersion(direction) {
+    if (!currentTrackerViewerShot.value || !currentTrackerViewerVersions.value.length) return false
+    const currentIndex = currentTrackerViewerCurrentVersionIndex.value >= 0
+      ? currentTrackerViewerCurrentVersionIndex.value
+      : currentTrackerViewerVersions.value.length - 1
+    const version = currentTrackerViewerVersions.value[currentIndex + direction]
+    if (!(version?.path || version?.file_path)) return false
+    openTrackerViewerVersion(currentTrackerViewerShot.value, version, {
+      mode: trackerViewerMode.value || 'latest',
+      preserveSidebar: true,
+    })
+    return true
+  }
+  function isTrackerNavigationTarget(target) {
+    const tagName = String(target?.tagName || '').toUpperCase()
+    if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(tagName)) return true
+    if (target?.isContentEditable) return true
+    return Boolean(target?.closest?.('input, textarea, select, button, a, [contenteditable], [role="dialog"], [role="menu"], [role="listbox"], [role="slider"], [role="tab"], [role="option"]'))
+  }
+  function handleTrackerViewerKeydown(event, { disabled = false } = {}) {
+    if (
+      disabled
+      || versionCompareActive.value
+      || !currentMediaRef.value?._openedFromTracker
+      || event.defaultPrevented
+      || event.ctrlKey
+      || event.metaKey
+      || event.altKey
+      || event.shiftKey
+      || isTrackerNavigationTarget(event.target)
+    ) return false
+
+    const shotDirection = {
+      BracketLeft: -1,
+      BracketRight: 1,
+      Numpad4: -1,
+      Numpad6: 1,
+    }[event.code]
+    if (shotDirection) {
+      event.preventDefault()
+      stepTrackerMedia(shotDirection)
+      return true
+    }
+
+    const versionDirection = {
+      ArrowDown: -1,
+      ArrowUp: 1,
+      Numpad2: -1,
+      Numpad8: 1,
+    }[event.code]
+    if (versionDirection) {
+      event.preventDefault()
+      stepTrackerViewerVersion(versionDirection)
+      return true
+    }
+    return false
   }
   function toggleTrackerViewerVersionSwitcher() {
     if (!showTrackerViewerVersionSwitcher.value) return
@@ -603,6 +689,7 @@ export function useTrackerViewerController({
       { notes: String(notes || '').trim() || null },
     )
     const nextNotes = String(data?.notes || notes || '').trim()
+    invalidateTrackerPayloads()
     const localVersion = (shot.versions || []).find(item => item?.id === versionId)
     if (localVersion) localVersion.notes = nextNotes
     version.notes = nextNotes
@@ -622,12 +709,16 @@ export function useTrackerViewerController({
     const shotId = shot.id || shot.shot_id
     const versionId = version.id || version.version_id || version.horizons_shot_version_id
     if (!projectId || !trackerId || !shotId || !versionId) return
+    const previousShareState = String(version?.share_state || '').trim().toLowerCase()
+    const versionLabel = getVersionDisplayLabel(version)
 
     const { data } = await api.post(
       `/api/projects/${encodeURIComponent(projectId)}/trackers/${encodeURIComponent(trackerId)}/shots/${encodeURIComponent(shotId)}/versions/${encodeURIComponent(versionId)}/publication`,
       { state },
     )
     const changedVersions = data?.versions || []
+    invalidateTrackerPayloads()
+    if (data?.shot_status) shot.status = data.shot_status
     for (const changed of changedVersions) {
       const localVersion = (shot.versions || []).find(item => item?.id === changed.id)
       if (localVersion) {
@@ -644,10 +735,18 @@ export function useTrackerViewerController({
     const autoInternalizedCount = changedVersions.filter(changed => (
       changed?.id !== versionId && changed?.share_state === 'internal'
     )).length
+    let publicationMessage = 'Version kept internal.'
+    if (state === 'published') {
+      if (data?.shot_status_changed) {
+        publicationMessage = `${versionLabel} published. ${shot.shot_id || shot.shot_code || 'Shot'} moved to Review.`
+      } else if (data?.is_latest_version === false && previousShareState !== 'published') {
+        publicationMessage = `${versionLabel} published. Shot status stayed unchanged because a newer version exists.`
+      } else {
+        publicationMessage = `${versionLabel} published to shares.`
+      }
+    }
     notify(
-      state === 'published'
-        ? `Version published to shares.${autoInternalizedCount ? ` ${autoInternalizedCount} older pending version${autoInternalizedCount === 1 ? '' : 's'} kept internal.` : ''}`
-        : 'Version kept internal.',
+      `${publicationMessage}${autoInternalizedCount ? ` ${autoInternalizedCount} older pending version${autoInternalizedCount === 1 ? '' : 's'} kept internal.` : ''}`,
     )
   }
 
@@ -691,6 +790,7 @@ export function useTrackerViewerController({
     canCompareShotVersions,
     trackerViewerSequenceLabel,
     showTrackerViewerStepper,
+    showTrackerViewerKeyboardGuide,
     currentTrackerViewerStatusOption,
     showTrackerViewerVersionSwitcher,
     showTrackerViewerStatusControl,
@@ -706,6 +806,8 @@ export function useTrackerViewerController({
     setVersionComparePrimary,
     setVersionCompareSecondary,
     stepTrackerMedia,
+    stepTrackerViewerVersion,
+    handleTrackerViewerKeydown,
     dismissTrackerViewerVersionSwitcher,
     toggleTrackerViewerVersionSwitcher,
     selectTrackerViewerVersion,

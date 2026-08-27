@@ -5,7 +5,7 @@
     tone="category"
     :label="tagLabel"
     :interactive="canCategorizeShots && !shareMode"
-    :open="canCategorizeShots && showCategoryPicker === shot.shot_id"
+    :open="canCategorizeShots && isOpen"
     :flip-up="flipUp"
     @trigger="toggleShotCategoryPicker($event, shot.shot_id)"
     @close="close"
@@ -22,6 +22,7 @@
           class="tracker-select-search-input v-input"
           type="text"
           :value="categorySearchFilter"
+          aria-label="Search or create tags"
           placeholder="Search or create tag..."
           @input="setCategorySearchFilter($event.target.value)"
           @keydown.enter="assignOrCreateCategory(shot, categorySearchFilter)"
@@ -33,6 +34,9 @@
           :key="category"
           class="category-option tracker-select-option v-dropdown-item"
           :class="{ active: tagLabel === category }"
+          type="button"
+          role="menuitemradio"
+          :aria-checked="tagLabel === category ? 'true' : 'false'"
           @click="assignCategory(shot, category)"
         >
           <span
@@ -45,6 +49,8 @@
         <button
           v-if="tagValue"
           class="category-option tracker-select-option v-dropdown-item"
+          type="button"
+          role="menuitem"
           @click="assignCategory(shot, null)"
         >
           <svg class="icon"><use href="#icon-x" /></svg>
@@ -53,6 +59,8 @@
         <button
           v-if="isAdmin && deletableTag"
           class="category-option tracker-select-option tracker-select-option-danger v-dropdown-item"
+          type="button"
+          role="menuitem"
           @click="deleteCategoryFromTable(deletableTag)"
         >
           <svg class="icon"><use href="#icon-trash" /></svg>
@@ -62,6 +70,8 @@
       <button
         v-if="categorySearchFilter && !trackerCategories.includes(categorySearchFilter)"
         class="tracker-select-option tracker-select-option-create v-dropdown-item"
+        type="button"
+        role="menuitem"
         @click="assignOrCreateCategory(shot, categorySearchFilter)"
       >
         <svg class="icon"><use href="#icon-plus" /></svg>
@@ -81,6 +91,7 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   shot: { type: Object, required: true },
+  open: { type: Boolean, default: undefined },
   flipUp: { type: Boolean, default: false },
 })
 
@@ -105,6 +116,11 @@ const tagValue = computed(() => {
   return (!raw || raw === 'Uncategorized' || raw === 'Untagged') ? '' : raw
 })
 const tagLabel = computed(() => tagValue.value || 'Untagged')
+const isOpen = computed(() => (
+  props.open === undefined
+    ? showCategoryPicker.value === props.shot.shot_id
+    : props.open
+))
 const deletableTag = computed(() => {
   if (tagValue.value) return tagValue.value
   const customTags = (trackerCategories.value || []).filter(category => (

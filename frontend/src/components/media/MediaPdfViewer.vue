@@ -41,10 +41,12 @@
           <div class="pdf-page-label">Page {{ page.pageNumber }}</div>
           <div class="pdf-page-canvas-wrap" :style="pageCanvasWrapStyle(page)">
             <canvas
+              v-if="shouldRenderPage(page.pageNumber)"
               :ref="(el) => setPageCanvasRef(page.pageNumber, el)"
               class="pdf-page-canvas"
             ></canvas>
             <canvas
+              v-if="shouldRenderPage(page.pageNumber)"
               :ref="(el) => setPreviewCanvasRef(page.pageNumber, el)"
               class="pdf-annotation-preview-canvas"
               :class="{ visible: focusedPage === page.pageNumber && focusedAnnotationData }"
@@ -60,7 +62,7 @@
               @click.stop="selectPdfComment(marker.comment)"
             ></button>
             <canvas
-              v-if="isDrawingMode && activeAnnotationPage === page.pageNumber"
+              v-if="shouldRenderPage(page.pageNumber) && isDrawingMode && activeAnnotationPage === page.pageNumber"
               :ref="(el) => setAnnotationCanvasRef(page.pageNumber, el)"
               class="pdf-annotation-canvas drawing-mode"
               @pointerdown.stop.prevent="handleAnnotationPointerDown(page.pageNumber, $event)"
@@ -108,6 +110,7 @@ const currentPage = ref(1)
 const activeAnnotationPage = ref(1)
 const focusedPage = ref(null)
 const focusedAnnotationData = ref('')
+const renderedPageNumbers = ref(new Set())
 
 const pageShellRefs = new Map()
 const pageCanvasRefs = new Map()
@@ -117,8 +120,11 @@ const previewCanvasRefs = new Map()
 let loadingTask = null
 let renderToken = 0
 let resizeObserver = null
+let pageIntersectionObserver = null
 let resizeTimer = 0
 let scrollFrame = 0
+let pageOffsets = []
+const pageRenderTasks = new Map()
 
 const pageCount = computed(() => pages.value.length)
 const flatComments = computed(() => flattenComments(props.comments))
@@ -149,10 +155,12 @@ function setPageShellRef(pageNumber, el) {
 }
 
 function setPageCanvasRef(pageNumber, el) {
+  if (!el) releaseCanvas(pageCanvasRefs.get(pageNumber))
   setMapRef(pageCanvasRefs, pageNumber, el)
 }
 
 function setAnnotationCanvasRef(pageNumber, el) {
+  if (!el) releaseCanvas(annotationCanvasRefs.get(pageNumber))
   setMapRef(annotationCanvasRefs, pageNumber, el)
   if (el && props.isDrawingMode && activeAnnotationPage.value === pageNumber) {
     activateAnnotationPage(pageNumber)
@@ -160,6 +168,7 @@ function setAnnotationCanvasRef(pageNumber, el) {
 }
 
 function setPreviewCanvasRef(pageNumber, el) {
+  if (!el) releaseCanvas(previewCanvasRefs.get(pageNumber))
   setMapRef(previewCanvasRefs, pageNumber, el)
   if (el) syncOverlayCanvas(pageNumber)
 }
@@ -169,8 +178,19 @@ function setMapRef(map, key, el) {
   else map.delete(key)
 }
 
+function releaseCanvas(canvas) {
+  if (!canvas) return
+  canvas.width = 0
+  canvas.height = 0
+}
+
+function shouldRenderPage(pageNumber) {
+  return renderedPageNumbers.value.has(pageNumber)
+}
+
 async function loadPdf() {
   cleanupPdf()
+  loading.value = false
   pages.value = []
   errorMessage.value = ''
   focusedPage.value = null
@@ -181,7 +201,11 @@ async function loadPdf() {
   if (!props.sourceUrl) return
 
   loading.value = true
-  const task = getDocument({ url: props.sourceUrl, withCredentials: true })
+  const task = getDocument({
+    url: props.sourceUrl,
+    withCredentials: true,
+    enableScripting: false,
+  })
   loadingTask = task
 
   try {
@@ -198,9 +222,15 @@ async function loadPdf() {
       rendered: false,
     }))
     props.onLoaded?.({ pageCount: doc.numPages })
+    const token = ++renderToken
+    await preparePageLayouts(doc, getAvailablePageWidth(), token)
+    if (token !== renderToken) return
+    await nextTick()
     loading.value = false
     await nextTick()
-    await renderAllPages()
+    cachePageOffsets()
+    setupPageIntersectionObserver()
+    setRenderedPageWindow([1])
     handleFocusRequest(props.focusRequest)
   } catch (error) {
     if (loadingTask === task) {
@@ -215,39 +245,38 @@ async function loadPdf() {
   }
 }
 
-async function renderAllPages() {
-  const doc = pdfDoc.value
-  const scroller = scrollEl.value
-  if (!doc || !scroller) return
-
-  const token = ++renderToken
-  const availableWidth = getAvailablePageWidth()
-  for (const page of pages.value) {
+async function preparePageLayouts(doc, availableWidth, token) {
+  await Promise.all(pages.value.map(async page => {
+    const pdfPage = await doc.getPage(page.pageNumber)
     if (token !== renderToken) return
-    await renderPage(doc, page.pageNumber, availableWidth, token)
-  }
-  updateCurrentPageFromScroll()
+    const viewport = pdfPage.getViewport({ scale: 1 })
+    const cssScale = availableWidth / viewport.width
+    page.cssWidth = viewport.width * cssScale
+    page.cssHeight = viewport.height * cssScale
+    page.rendered = false
+  }))
 }
 
-async function renderPage(doc, pageNumber, availableWidth, token) {
+async function renderActivePages(token = renderToken) {
+  const doc = pdfDoc.value
+  if (!doc) return
+  await Promise.all([...renderedPageNumbers.value].map(pageNumber => renderPage(doc, pageNumber, token)))
+}
+
+async function renderPage(doc, pageNumber, token) {
   const canvas = pageCanvasRefs.get(pageNumber)
-  if (!canvas || token !== renderToken) return
+  const pageInfo = pages.value[pageNumber - 1]
+  if (!canvas || !pageInfo || token !== renderToken || !shouldRenderPage(pageNumber)) return
 
   const page = await doc.getPage(pageNumber)
-  if (token !== renderToken) return
+  if (token !== renderToken || !shouldRenderPage(pageNumber)) return
 
   const baseViewport = page.getViewport({ scale: 1 })
-  const cssScale = availableWidth / baseViewport.width
+  const cssScale = pageInfo.cssWidth / baseViewport.width
   const outputScale = Math.max(1, Math.min(2, window.devicePixelRatio || 1))
   const displayViewport = page.getViewport({ scale: cssScale })
   const renderViewport = page.getViewport({ scale: cssScale * outputScale })
-  const pageInfo = pages.value[pageNumber - 1]
-
-  if (pageInfo) {
-    pageInfo.cssWidth = displayViewport.width
-    pageInfo.cssHeight = displayViewport.height
-    pageInfo.rendered = false
-  }
+  pageInfo.rendered = false
 
   canvas.width = Math.floor(renderViewport.width)
   canvas.height = Math.floor(renderViewport.height)
@@ -258,14 +287,78 @@ async function renderPage(doc, pageNumber, availableWidth, token) {
   if (!context) return
   context.clearRect(0, 0, canvas.width, canvas.height)
 
-  await page.render({ canvasContext: context, viewport: renderViewport }).promise
-  if (token !== renderToken) return
-  if (pageInfo) pageInfo.rendered = true
+  const renderTask = page.render({ canvasContext: context, viewport: renderViewport })
+  pageRenderTasks.set(pageNumber, renderTask)
+  try {
+    await renderTask.promise
+  } catch {
+    if (renderTask !== pageRenderTasks.get(pageNumber)) return
+    return
+  } finally {
+    if (pageRenderTasks.get(pageNumber) === renderTask) pageRenderTasks.delete(pageNumber)
+  }
+  if (token !== renderToken || !shouldRenderPage(pageNumber)) return
+  pageInfo.rendered = true
   syncOverlayCanvas(pageNumber)
 
   if (focusedPage.value === pageNumber && focusedAnnotationData.value) {
     drawPreviewAnnotation(pageNumber, focusedAnnotationData.value)
   }
+}
+
+function setRenderedPageWindow(pageNumbers) {
+  const next = new Set()
+  for (const value of pageNumbers) {
+    const pageNumber = Number(value)
+    if (!Number.isInteger(pageNumber)) continue
+    for (let candidate = pageNumber - 2; candidate <= pageNumber + 2; candidate += 1) {
+      if (candidate >= 1 && candidate <= pages.value.length) next.add(candidate)
+    }
+  }
+  if (focusedPage.value) next.add(focusedPage.value)
+  if (props.isDrawingMode) next.add(activeAnnotationPage.value)
+  if (!next.size && pages.value.length) next.add(1)
+
+  const previous = renderedPageNumbers.value
+  if (next.size === previous.size && [...next].every(pageNumber => previous.has(pageNumber))) return
+  for (const pageNumber of previous) {
+    if (next.has(pageNumber)) continue
+    pageRenderTasks.get(pageNumber)?.cancel?.()
+    pageRenderTasks.delete(pageNumber)
+    releaseCanvas(pageCanvasRefs.get(pageNumber))
+    releaseCanvas(annotationCanvasRefs.get(pageNumber))
+    releaseCanvas(previewCanvasRefs.get(pageNumber))
+  }
+  renderedPageNumbers.value = next
+  nextTick(() => { void renderActivePages() })
+}
+
+function setupPageIntersectionObserver() {
+  pageIntersectionObserver?.disconnect?.()
+  pageIntersectionObserver = null
+  const scroller = scrollEl.value
+  if (!scroller || !('IntersectionObserver' in window)) {
+    setRenderedPageWindow([currentPage.value || 1])
+    return
+  }
+  const visiblePages = new Set()
+  pageIntersectionObserver = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      const pageNumber = Number(entry.target?.dataset?.pageNumber)
+      if (!pageNumber) continue
+      if (entry.isIntersecting) visiblePages.add(pageNumber)
+      else visiblePages.delete(pageNumber)
+    }
+    setRenderedPageWindow(visiblePages.size ? visiblePages : [currentPage.value || 1])
+  }, { root: scroller })
+  for (const shell of pageShellRefs.values()) pageIntersectionObserver.observe(shell)
+}
+
+function cachePageOffsets() {
+  pageOffsets = pages.value.map(page => ({
+    pageNumber: page.pageNumber,
+    top: Number(pageShellRefs.get(page.pageNumber)?.offsetTop || 0),
+  }))
 }
 
 function getAvailablePageWidth() {
@@ -290,13 +383,28 @@ function syncOverlayCanvas(pageNumber) {
 function scheduleRerender() {
   if (!pdfDoc.value) return
   window.clearTimeout(resizeTimer)
-  resizeTimer = window.setTimeout(() => {
-    renderAllPages()
+  resizeTimer = window.setTimeout(async () => {
+    const doc = pdfDoc.value
+    if (!doc) return
+    const token = ++renderToken
+    for (const task of pageRenderTasks.values()) task.cancel?.()
+    pageRenderTasks.clear()
+    await preparePageLayouts(doc, getAvailablePageWidth(), token)
+    if (token !== renderToken) return
+    await nextTick()
+    cachePageOffsets()
+    await renderActivePages(token)
   }, 120)
 }
 
 function cleanupPdf() {
   renderToken += 1
+  pageIntersectionObserver?.disconnect?.()
+  pageIntersectionObserver = null
+  for (const task of pageRenderTasks.values()) task.cancel?.()
+  pageRenderTasks.clear()
+  renderedPageNumbers.value = new Set()
+  pageOffsets = []
   if (loadingTask) {
     try { loadingTask.destroy() } catch {}
     loadingTask = null
@@ -326,14 +434,13 @@ function updateCurrentPageFromScroll() {
   if (!scroller || !pages.value.length) return
   const anchor = scroller.scrollTop + scroller.clientHeight * 0.35
   let nextPage = pages.value[0].pageNumber
-  for (const page of pages.value) {
-    const shell = pageShellRefs.get(page.pageNumber)
-    if (!shell) continue
-    if (shell.offsetTop <= anchor) nextPage = page.pageNumber
+  for (const page of pageOffsets) {
+    if (page.top <= anchor) nextPage = page.pageNumber
     else break
   }
   currentPage.value = nextPage
   if (!props.isDrawingMode) activeAnnotationPage.value = nextPage
+  if (!pageIntersectionObserver) setRenderedPageWindow([nextPage])
 }
 
 function activateAnnotationPage(pageNumber = activeAnnotationPage.value) {
@@ -357,10 +464,14 @@ function handleFocusRequest(request) {
   focusedAnnotationData.value = ''
 
   const target = getPdfAnnotationTarget(request?.annotationTarget)
-  if (!target) return
+  if (!target) {
+    setRenderedPageWindow([currentPage.value || 1])
+    return
+  }
 
   focusedPage.value = target.page
   focusedAnnotationData.value = request?.annotationData || ''
+  setRenderedPageWindow([target.page])
   nextTick(() => {
     scrollToTarget(target)
     if (focusedAnnotationData.value) {
@@ -374,7 +485,11 @@ function scrollToTarget(target) {
   const shell = pageShellRefs.get(target.page)
   if (!scroller || !shell) return
   const rect = target.rect || { x: 0, y: 0, width: 1, height: 1 }
-  const targetCenter = shell.offsetTop + (rect.y + rect.height / 2) * shell.offsetHeight
+  setRenderedPageWindow([target.page])
+  const pageInfo = pages.value[target.page - 1]
+  const pageTop = pageOffsets[target.page - 1]?.top ?? shell.offsetTop
+  const pageHeight = pageInfo?.cssHeight || shell.offsetHeight
+  const targetCenter = pageTop + (rect.y + rect.height / 2) * pageHeight
   const nextTop = Math.max(0, targetCenter - scroller.clientHeight * 0.38)
   scroller.scrollTo({ top: nextTop, behavior: 'smooth' })
 }

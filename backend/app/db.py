@@ -303,6 +303,50 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
         'columns': {'transcodes': {'last_accessed'}},
         'indexes': {'transcodes': {'ix_transcodes_last_accessed'}},
     },
+    {
+        'revision': '20260810_0021',
+        'stamp_before': '20260731_0020',
+        'columns': {},
+        'indexes': {
+            'tracker_view_events': {
+                'ix_tracker_view_events_history',
+                'ix_tracker_view_events_presence',
+                'ix_tracker_view_events_visit',
+                'ix_tracker_view_events_created_at',
+            },
+        },
+        'owned_tables': {
+            'tracker_view_events': {
+                'id',
+                'project_id',
+                'tracker_id',
+                'shot_id',
+                'shot_version_id',
+                'visit_id',
+                'viewer_user_id',
+                'viewer_name',
+                'source',
+                'share_id',
+                'event_type',
+                'device_type',
+                'client_metadata_json',
+                'created_at',
+                'last_seen_at',
+            },
+        },
+    },
+    {
+        'revision': '20260823_0022',
+        'stamp_before': '20260810_0021',
+        'columns': {'tracker_events': {'undo_of_event_id'}},
+        'indexes': {'tracker_events': {'uq_tracker_events_undo_of_event_id'}},
+    },
+    {
+        'revision': '20260824_0023',
+        'stamp_before': '20260823_0022',
+        'columns': {'tracker_events': {'state_snapshot', 'state_hash'}},
+        'indexes': {},
+    },
 )
 
 

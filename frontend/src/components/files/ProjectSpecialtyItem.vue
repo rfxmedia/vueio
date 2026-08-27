@@ -1,18 +1,24 @@
 <template>
   <div
     class="v-card v-card-interactive project-specialty-item"
-    :class="[`is-${kind}`, { 'has-open-menu': menuOpen }]"
+    :class="[`is-${kind}`, { 'has-open-menu': menuOpen, 'has-activity': activityAt }]"
   >
     <button
       type="button"
       class="project-specialty-activation"
-      :aria-label="`Open ${item.name}`"
+      :aria-label="activationLabel"
       @click="$emit('activate', item)"
     >
       <svg class="icon project-specialty-icon" aria-hidden="true"><use :href="iconHref" /></svg>
       <span class="project-specialty-copy">
         <span class="v-truncate project-specialty-title" :title="item.name">{{ item.name }}</span>
         <span class="v-truncate project-specialty-meta">{{ kindLabel }}<template v-if="meta"> · {{ meta }}</template></span>
+        <time
+          v-if="activityAt"
+          class="v-truncate project-specialty-activity"
+          :datetime="activityDateTime"
+          :title="activityTitle"
+        >Last activity {{ activityLabel }}</time>
       </span>
     </button>
     <span v-if="$slots.actions" class="project-specialty-tail">
@@ -23,6 +29,11 @@
 
 <script setup>
 import { computed } from 'vue'
+import {
+  formatActivityAbsoluteTimestamp,
+  formatActivityRelativeTimestamp,
+  formatIsoTimestamp,
+} from '../../utils/formatters'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -32,6 +43,7 @@ const props = defineProps({
     validator: (value) => ['dashboard', 'tracker'].includes(value),
   },
   meta: { type: String, default: '' },
+  activityAt: { type: [Number, String], default: null },
   menuOpen: { type: Boolean, default: false },
 })
 
@@ -46,6 +58,15 @@ const iconHref = computed(() => ({
   dashboard: '#icon-layout',
   tracker: '#icon-project',
 })[props.kind])
+
+const activityLabel = computed(() => formatActivityRelativeTimestamp(props.activityAt))
+const activityTitle = computed(() => formatActivityAbsoluteTimestamp(props.activityAt))
+const activityDateTime = computed(() => formatIsoTimestamp(props.activityAt))
+const activationLabel = computed(() => [
+  `Open ${props.item.name}`,
+  `${kindLabel.value}${props.meta ? `, ${props.meta}` : ''}`,
+  activityLabel.value ? `last activity ${activityLabel.value}` : '',
+].filter(Boolean).join(', '))
 </script>
 
 <style scoped>
@@ -70,6 +91,11 @@ const iconHref = computed(() => ({
 .project-specialty-item.has-open-menu {
   z-index: 50;
   overflow: visible;
+}
+
+.project-specialty-item.has-activity,
+.project-specialty-item.has-activity .project-specialty-activation {
+  min-height: 66px;
 }
 
 .project-specialty-activation {
@@ -123,6 +149,13 @@ const iconHref = computed(() => ({
 
 .project-specialty-meta {
   color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.project-specialty-activity {
+  color: var(--v-text-secondary);
   font-size: var(--v-text-2xs);
   line-height: 1.2;
   font-variant-numeric: tabular-nums;

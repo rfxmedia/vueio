@@ -10,6 +10,12 @@ import {
   openBrowserMediaItem,
 } from '../lib/browserSurface'
 import { isFileBrowserFile, isFileBrowserFolder } from '../utils/fileBrowserItems'
+import {
+  readWorkspacePayload,
+  requestWorkspacePayload,
+  workspaceCacheKey,
+  writeWorkspacePayload,
+} from '../lib/workspacePayloadCache'
 
 export function useProjectBrowser({
   currentProject,
@@ -49,12 +55,21 @@ export function useProjectBrowser({
     return [...items].sort((left, right) => Number(Boolean(right?.is_workspace)) - Number(Boolean(left?.is_workspace)))
   }
 
-  const projectShortcutTrackers = computed(() => projectContents.value.filter((item) => item.is_shortcut && item.type === 'tracker'))
+  function trackersByLatestActivity(items) {
+    return [...items].sort((left, right) => {
+      const leftActivity = Number(left?.last_activity_at || left?.updated_at || left?.created_at || 0)
+      const rightActivity = Number(right?.last_activity_at || right?.updated_at || right?.created_at || 0)
+      return rightActivity - leftActivity || String(left?.name || '').localeCompare(String(right?.name || ''))
+    })
+  }
+
+  const projectShortcutTrackers = computed(() => trackersByLatestActivity(
+    projectContents.value.filter((item) => item.is_shortcut && item.type === 'tracker'),
+  ))
   const projectVueAssetItems = computed(() => (
     projectPath.value
       && Array.isArray(projectRootVueAssets.value.items)
       && projectRootVueAssets.value.projectId === currentProject.value?.id
-      && getCurrentUser()?.role === 'admin'
       && !shareMode.value
       ? projectRootVueAssets.value.items
       : projectContents.value
@@ -63,7 +78,9 @@ export function useProjectBrowser({
   const projectFolderItems = computed(() => workspaceFoldersFirst(
     sortItems(projectContents.value.filter(isFileBrowserFolder)),
   ))
-  const projectTrackerItems = computed(() => projectVueAssetItems.value.filter((item) => item.type === 'tracker'))
+  const projectTrackerItems = computed(() => trackersByLatestActivity(
+    projectVueAssetItems.value.filter((item) => item.type === 'tracker'),
+  ))
   const projectFileItems = computed(() => sortItems(projectContents.value.filter(isFileBrowserFile)))
   const browserSession = providedBrowserSession || useBrowserSession()
 
@@ -106,16 +123,10 @@ export function useProjectBrowser({
   let projectLoadToken = 0
   let disposed = false
 
-  function isPathInsideRoot(path, root) {
-    if (!path || !root) return false
-    return path === root || path.startsWith(`${root}/`)
-  }
-
   function resolveArtistWorkspaceRoot(snapshot) {
-    const nextPath = snapshot?.path || ''
     const explicitRoot = snapshot?.artistWorkspaceRoot || ''
     if (explicitRoot) return explicitRoot
-    if (getCurrentUser()?.role === 'artist' && isPathInsideRoot(nextPath, artistWorkspaceRoot.value)) {
+    if (getCurrentUser()?.role === 'artist' && artistWorkspaceRoot.value) {
       return artistWorkspaceRoot.value
     }
     return ''
@@ -131,7 +142,16 @@ export function useProjectBrowser({
     projectPath.value = snapshot?.path || ''
     if (Array.isArray(snapshot?.rootVueAssets)) {
       projectRootVueAssets.value = { projectId: snapshot.projectId || '', items: snapshot.rootVueAssets }
-    } else if (!projectPath.value && getCurrentUser()?.role === 'admin') {
+    } else if (
+      !shareMode.value
+      && (
+        !projectPath.value
+        || (
+          getCurrentUser()?.role === 'artist'
+          && projectPath.value === snapshot?.artistWorkspaceRoot
+        )
+      )
+    ) {
       projectRootVueAssets.value = {
         projectId: snapshot?.projectId || '',
         items: projectContents.value.filter((item) => item.type === 'page' || item.type === 'tracker'),
@@ -186,14 +206,38 @@ export function useProjectBrowser({
 
   async function loadProjectContents(projectId, path = '', options = {}) {
     const loadToken = ++projectLoadToken
+    const userId = getCurrentUser()?.id || ''
+    const cacheEnabled = !shareMode.value && Boolean(userId)
+    const cacheKey = workspaceCacheKey(
+      'contents',
+      userId || 'uncached',
+      projectId,
+      path,
+    )
 
     if (projectRootVueAssets.value.projectId && projectRootVueAssets.value.projectId !== projectId) {
       projectRootVueAssets.value = { projectId: '', items: null }
     }
 
+    if (cacheEnabled && !options.force) {
+      const cached = readWorkspacePayload(cacheKey)
+      if (cached) {
+        if (options.commit !== false) applyProjectContentsSnapshot(cached)
+        void loadProjectContents(projectId, path, {
+          ...options,
+          commit: options.revalidateCommit ?? options.commit,
+          force: true,
+        })
+        return cached
+      }
+    }
+
     projectContentsLoading.value = true
     projectContentsError.value = ''
 
+    const abortFromCaller = () => browserSession.abort?.()
+    options.signal?.addEventListener('abort', abortFromCaller, { once: true })
+    if (options.signal?.aborted) abortFromCaller()
     try {
       const context = {
         kind: shareMode.value ? 'project-share' : 'project-auth',
@@ -209,8 +253,8 @@ export function useProjectBrowser({
         path,
         permissions: { download: !shareMode.value },
       }
-      const snapshot = await browserSession.switchContext(context, async (_context, { signal }) => {
-        if (!path || shareMode.value || getCurrentUser()?.role !== 'admin') {
+      const loadSnapshot = () => browserSession.switchContext(context, async (_context, { signal }) => {
+        if (!path || shareMode.value || !['admin', 'artist'].includes(getCurrentUser()?.role)) {
           return resolveProjectContentsSnapshot(projectId, path, { signal })
         }
         const rootAssetsAreCurrent = (
@@ -233,10 +277,15 @@ export function useProjectBrowser({
           ...currentSnapshot,
           ...(rootSnapshot ? {
             rootVueAssets: rootSnapshot.items.filter((item) => item.type === 'page' || item.type === 'tracker'),
+            artistWorkspaceRoot: currentSnapshot.artistWorkspaceRoot || rootSnapshot.artistWorkspaceRoot || '',
           } : {}),
         }
       })
+      const snapshot = await (cacheEnabled
+        ? requestWorkspacePayload(cacheKey, loadSnapshot)
+        : loadSnapshot())
       if (!snapshot || disposed || loadToken !== projectLoadToken) return
+      if (cacheEnabled) writeWorkspacePayload(cacheKey, snapshot)
       if (options.commit !== false) {
         applyProjectContentsSnapshot(snapshot)
       }
@@ -251,6 +300,7 @@ export function useProjectBrowser({
       }
       throw error
     } finally {
+      options.signal?.removeEventListener('abort', abortFromCaller)
       if (!disposed && loadToken === projectLoadToken) {
         projectContentsLoading.value = false
       }

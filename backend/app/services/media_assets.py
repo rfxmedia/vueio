@@ -250,6 +250,14 @@ def _purge_asset_cache(db: Session, asset: MediaAsset) -> None:
         purge_transcode_identity,
     )
 
+    active_shared_source = bool(
+        asset.source_signature
+        and db.query(MediaAsset.id)
+        .filter(MediaAsset.id != asset.id)
+        .filter(MediaAsset.source_signature == asset.source_signature)
+        .filter(MediaAsset.unavailable_at.is_(None))
+        .first()
+    )
     cache_identities = [f'asset:{asset.id}']
     if asset.artifact_identity:
         active_shared_artifact = (
@@ -260,22 +268,16 @@ def _purge_asset_cache(db: Session, asset: MediaAsset) -> None:
             .first()
             is not None
         )
-        if not active_shared_artifact:
+        source_artifact_is_shared = (
+            active_shared_source
+            and asset.artifact_identity == media_source_cache_identity(asset.source_signature)
+        )
+        if not active_shared_artifact and not source_artifact_is_shared:
             cache_identities.append(asset.artifact_identity)
     if asset.source_signature:
         cache_identities.append(f'asset:{asset.id}:source:{asset.source_signature}')
-    if asset.storage_scope == 'media_root' and asset.source_signature:
-        active_shared_reference = (
-            db.query(MediaAsset.id)
-            .filter(MediaAsset.id != asset.id)
-            .filter(MediaAsset.storage_scope == 'media_root')
-            .filter(MediaAsset.source_signature == asset.source_signature)
-            .filter(MediaAsset.unavailable_at.is_(None))
-            .first()
-            is not None
-        )
-        if not active_shared_reference:
-            cache_identities.append(media_source_cache_identity(asset.source_signature))
+    if asset.source_signature and not active_shared_source:
+        cache_identities.append(media_source_cache_identity(asset.source_signature))
 
     for cache_identity in cache_identities:
         for path in (
@@ -514,11 +516,7 @@ def register_media_asset(
                 file_size=stat.st_size,
                 modified_at=stat.st_mtime,
                 source_signature=current_signature,
-                artifact_identity=(
-                    media_source_cache_identity(current_signature)
-                    if effective_scope == 'media_root'
-                    else f'asset:{asset_id}'
-                ),
+                artifact_identity=media_source_cache_identity(current_signature),
                 created_at=now,
                 updated_at=now,
             )

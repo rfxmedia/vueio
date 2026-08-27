@@ -27,7 +27,7 @@ from app.services.comments import (
     CommentTargetRefs,
     attach_uploaded_files,
     build_comment_record_fields,
-    delete_comment_attachments,
+    preserve_comment_attachments,
     load_attachment_list,
     load_comments_for_paths,
     normalize_voice_note_metadata,
@@ -40,10 +40,11 @@ from app.services.comments import (
     resolve_comment_target_identity,
     serialize_comment_threads,
     serialize_comment_write_response,
+    validate_comment_reference_limits,
 )
 from app.services.share_access import validate_share
 from app.services.media_serving import DownloadAuditSpec, media_target, serve_download, serve_file
-from app.services.tracker_events import build_tracker_event_actor, record_comment_tracker_event
+from app.services.tracker_events import build_tracker_event_actor, lock_tracker_for_comment_target, record_comment_tracker_event
 from app.services.upload_payloads import validate_png_data_url
 from app.services.voice_transcription import enqueue_voice_note_transcription
 
@@ -399,6 +400,33 @@ def add_comment(request: Request, data: CommentCreate, share_id: str = None, sha
         horizons_media_asset_id=data.horizons_media_asset_id,
         horizons_shot_version_id=data.horizons_shot_version_id,
     )
+    lock_tracker_for_comment_target(
+        db,
+        project_id=target.project_id,
+        shot_version_id=target.horizons_shot_version_id,
+        media_asset_id=target.horizons_media_asset_id,
+    )
+    user, share, effective_project_id = require_comment_access(
+        data.path,
+        share_id,
+        share_token,
+        vueio_session,
+        db,
+        get_user_from_session,
+        project_id=data.project_id,
+        horizons_media_asset_id=data.horizons_media_asset_id,
+        horizons_shot_version_id=data.horizons_shot_version_id,
+        known_user=user,
+    )
+    if share and share.project_id:
+        effective_project_id = share.project_id
+    target = resolve_comment_target_identity(
+        db,
+        path=data.path,
+        project_id=effective_project_id,
+        horizons_media_asset_id=data.horizons_media_asset_id,
+        horizons_shot_version_id=data.horizons_shot_version_id,
+    )
     reply_root = resolve_comment_reply_root(db, parent_comment_id=data.parent_comment_id, target=target)
     comment = Comment(
         **build_comment_record_fields(target),
@@ -411,8 +439,7 @@ def add_comment(request: Request, data: CommentCreate, share_id: str = None, sha
         root_comment_id=reply_root.id if reply_root else None,
     )
     db.add(comment)
-    db.commit()
-    db.refresh(comment)
+    db.flush()
     actor = build_tracker_event_actor(
         user=user,
         source='share' if share else 'app',
@@ -478,14 +505,40 @@ async def add_comment_with_attachments(
         raise HTTPException(status_code=400, detail='Invalid linked attachments')
     if not isinstance(references, list):
         raise HTTPException(status_code=400, detail='Invalid linked attachments')
-    if len(references) > 3:
-        raise HTTPException(status_code=400, detail='Max 3 attachments allowed')
+    validate_comment_reference_limits(references, file_count=len(files))
     if share and references:
         raise HTTPException(status_code=403, detail='Project references are unavailable on shared links')
     voice_note_metadata = normalize_voice_note_metadata(voice_note, files)
     if not (text or '').strip() and not annotation_data and not files and not references:
         raise HTTPException(status_code=400, detail='Comment cannot be empty')
 
+    target = resolve_comment_target_identity(
+        db,
+        path=path,
+        project_id=effective_project_id,
+        horizons_media_asset_id=horizons_media_asset_id,
+        horizons_shot_version_id=horizons_shot_version_id,
+    )
+    lock_tracker_for_comment_target(
+        db,
+        project_id=target.project_id,
+        shot_version_id=target.horizons_shot_version_id,
+        media_asset_id=target.horizons_media_asset_id,
+    )
+    user, share, effective_project_id = require_comment_access(
+        path,
+        share_id,
+        share_token,
+        vueio_session,
+        db,
+        get_user_from_session,
+        project_id=project_id,
+        horizons_media_asset_id=horizons_media_asset_id,
+        horizons_shot_version_id=horizons_shot_version_id,
+        known_user=user,
+    )
+    if share and share.project_id:
+        effective_project_id = share.project_id
     target = resolve_comment_target_identity(
         db,
         path=path,
@@ -506,8 +559,7 @@ async def add_comment_with_attachments(
         root_comment_id=reply_root.id if reply_root else None,
     )
     db.add(comment)
-    db.commit()
-    db.refresh(comment)
+    db.flush()
 
     comment = attach_uploaded_files(
         comment,
@@ -616,8 +668,37 @@ def resolve_comment(request: Request, comment_id: int, share_id: str = None, sha
         horizons_media_asset_id=comment.horizons_media_asset_id,
         horizons_shot_version_id=comment.horizons_shot_version_id,
     )
+    lock_tracker_for_comment_target(
+        db,
+        project_id=comment.project_id,
+        shot_version_id=comment.horizons_shot_version_id,
+        media_asset_id=comment.horizons_media_asset_id,
+    )
+    comment = (
+        db.query(Comment)
+        .populate_existing()
+        .filter(Comment.id == comment_id)
+        .with_for_update()
+        .first()
+    )
+    if comment is None:
+        raise HTTPException(status_code=404, detail='Comment not found')
+    access_path = resolve_comment_canonical_path(comment, db)
+    user, share, _effective_project_id = require_comment_access(
+        access_path,
+        share_id,
+        share_token,
+        vueio_session,
+        db,
+        get_user_from_session,
+        project_id=comment.project_id,
+        horizons_media_asset_id=comment.horizons_media_asset_id,
+        horizons_shot_version_id=comment.horizons_shot_version_id,
+        known_user=user,
+    )
     comment.resolved = not comment.resolved
-    db.commit()
+    db.add(comment)
+    db.flush()
     actor = build_tracker_event_actor(
         user=user,
         source='share' if share else 'app',
@@ -644,16 +725,23 @@ def delete_comment(comment_id: int, vueio_session: str = Cookie(None), db: Sessi
     comment = db.query(Comment).filter(Comment.id == comment_id).first()
     if not comment:
         raise HTTPException(status_code=404, detail='Comment not found')
-    actor = build_tracker_event_actor(user=user, source='app')
-    record_comment_tracker_event(
+    event_context = lock_tracker_for_comment_target(
         db,
-        comment=comment,
-        event_type='comment_deleted',
-        actor_id=actor['actor_id'],
-        actor_name=actor['actor_name'],
-        source=actor['source'],
-        created_at=time.time(),
+        project_id=comment.project_id,
+        shot_version_id=comment.horizons_shot_version_id,
+        media_asset_id=comment.horizons_media_asset_id,
+    ) if comment.project_id else None
+    comment = (
+        db.query(Comment)
+        .populate_existing()
+        .filter(Comment.id == comment_id)
+        .with_for_update()
+        .first()
     )
+    if comment is None:
+        raise HTTPException(status_code=404, detail='Comment not found')
+    deleted_comment_id = comment.id
+    deleted_comment_text = comment.text
     comments_to_delete = [comment]
     if not comment.parent_comment_id and not comment.root_comment_id:
         comments_to_delete.extend(
@@ -663,8 +751,30 @@ def delete_comment(comment_id: int, vueio_session: str = Cookie(None), db: Sessi
             .all()
         )
     for item in comments_to_delete:
-        delete_comment_attachments(item)
+        preserve_comment_attachments(item)
         db.delete(item)
+    db.flush()
+    if event_context:
+        from app.services.tracker_events import create_tracker_event
+
+        actor = build_tracker_event_actor(user=user, source='app')
+        create_tracker_event(
+            db,
+            project_id=comment.project_id,
+            tracker_id=event_context['tracker_id'],
+            shot_id=event_context['shot_id'],
+            shot_version_id=event_context['shot_version_id'],
+            comment_id=deleted_comment_id,
+            event_type='comment_deleted',
+            actor_id=actor['actor_id'],
+            actor_name=actor['actor_name'],
+            source=actor['source'],
+            payload={
+                **event_context,
+                'body': deleted_comment_text,
+                'reply_count': max(0, len(comments_to_delete) - 1),
+            },
+        )
     db.commit()
     return {'status': 'deleted'}
 

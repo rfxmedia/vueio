@@ -76,7 +76,7 @@
           @click="setPublicationState('published')"
         >
           <svg class="icon"><use href="#icon-eye" /></svg>
-          <span>{{ publicationSaving === 'published' ? 'Publishing…' : 'Publish' }}</span>
+          <span>{{ publicationSaving === 'published' ? 'Publishing…' : publicationPublishLabel }}</span>
         </button>
         <button
           v-if="versionShareState === 'pending'"
@@ -288,6 +288,23 @@ const versionShareState = computed(() => {
   return ['published', 'pending', 'internal'].includes(state) ? state : 'published'
 })
 const shotVersions = computed(() => props.currentShot?.versions || [])
+const latestShotVersion = computed(() => {
+  const latestLabel = String(props.currentShot?.latest_version_label ?? '').trim()
+  const matched = latestLabel
+    ? shotVersions.value.find(version => String(version?.label ?? version?.version ?? '').trim() === latestLabel)
+    : null
+  return matched || shotVersions.value[shotVersions.value.length - 1] || null
+})
+const isLatestVersion = computed(() => (
+  Boolean(currentVersion.value?.id)
+  && currentVersion.value.id === latestShotVersion.value?.id
+))
+const shotDisplayName = computed(() => (
+  props.currentShot?.shot_id || props.currentShot?.shot_code || 'the shot'
+))
+const publicationPublishLabel = computed(() => (
+  isLatestVersion.value ? 'Publish to Review' : 'Publish older version'
+))
 const hasHeldVersions = computed(() => (
   shotVersions.value.some(version => (
     ['pending', 'internal'].includes(String(version?.share_state || '').trim().toLowerCase())
@@ -328,14 +345,27 @@ const showPublicationCard = computed(() => (
 
 const publicationPresentation = computed(() => {
   if (versionShareState.value === 'pending') {
+    if (!isLatestVersion.value) {
+      return {
+        title: 'Older version awaiting publication',
+        label: 'Awaiting publication',
+        description: props.canManageVersionPublication
+          ? 'A newer version exists. Publishing this version will not change the shot status.'
+          : 'A newer version exists. This version remains hidden from shares.',
+      }
+    }
     return {
-      title: props.canManageVersionPublication ? 'Needs a share decision' : 'Awaiting publication',
-      label: 'Pending review',
+      title: props.canManageVersionPublication ? 'Ready to publish' : 'Awaiting publication',
+      label: 'Awaiting publication',
       description: hasOtherPublishedVersion.value
-        ? 'Clients still see the last published version.'
+        ? (
+          props.canManageVersionPublication
+            ? `Publishing will update shares and move ${shotDisplayName.value} to Review.`
+            : 'Clients still see the last published version.'
+        )
         : (
           props.canManageVersionPublication
-            ? 'Hidden from shares until you publish it.'
+            ? `Publishing will make this version visible and move ${shotDisplayName.value} to Review.`
             : 'Hidden from shares until it’s published.'
         ),
     }
@@ -345,7 +375,11 @@ const publicationPresentation = computed(() => {
       title: 'Internal version',
       label: 'Internal',
       description: props.canManageVersionPublication
-        ? 'Hidden from shares. Publish when it’s ready.'
+        ? (
+          isLatestVersion.value
+            ? `Publish to make it visible and move ${shotDisplayName.value} to Review.`
+            : 'A newer version exists. Publishing this version will not change the shot status.'
+        )
         : 'Hidden from shares.',
     }
   }
@@ -598,8 +632,9 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   --info-gutter: 16px;
   --info-label-width: 104px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 0 var(--info-gutter) 28px;
+  padding: 0 var(--info-gutter) 32px;
 }
 
 /* ─── Identity ───────────────────────────────────────────────
@@ -610,24 +645,23 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   top: 0;
   z-index: 2;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
-  gap: 11px;
+  gap: 10px;
   margin: 0 calc(var(--info-gutter) * -1);
-  padding: 14px var(--info-gutter) 13px;
-  background: var(--v-bg-base);
+  padding: 13px var(--info-gutter) 12px;
+  background: color-mix(in srgb, var(--v-surface-panel) 34%, var(--v-bg-base));
   border-bottom: 1px solid var(--v-divider);
 }
 
 .info-header-glyph {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border-radius: var(--v-radius-md);
-  border: 1px solid var(--v-control-border);
-  background: var(--v-surface-inset);
-  box-shadow: var(--v-surface-shadow-inset);
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 74%, transparent);
+  background: color-mix(in srgb, var(--v-surface-inset) 72%, transparent);
   color: var(--v-text-muted);
 }
 
@@ -647,7 +681,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   line-height: 1.25;
   letter-spacing: 0;
   color: var(--v-text);
-  /* Two lines then ellipsis — long version names shouldn't push the panel down. */
+  /* Two lines then ellipsis. Long version names should not push the panel down. */
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -685,11 +719,9 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
-  margin: 14px 0 4px;
-  padding: 11px 4px;
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
+  margin: 0 calc(var(--info-gutter) * -1);
+  padding: 14px var(--info-gutter);
+  border-bottom: 1px solid var(--v-divider);
 }
 
 .info-keystat {
@@ -703,7 +735,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 }
 
 .info-keystat + .info-keystat {
-  box-shadow: inset 1px 0 0 rgba(255, 255, 255, 0.05);
+  border-left: 1px solid var(--v-divider-subtle);
 }
 
 .info-keystat dd {
@@ -729,7 +761,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   margin-left: auto;
   padding: 2px 6px;
   flex: 0 0 auto;
-  border-radius: var(--v-radius-full);
+  border-radius: var(--v-radius-sm);
   background: color-mix(in srgb, var(--v-warning) 12%, transparent);
   color: color-mix(in srgb, var(--v-warning) 78%, var(--v-text));
   font-size: var(--v-text-3xs);
@@ -745,8 +777,8 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   gap: 9px;
   padding: 4px 4px 4px 11px;
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 72%, transparent);
+  background: var(--v-surface-inset);
 }
 
 .info-path-icon {
@@ -780,30 +812,18 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   color: var(--v-accent);
 }
 
-/* The one decision on this panel — it gets a status hue and a left spine,
-   using the same accent language as the tracker's status pills. */
 .info-publication-card {
   --info-share: var(--v-accent);
   position: relative;
   display: flex;
   flex-direction: column;
   gap: 7px;
-  margin: 14px 0 2px;
-  padding: 11px 12px 11px 14px;
+  margin: 14px 0 0;
+  padding: 11px 12px;
   overflow: hidden;
   border-radius: var(--v-radius-md);
   background: color-mix(in srgb, var(--info-share) 7%, color-mix(in srgb, var(--v-bg-base) 24%, transparent));
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--info-share) 20%, transparent),
-    inset 0 1px 2px rgba(0, 0, 0, 0.16);
-}
-
-.info-publication-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 2px;
-  background: color-mix(in srgb, var(--info-share) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--info-share) 22%, transparent);
 }
 
 .info-publication-card.is-pending {
@@ -816,7 +836,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 
 .info-publication-card.is-decision {
   gap: 9px;
-  padding: 12px 12px 12px 14px;
+  padding: 12px;
 }
 
 .info-publication-header {
@@ -847,16 +867,11 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--v-text-muted);
+  color: color-mix(in srgb, var(--info-share) 78%, var(--v-text));
   font-size: var(--v-text-2xs);
   font-weight: 650;
-  letter-spacing: 0;
-  line-height: 1.2;
-}
-
-.info-publication-state {
-  color: color-mix(in srgb, var(--info-share) 78%, var(--v-text));
   letter-spacing: 0.06em;
+  line-height: 1.2;
   text-transform: uppercase;
 }
 
@@ -866,7 +881,6 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   flex: 0 0 auto;
   border-radius: var(--v-radius-full);
   background: currentColor;
-  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 20%, transparent);
 }
 
 .info-publication-card p {
@@ -914,7 +928,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 }
 
 .info-section {
-  padding: 18px 0 2px;
+  padding: 18px 2px 2px;
 }
 
 /* Styling comes from .v-section-label. */
@@ -927,11 +941,9 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 }
 
 .info-summary-card {
-  margin: 14px 0 2px;
-  padding: 12px 13px 13px;
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
+  margin: 0;
+  padding: 16px 2px 18px;
+  border-bottom: 1px solid var(--v-divider);
 }
 
 .info-summary-card-header {
@@ -940,10 +952,10 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   justify-content: space-between;
   gap: 10px;
   min-height: 22px;
-  margin-bottom: 8px;
+  margin-bottom: 7px;
 }
 
-/* Card headings are labels, not section dividers — no trailing rule. */
+/* Card headings are labels, not section dividers, so they do not need a trailing rule. */
 .info-card-title {
   margin: 0;
   font-family: var(--v-font);
@@ -1010,9 +1022,9 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   width: 100%;
   min-height: 34px;
   padding: 0 10px;
-  border: 1px dashed color-mix(in srgb, var(--v-accent) 34%, var(--v-control-border));
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 76%, transparent);
   border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-accent) 8%, transparent);
+  background: var(--v-surface-inset);
   color: var(--v-text-secondary);
   font: 600 var(--v-text-sm)/1 var(--v-font);
   letter-spacing: 0;
@@ -1021,7 +1033,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 }
 
 .info-summary-empty:hover {
-  border-color: color-mix(in srgb, var(--v-accent) 55%, var(--v-control-border));
+  border-color: var(--v-control-border-hover);
   color: var(--v-text);
 }
 
@@ -1031,7 +1043,7 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 }
 
 .info-summary-empty.is-readonly:hover {
-  border-color: color-mix(in srgb, var(--v-accent) 34%, var(--v-control-border));
+  border-color: color-mix(in srgb, var(--v-control-border) 76%, transparent);
   color: var(--v-text-muted);
 }
 
@@ -1048,12 +1060,12 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
   grid-template-columns: var(--info-label-width) minmax(0, 1fr);
   align-items: baseline;
   gap: 12px;
-  padding: 6px 2px;
+  padding: 6px 4px;
   border-radius: var(--v-radius-sm);
 }
 
 .info-row:hover {
-  background: color-mix(in srgb, var(--v-bg-hover) 55%, transparent);
+  background: color-mix(in srgb, var(--v-bg-hover) 42%, transparent);
 }
 
 .info-row dt {
@@ -1078,5 +1090,21 @@ onUnmounted(() => window.clearTimeout(pathCopiedTimer))
 
 .info-row-mono dd {
   font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 768px) {
+  .file-info-panel {
+    --info-gutter: var(--v-viewer-mobile-content-gutter);
+    --info-label-width: 108px;
+    padding-bottom: 32px;
+  }
+
+  .info-header { position: static; padding-top: 15px; }
+  .info-title { font-size: var(--v-text-lg); }
+  .info-keystats { padding-block: 14px; }
+  .info-keystat dd { font-size: var(--v-text-lg); }
+  .info-row { padding-block: 9px; }
+  .info-row dt,
+  .info-row dd { font-size: var(--v-text-base); }
 }
 </style>

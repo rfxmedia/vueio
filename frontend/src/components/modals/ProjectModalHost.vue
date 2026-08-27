@@ -28,6 +28,7 @@
     :update-team-member="settings.updateProjectTeamMemberRole"
     :remove-team-member="settings.removeProjectTeamMember"
     :open-relocate-project="openRelocateProject"
+    :open-relink-media="openRelinkMedia"
     :open-migrate-project="openMigrateProject"
     @update:draft-title="settings.projectSettingsDraftTitle = $event"
     @update:draft-description="settings.projectSettingsDraftDescription = $event"
@@ -221,6 +222,7 @@
     :get-media-duration-label="picker.getMediaDurationLabel"
     :get-shot-version-count="picker.getShotVersionCount"
     :get-picker-item-media="picker.getPickerItemMedia"
+    :request-picker-item-media-info="picker.requestPickerItemMediaInfo"
     :select-version-picker-shot="picker.selectVersionPickerShot"
     :set-version-picker-file-search="picker.setVersionPickerFileSearch"
     :set-version-picker-notes="picker.setVersionPickerNotes"
@@ -292,6 +294,10 @@ function openProjectThumbnailPicker() {
 
 function openRelocateProject() {
   settings.openProjectStorage(settings.activeProjectSettingsTarget, 'relocate')
+}
+
+function openRelinkMedia() {
+  settings.openProjectStorage(settings.activeProjectSettingsTarget, 'relink-media')
 }
 
 function openMigrateProject() {

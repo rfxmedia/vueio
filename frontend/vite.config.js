@@ -32,15 +32,11 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules')) {
-            if (
-              id.includes('/node_modules/vue/') ||
-              id.includes('/node_modules/@vue/') ||
-              id.includes('/node_modules/vue-router/')
-            ) return 'vue-vendor'
-            if (id.includes('/axios/')) return 'http-vendor'
-            return 'vendor'
-          }
+          if (
+            id.includes('/node_modules/vue/') ||
+            id.includes('/node_modules/@vue/') ||
+            id.includes('/node_modules/vue-router/')
+          ) return 'vue-vendor'
         }
       }
     }

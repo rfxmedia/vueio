@@ -18,6 +18,7 @@
           class="media-version-switcher-trigger"
           :class="[triggerPillClass, { 'is-active': open }]"
           :aria-label="versionSwitcherAriaLabel"
+          :title="versionSwitcherTitle"
           @click.stop="$emit('toggle')"
         >
           <span
@@ -60,9 +61,8 @@
         <MediaVersionSwitcherList
           :shot-id="shot?.shot_id || ''"
           :versions="versions"
-          :current-version-id="currentVersionId"
-          :current-media-asset-id="currentMediaAssetId"
-          :current-media-path="currentMediaPath"
+          :latest-version-id="latestVersionId"
+          :current-media="currentMedia"
           :can-delete-versions="canDeleteVersions"
           :can-download-versions="canDownloadVersions"
           :publication-controls-enabled="publicationControlsEnabled"
@@ -86,6 +86,7 @@
       :class="[triggerPillClass, { 'is-active': open }]"
       :aria-expanded="open ? 'true' : 'false'"
       :aria-label="versionSwitcherAriaLabel"
+      :title="versionSwitcherTitle"
       @click.stop="$emit('toggle')"
     >
       <span
@@ -131,9 +132,8 @@
           sheet
           :shot-id="shot?.shot_id || ''"
           :versions="versions"
-          :current-version-id="currentVersionId"
-          :current-media-asset-id="currentMediaAssetId"
-          :current-media-path="currentMediaPath"
+          :latest-version-id="latestVersionId"
+          :current-media="currentMedia"
           :can-delete-versions="canDeleteVersions"
           :can-download-versions="canDownloadVersions"
           :publication-controls-enabled="publicationControlsEnabled"
@@ -154,6 +154,7 @@
 
 <script setup>
 import { computed, watch } from 'vue'
+import { mediaEntitiesMatch } from '../../lib/mediaEntity'
 import { VMenu, VModal, VModalHeader } from '../primitives'
 import MediaVersionSwitcherList from './MediaVersionSwitcherList.vue'
 
@@ -165,6 +166,7 @@ const props = defineProps({
   versions: { type: Array, default: () => [] },
   currentMedia: { type: Object, default: null },
   currentVersionLabel: { type: String, default: 'Versions' },
+  keyboardShortcuts: { type: Boolean, default: false },
   canAddVersions: { type: Boolean, default: false },
   canDeleteVersions: { type: Boolean, default: false },
   canDownloadVersions: { type: Boolean, default: false },
@@ -189,15 +191,15 @@ const triggerPillClass = computed(() => (
 
 const canShowAddVersionAction = computed(() => props.canAddVersions && !props.shareMode)
 const versionCountLabel = computed(() => `${props.versions.length} version${props.versions.length === 1 ? '' : 's'}`)
-const currentVersionId = computed(() => props.currentMedia?.horizons_shot_version_id || props.currentMedia?.version_id || '')
-const currentMediaAssetId = computed(() => props.currentMedia?.horizons_media_asset_id || props.currentMedia?.media_asset_id || '')
-const currentMediaPath = computed(() => props.currentMedia?.path || props.currentMedia?.file_path || '')
+const latestVersionId = computed(() => {
+  const latestLabel = String(props.shot?.latest_version_label ?? '').trim()
+  const matched = latestLabel
+    ? props.versions.find(version => String(version?.label ?? version?.version ?? '').trim() === latestLabel)
+    : null
+  return matched?.id || props.versions[0]?.id || ''
+})
 const currentVersion = computed(() => (
-  props.versions.find(version => (
-    (currentVersionId.value && version?.id === currentVersionId.value)
-    || (currentMediaAssetId.value && version?.media_asset_id === currentMediaAssetId.value)
-    || (currentMediaPath.value && (version?.path || version?.file_path) === currentMediaPath.value)
-  )) || props.currentMedia
+  props.versions.find(version => mediaEntitiesMatch(version, props.currentMedia)) || props.currentMedia
 ))
 const currentShareState = computed(() => {
   if (props.shareMode) return ''
@@ -214,6 +216,11 @@ const versionSwitcherAriaLabel = computed(() => {
   const publication = currentShareStateLabel.value ? `. ${currentShareStateLabel.value}` : ''
   return `Switch version. Current ${props.currentVersionLabel}${publication}`
 })
+const versionSwitcherTitle = computed(() => (
+  props.keyboardShortcuts
+    ? 'Switch version · ↑ newer · ↓ older · Numpad 8/2'
+    : versionSwitcherAriaLabel.value
+))
 
 watch(() => props.open, (isOpen) => {
   if (!isOpen || typeof props.fetchBatchMediaInfo !== 'function') return

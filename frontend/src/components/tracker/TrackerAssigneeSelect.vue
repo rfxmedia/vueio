@@ -5,7 +5,7 @@
     tone="assignee"
     :label="getShotAssigneeLabel(shot)"
     :interactive="canAssignShots && !shareMode"
-    :open="canAssignShots && showAssigneePicker === shot.shot_id"
+    :open="canAssignShots && isOpen"
     :flip-up="flipUp"
     :highlighted="hasAssignee"
     @trigger="toggleShotAssigneePicker($event, shot.shot_id)"
@@ -19,6 +19,9 @@
         <button
           class="assignee-option tracker-select-option v-dropdown-item"
           :class="{ active: !hasAssignee }"
+          type="button"
+          role="menuitemcheckbox"
+          :aria-checked="!hasAssignee ? 'true' : 'false'"
           @click="selectShotAssignee(shot, null)"
         >
           <span class="tracker-select-option-label">Unassigned</span>
@@ -29,6 +32,9 @@
           :key="candidate.id"
           class="assignee-option tracker-select-option v-dropdown-item"
           :class="{ active: isShotAssignedTo(shot, candidate.id) }"
+          type="button"
+          role="menuitemcheckbox"
+          :aria-checked="isShotAssignedTo(shot, candidate.id) ? 'true' : 'false'"
           @click="selectShotAssignee(shot, candidate.id)"
         >
           <span
@@ -55,6 +61,7 @@ defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   shot: { type: Object, required: true },
+  open: { type: Boolean, default: undefined },
   flipUp: { type: Boolean, default: false },
 })
 
@@ -69,6 +76,11 @@ const {
 } = useTrackerStore()
 const { shareMode } = useShareAccessContext()
 
+const isOpen = computed(() => (
+  props.open === undefined
+    ? showAssigneePicker.value === props.shot.shot_id
+    : props.open
+))
 const hasAssignee = computed(() => Boolean(
   props.shot?.assignee_user_ids?.length
   || props.shot?.assignee_user_id

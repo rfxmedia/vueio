@@ -1,8 +1,10 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import api, { buildShareCredentialQuery } from '../lib/api'
 import { appendCanonicalMediaRefs, getCanonicalMediaRefs, getMediaKind, hasCanonicalObjectRefs, normalizeMediaEntity, usesGeneratedImagePreview } from '../lib/mediaEntity'
+import { useDocumentVisible } from './useDocumentVisible'
 
 const STREAM_PREPARING_OVERLAY_DELAY_MS = 650
+const STREAM_POLL_DELAYS_MS = [1000, 2000, 5000]
 
 function normalizeMediaInput(input) {
   return normalizeMediaEntity(input)
@@ -48,6 +50,7 @@ function resolveThumbnailCacheBustToken(media, options = {}) {
 }
 
 export function useViewerMediaCore(ctx) {
+  const documentVisible = useDocumentVisible()
   const currentMedia = computed(() => ctx.currentVideo.value)
   const currentMediaKind = computed(() => getMediaKind(ctx.currentVideo.value))
   const isViewingImage = computed(() => currentMediaKind.value === 'image')
@@ -192,7 +195,6 @@ export function useViewerMediaCore(ctx) {
 
   function getProjectThumbnailUrl(projectId, thumbnailPath, cacheBustToken = null, options = {}) {
     if (!projectId) return ''
-    if (!thumbnailPath && !(ctx.shareMode.value && ctx.pendingShareId.value)) return ''
     const params = new URLSearchParams({ entity_type: 'project' })
     if (cacheBustToken !== null && cacheBustToken !== undefined && cacheBustToken !== false) {
       params.set('t', String(cacheBustToken === true ? Date.now() : cacheBustToken))
@@ -317,8 +319,10 @@ export function useViewerMediaCore(ctx) {
   const streamPreparing = ref(false)
   const showStreamPreparingOverlay = ref(false)
   const streamProgress = ref(0)
-  let streamInterval = null
+  let streamPollTimer = null
+  let streamPollAttempt = 0
   let activeStreamStatusUrl = ''
+  const completedStreamStatusUrls = new Set()
   let streamOverlayDelayTimer = null
 
   function clearStreamOverlayDelay() {
@@ -338,11 +342,12 @@ export function useViewerMediaCore(ctx) {
     }, STREAM_PREPARING_OVERLAY_DELAY_MS)
   }
 
-  function clearStreamPolling({ resetActiveUrl = true } = {}) {
+  function clearStreamPolling({ resetActiveUrl = true, resetBackoff = true } = {}) {
     if (resetActiveUrl) activeStreamStatusUrl = ''
-    if (!streamInterval) return
-    clearInterval(streamInterval)
-    streamInterval = null
+    if (resetBackoff) streamPollAttempt = 0
+    if (!streamPollTimer) return
+    clearTimeout(streamPollTimer)
+    streamPollTimer = null
   }
 
   function resetStreamState() {
@@ -366,6 +371,18 @@ export function useViewerMediaCore(ctx) {
       return
     }
 
+    // A packaged stream never un-packages, so once a status URL has reported
+    // complete the round-trip (and the preparing gate) is skipped on revisits.
+    if (completedStreamStatusUrls.has(statusUrl)) {
+      clearStreamPolling()
+      clearStreamOverlayDelay()
+      activeStreamStatusUrl = statusUrl
+      streamPreparing.value = false
+      showStreamPreparingOverlay.value = false
+      streamProgress.value = 100
+      return
+    }
+
     clearStreamPolling()
     activeStreamStatusUrl = statusUrl
     streamPreparing.value = true
@@ -378,6 +395,7 @@ export function useViewerMediaCore(ctx) {
       const status = String(data?.status || '').toLowerCase()
 
       if (status === 'complete') {
+        completedStreamStatusUrls.add(statusUrl)
         clearStreamPolling()
         clearStreamOverlayDelay()
         streamPreparing.value = false
@@ -397,7 +415,7 @@ export function useViewerMediaCore(ctx) {
       }
 
       streamProgress.value = data?.progress || 0
-      startStreamPolling(statusUrl)
+      startStreamPolling(statusUrl, { resetBackoff: true })
     } catch (error) {
       console.warn('Stream status check failed')
       resetStreamState()
@@ -405,34 +423,60 @@ export function useViewerMediaCore(ctx) {
     }
   }
 
-  function startStreamPolling(statusUrl) {
-    clearStreamPolling({ resetActiveUrl: false })
-    activeStreamStatusUrl = statusUrl
-    streamInterval = setInterval(async () => {
-      try {
-        const { data } = await api.get(statusUrl)
-        if (activeStreamStatusUrl !== statusUrl) return
-        streamProgress.value = data?.progress || 0
-        const status = String(data?.status || '').toLowerCase()
-        if (status === 'complete') {
-          clearStreamPolling()
-          clearStreamOverlayDelay()
-          streamPreparing.value = false
-          showStreamPreparingOverlay.value = false
-          streamProgress.value = data?.progress || 100
-        } else if (status === 'error') {
-          clearStreamPolling()
-          clearStreamOverlayDelay()
-          streamPreparing.value = false
-          showStreamPreparingOverlay.value = false
-          streamProgress.value = 0
-          ctx.handleStreamError?.(data)
-        }
-      } catch (error) {
-        console.warn('Stream status poll failed')
+  async function pollStreamStatus(statusUrl) {
+    if (!documentVisible.value || activeStreamStatusUrl !== statusUrl) return
+
+    try {
+      const { data } = await api.get(statusUrl)
+      if (activeStreamStatusUrl !== statusUrl) return
+      streamProgress.value = data?.progress || 0
+      const status = String(data?.status || '').toLowerCase()
+      if (status === 'complete') {
+        completedStreamStatusUrls.add(statusUrl)
+        clearStreamPolling()
+        clearStreamOverlayDelay()
+        streamPreparing.value = false
+        showStreamPreparingOverlay.value = false
+        streamProgress.value = data?.progress || 100
+        return
       }
-    }, 1000)
+      if (status === 'error') {
+        clearStreamPolling()
+        clearStreamOverlayDelay()
+        streamPreparing.value = false
+        showStreamPreparingOverlay.value = false
+        streamProgress.value = 0
+        ctx.handleStreamError?.(data)
+        return
+      }
+    } catch {
+      if (activeStreamStatusUrl !== statusUrl) return
+      console.warn('Stream status poll failed')
+    }
+
+    streamPollAttempt = Math.min(streamPollAttempt + 1, STREAM_POLL_DELAYS_MS.length - 1)
+    startStreamPolling(statusUrl)
   }
+
+  function startStreamPolling(statusUrl, { resetBackoff = false } = {}) {
+    clearStreamPolling({ resetActiveUrl: false, resetBackoff })
+    activeStreamStatusUrl = statusUrl
+    if (!documentVisible.value) return
+    const delay = STREAM_POLL_DELAYS_MS[streamPollAttempt]
+    streamPollTimer = setTimeout(() => {
+      streamPollTimer = null
+      void pollStreamStatus(statusUrl)
+    }, delay)
+  }
+
+  watch(documentVisible, (visible) => {
+    if (!activeStreamStatusUrl || !streamPreparing.value) return
+    if (!visible) {
+      clearStreamPolling({ resetActiveUrl: false, resetBackoff: false })
+      return
+    }
+    void pollStreamStatus(activeStreamStatusUrl)
+  })
 
   return {
     currentMedia,
@@ -457,6 +501,6 @@ export function useViewerMediaCore(ctx) {
     streamProgress,
     clearStreamPolling,
     checkStreamStatus,
-    getStreamInterval: () => streamInterval,
+    getStreamInterval: () => streamPollTimer,
   }
 }

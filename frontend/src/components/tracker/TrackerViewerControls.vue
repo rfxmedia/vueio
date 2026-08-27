@@ -8,6 +8,7 @@
     :versions="currentTrackerViewerVersionsDescending"
     :current-media="currentMedia"
     :current-version-label="currentTrackerViewerVersionLabel"
+    :keyboard-shortcuts="true"
     :can-add-versions="canAddVersions"
     :can-delete-versions="canDeleteShots"
     :can-download-versions="showShotDownloads"
@@ -36,7 +37,7 @@
     :label="currentTrackerViewerStatusOption.label"
     :accent="getTrackerStatusColor(currentTrackerViewerShot.status)"
     :accent-text="getTrackerStatusTextColor(currentTrackerViewerShot.status)"
-    :interactive="canEditProject && !shareMode"
+    :interactive="true"
     :open="showStatusPicker === currentTrackerViewerShot.shot_id"
     :flip-up="false"
     @trigger="toggleShotStatusPicker($event, currentTrackerViewerShot.shot_id)"
@@ -55,6 +56,9 @@
           :key="option.value"
           class="v-dropdown-item tracker-select-option"
           :class="{ active: currentTrackerViewerShot.status === option.value }"
+          type="button"
+          role="menuitemradio"
+          :aria-checked="currentTrackerViewerShot.status === option.value ? 'true' : 'false'"
           @click="selectStatus(currentTrackerViewerShot, option.value)"
         >
           <span
@@ -125,7 +129,6 @@ const {
 const {
   canAddVersions,
   canDeleteShots,
-  canEditProject,
   showShotDownloads,
 } = useSessionAuthStore()
 

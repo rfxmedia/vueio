@@ -26,9 +26,9 @@ jobs:
           PRIVATE_CREDENTIALS_ROTATED_TAG: ${{ vars.VUEIO_PRIVATE_CREDENTIALS_ROTATED_TAG }}
         run: |
           set -Eeuo pipefail
-          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$'
+          pattern='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)(\.dev\.(0|[1-9][0-9]*))?$'
           [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME =~ $pattern ]] || {
-            echo "Releases require an immutable vX.Y.Z-alpha.N tag without leading zeroes." >&2
+            echo "Releases require an immutable vX.Y.Z-alpha.N or vX.Y.Z-alpha.N.dev.M tag without leading zeroes." >&2
             exit 1
           }
           [[ $DISTRIBUTION_REVIEWED_TAG == "$GITHUB_REF_NAME" ]] || {
@@ -122,6 +122,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -228,26 +229,34 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Confirm installers can pull the release images anonymously
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          anonymous_config="$RUNNER_TEMP/anonymous-docker"
+          mkdir -p "$anonymous_config"
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          for component in engine ui; do
+            image="ghcr.io/${owner}/vueio-${component}:${GITHUB_REF_NAME}"
+            DOCKER_CONFIG="$anonymous_config" docker manifest inspect "$image" >/dev/null || {
+              echo "Release image is not anonymously pullable: $image" >&2
+              echo "Make both Vueio container packages public, then rerun this workflow." >&2
+              exit 1
+            }
+          done
       - name: Prepare verified release assets
         shell: bash
         run: |
           set -Eeuo pipefail
           mkdir release-assets
-          cp ops/vueioctl compose.release.yml LICENSE.md TRADEMARKS.md release-assets/
+          cp ops/vueioctl compose.release.yml LICENSE.md THIRD_PARTY_NOTICES.md TRADEMARKS.md release-assets/
           sed "s/^VERSION=.*/VERSION=\${VUEIO_VERSION:-${GITHUB_REF_NAME}}/" \
             install.sh >release-assets/install.sh
-          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          release_root="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases"
-          for asset in install.sh vueioctl compose.release.yml; do
-            sed -i \
-              -e "s|ghcr.io/your-owner|ghcr.io/${owner}|g" \
-              -e "s|https://github.com/your-owner/vueio/releases|${release_root}|g" \
-              -e "s|VUEIO_UPDATE_REPOSITORY=your-owner/vueio|VUEIO_UPDATE_REPOSITORY=${GITHUB_REPOSITORY}|g" \
-              "release-assets/$asset"
-          done
-          if grep -R -E 'your-owner|<release-tag>' release-assets; then
+          placeholder=$(printf '%s%s' 'your-' 'owner')
+          if grep -R -F "$placeholder" release-assets; then
             echo "Release assets still contain repository placeholders" >&2
             exit 1
           fi
@@ -306,6 +315,7 @@ jobs:
             vueioctl
             compose.release.yml
             LICENSE.md
+            THIRD_PARTY_NOTICES.md
             TRADEMARKS.md
             IMAGE_DIGESTS.txt
             vueio-engine-linux-amd64.spdx.json
@@ -328,22 +338,35 @@ jobs:
         run: |
           set -Eeuo pipefail
           notes="$RUNNER_TEMP/vueio-release-notes.md"
+          authored_notes=$(git for-each-ref \
+            --format='%(contents)' "refs/tags/$GITHUB_REF_NAME")
+          [[ -n ${authored_notes//[[:space:]]/} ]] || {
+            echo "The annotated release tag has no user-facing release notes." >&2
+            exit 1
+          }
           {
+            printf '%s\n\n' "$authored_notes"
+            printf '%s\n\n' '---'
             printf 'Source-available Vueio alpha release. Review LICENSE.md before installation.\n\n'
             printf 'Verified multi-architecture image manifests:\n\n```text\n'
             cat release-assets/IMAGE_DIGESTS.txt
             printf '```\n'
           } >"$notes"
+          release_flags=()
+          if [[ $GITHUB_REF_NAME == *.dev.* ]]; then
+            release_flags+=(--prerelease)
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
-            --prerelease \
+            "${release_flags[@]}" \
             --title "Vueio $GITHUB_REF_NAME" \
             --notes-file "$notes" \
             release-assets/install.sh \
             release-assets/compose.release.yml \
             release-assets/vueioctl \
             release-assets/LICENSE.md \
+            release-assets/THIRD_PARTY_NOTICES.md \
             release-assets/TRADEMARKS.md \
             release-assets/IMAGE_DIGESTS.txt \
             release-assets/vueio-engine-linux-amd64.spdx.json \

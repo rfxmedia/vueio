@@ -76,7 +76,7 @@
         </div>
       </div>
       <template v-else>
-        <video :ref="setVideoElRef" :muted="playerMuted" :loop="nativeVideoLoop" @timeupdate="onTimeUpdate" @loadedmetadata="onLoaded" @canplay="onVideoCanPlay" @ended="onVideoEnded" @play="onVideoPlay" @pause="onVideoPause" @seeked="onVideoSeeked" playsinline webkit-playsinline preload="auto"></video>
+        <video :ref="setVideoElRef" :muted="playerMuted" :loop="nativeVideoLoop" :poster="videoPosterUrl || undefined" @timeupdate="onTimeUpdate" @loadedmetadata="onLoaded" @canplay="onVideoCanPlay" @ended="onVideoEnded" @play="onVideoPlay" @pause="onVideoPause" @seeked="onVideoSeeked" playsinline webkit-playsinline preload="metadata"></video>
 
         <canvas
           :ref="setAnnotationCanvasRef"
@@ -99,9 +99,10 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clamp } from '../../utils/math'
-import MediaPdfViewer from './MediaPdfViewer.vue'
+
+const MediaPdfViewer = defineAsyncComponent(() => import('./MediaPdfViewer.vue'))
 
 const props = defineProps({
   playerMainClass: { type: [String, Array, Object], default: '' },
@@ -113,6 +114,7 @@ const props = defineProps({
   showStreamPreparingOverlay: { type: Boolean, default: false },
   streamProgress: { type: Number, default: 0 },
   mediaStreamUrl: { type: String, default: '' },
+  videoPosterUrl: { type: String, default: '' },
   mediaUnavailable: { type: Boolean, default: false },
   currentMedia: { type: Object, default: null },
   comments: { type: Array, default: () => [] },
@@ -157,6 +159,10 @@ let dragStartY = 0
 let dragOriginX = 0
 let dragOriginY = 0
 let gestureScaleOrigin = 1
+let dragBounds = null
+let pendingDragPoint = null
+let imageDragFrame = 0
+let imageResizeFrame = 0
 
 const canUseImageDesktopNavigation = computed(() => (
   props.enableImageDesktopNavigation &&
@@ -186,17 +192,27 @@ function resetImageTransform() {
   stopImageDrag()
 }
 
-function clampImagePan(nextX, nextY, nextScale = imageScale.value) {
+function readImagePanBounds() {
   const shell = imageShellRef.value
   const stage = imageStageRef.value
-  if (!shell || !stage || nextScale <= 1.001) {
-    return { x: 0, y: 0 }
+  if (!shell || !stage) return null
+  return {
+    shellWidth: Number(shell.clientWidth || 0),
+    shellHeight: Number(shell.clientHeight || 0),
+    stageWidth: Number(stage.offsetWidth || 0),
+    stageHeight: Number(stage.offsetHeight || 0),
   }
+}
 
-  const shellWidth = Number(shell.clientWidth || 0)
-  const shellHeight = Number(shell.clientHeight || 0)
-  const stageWidth = Number(stage.offsetWidth || 0)
-  const stageHeight = Number(stage.offsetHeight || 0)
+function clampImagePan(nextX, nextY, nextScale = imageScale.value, bounds = null) {
+  if (nextScale <= 1.001) return { x: 0, y: 0 }
+
+  const {
+    shellWidth = 0,
+    shellHeight = 0,
+    stageWidth = 0,
+    stageHeight = 0,
+  } = bounds || readImagePanBounds() || {}
   if (!shellWidth || !shellHeight || !stageWidth || !stageHeight) {
     return { x: nextX, y: nextY }
   }
@@ -210,8 +226,8 @@ function clampImagePan(nextX, nextY, nextScale = imageScale.value) {
   }
 }
 
-function applyImagePan(nextX, nextY, nextScale = imageScale.value) {
-  const clamped = clampImagePan(nextX, nextY, nextScale)
+function applyImagePan(nextX, nextY, nextScale = imageScale.value, bounds = null) {
+  const clamped = clampImagePan(nextX, nextY, nextScale, bounds)
   imagePanX.value = clamped.x
   imagePanY.value = clamped.y
 }
@@ -288,6 +304,7 @@ function handleImagePointerDown(event) {
   dragStartY = event.clientY
   dragOriginX = imagePanX.value
   dragOriginY = imagePanY.value
+  dragBounds = readImagePanBounds()
   window.addEventListener('mousemove', handleWindowImageDrag)
   window.addEventListener('mouseup', stopImageDrag)
 }
@@ -295,13 +312,31 @@ function handleImagePointerDown(event) {
 function handleWindowImageDrag(event) {
   if (!isImageDragging.value) return
   event.preventDefault()
+  pendingDragPoint = { x: event.clientX, y: event.clientY }
+  if (imageDragFrame) return
+  imageDragFrame = window.requestAnimationFrame(flushImageDrag)
+}
+
+function flushImageDrag() {
+  imageDragFrame = 0
+  if (!pendingDragPoint) return
+  const point = pendingDragPoint
+  pendingDragPoint = null
   applyImagePan(
-    dragOriginX + (event.clientX - dragStartX),
-    dragOriginY + (event.clientY - dragStartY),
+    dragOriginX + (point.x - dragStartX),
+    dragOriginY + (point.y - dragStartY),
+    imageScale.value,
+    dragBounds,
   )
 }
 
 function stopImageDrag() {
+  if (imageDragFrame) {
+    window.cancelAnimationFrame(imageDragFrame)
+    imageDragFrame = 0
+  }
+  flushImageDrag()
+  dragBounds = null
   if (isImageDragging.value) {
     isImageDragging.value = false
   }
@@ -339,6 +374,15 @@ function clampImagePanToBounds() {
   applyImagePan(imagePanX.value, imagePanY.value, imageScale.value)
 }
 
+function scheduleImagePanClamp() {
+  if (imageResizeFrame) return
+  imageResizeFrame = window.requestAnimationFrame(() => {
+    imageResizeFrame = 0
+    dragBounds = isImageDragging.value ? readImagePanBounds() : null
+    clampImagePanToBounds()
+  })
+}
+
 watch(() => props.currentMedia?.path, () => {
   resetImageTransform()
 })
@@ -350,12 +394,13 @@ watch(() => props.isViewingImage, (isViewingImage) => {
 })
 
 onMounted(() => {
-  window.addEventListener('resize', clampImagePanToBounds)
+  window.addEventListener('resize', scheduleImagePanClamp)
 })
 
 onUnmounted(() => {
   stopImageDrag()
-  window.removeEventListener('resize', clampImagePanToBounds)
+  if (imageResizeFrame) window.cancelAnimationFrame(imageResizeFrame)
+  window.removeEventListener('resize', scheduleImagePanClamp)
 })
 </script>
 
@@ -550,8 +595,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   padding: var(--v-attachment-lightbox-padding);
-  background: color-mix(in srgb, var(--v-bg-base) 78%, transparent);
-  backdrop-filter: blur(14px);
+  background: color-mix(in srgb, var(--v-bg-base) 90%, transparent);
 }
 
 .v-attachment-lightbox-panel {

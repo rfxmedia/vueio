@@ -8,7 +8,7 @@
     >
       <button class="v-btn v-btn-primary v-btn-sm" @click="$emit('open-create-user-modal')">
         <svg class="icon"><use href="#icon-plus" /></svg>
-        New Member
+        Add member
       </button>
     </AdminSettingsHeader>
 
@@ -56,7 +56,7 @@
             <label class="v-btn v-btn-secondary v-btn-sm" :class="{ 'is-disabled': identityLogoSaving }">
               <input type="file" hidden accept="image/*" :disabled="identityLogoSaving" @change="$emit('identity-logo-change', $event)" />
               <svg class="icon"><use href="#icon-upload" /></svg>
-              <span>{{ identityLogoUrl ? 'Replace Logo' : 'Upload Logo' }}</span>
+              <span>{{ identityLogoUrl ? 'Replace logo' : 'Upload logo' }}</span>
             </label>
             <button
               v-if="identityLogoUrl"
@@ -84,7 +84,7 @@
         <p v-if="identityMessage" class="v-inline-note admin-note">{{ identityMessage }}</p>
         <div class="admin-card-actions">
           <button class="v-btn v-btn-primary" :disabled="identitySaving" @click="$emit('save-identity')">
-            {{ identitySaving ? 'Saving' : 'Save Team Profile' }}
+            {{ identitySaving ? 'Saving' : 'Save team profile' }}
           </button>
         </div>
       </div>
@@ -97,8 +97,8 @@
             <p class="settings-copy">Manage who can access Vueio and what workspace surfaces they can enter.</p>
           </div>
           <div class="team-member-counts">
-            <span>{{ adminUserCount }} admins</span>
-            <span>{{ artistUserCount }} artists</span>
+            <span>{{ adminUserCount }} {{ adminUserCount === 1 ? 'admin' : 'admins' }}</span>
+            <span>{{ artistUserCount }} {{ artistUserCount === 1 ? 'artist' : 'artists' }}</span>
           </div>
         </div>
 
@@ -186,8 +186,8 @@ defineEmits([
   display: grid;
   grid-template-columns: minmax(420px, 0.82fr) minmax(500px, 1fr);
   align-items: start;
-  gap: 14px;
-  padding: 14px;
+  gap: var(--v-space-4);
+  padding-top: var(--v-space-4);
 }
 
 .identity-panel {
@@ -197,10 +197,11 @@ defineEmits([
 .team-profile-panel,
 .team-members-panel {
   max-width: none;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-tint);
+  padding: var(--v-space-4);
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .team-members-panel {
@@ -344,10 +345,9 @@ defineEmits([
 }
 
 .identity-hero {
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 58%, transparent);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-tint);
+  align-items: flex-start;
+  padding: 0 0 var(--v-space-4);
+  border-bottom: 1px solid var(--v-divider-subtle);
 }
 
 .identity-logo-preview,
@@ -389,14 +389,15 @@ defineEmits([
 .identity-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  gap: var(--v-space-3);
 }
 
 .identity-logo-row {
   justify-content: space-between;
   padding: 12px 14px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 54%, transparent);
-  border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-bg-field) 38%, transparent);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-well);
+  box-shadow: var(--v-surface-well-ring);
 }
 
 .identity-logo-actions {
@@ -464,7 +465,6 @@ defineEmits([
 @media (max-width: 1100px) {
   .team-settings-shell {
     grid-template-columns: 1fr;
-    padding: 10px;
   }
 }
 
@@ -481,6 +481,7 @@ defineEmits([
 
   .team-settings-shell {
     grid-template-columns: 1fr;
+    padding-top: var(--v-space-3);
   }
 
   .team-members-head,

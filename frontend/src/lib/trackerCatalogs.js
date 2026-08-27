@@ -50,6 +50,7 @@ const TRACKER_EVENT_ICONS = {
   download_started: '#icon-download',
   version_added: '#icon-video',
   versions_bulk_updated: '#icon-video',
+  versions_updated: '#icon-video',
   version_published: '#icon-eye',
   version_kept_internal: '#icon-eye-off',
   version_removed_from_shares: '#icon-eye-off',
@@ -59,6 +60,40 @@ const TRACKER_EVENT_ICONS = {
   comment_added: '#icon-comment',
   comment_resolved: '#icon-check',
   comment_deleted: '#icon-trash',
+  tracker_checkpoint: '#icon-clock',
+  tracker_updated: '#icon-settings',
+  tracker_restored: '#icon-clock',
+}
+
+const TRACKER_EVENT_COLORS = {
+  shot_created: 'var(--v-accent)',
+  shot_deleted: 'var(--v-danger)',
+  shot_archived: 'var(--v-warning)',
+  shot_restored: 'var(--v-accent)',
+  shot_reordered: 'var(--v-text-secondary)',
+  shot_renamed: 'var(--v-info)',
+  brief_changed: 'var(--v-page)',
+  brief_file_uploaded: 'var(--v-info)',
+  shots_imported: 'var(--v-accent)',
+  status_changed: 'var(--v-info)',
+  category_changed: 'var(--v-page)',
+  assignee_changed: 'var(--v-warning)',
+  download_started: 'var(--v-info)',
+  version_added: 'var(--v-info)',
+  versions_bulk_updated: 'var(--v-info)',
+  versions_updated: 'var(--v-info)',
+  version_published: 'var(--v-accent)',
+  version_kept_internal: 'var(--v-text-secondary)',
+  version_removed_from_shares: 'var(--v-warning)',
+  status_changed_bulk: 'var(--v-info)',
+  shots_bulk_updated: 'var(--v-info)',
+  shots_deleted_bulk: 'var(--v-danger)',
+  comment_added: 'var(--v-info)',
+  comment_resolved: 'var(--v-accent)',
+  comment_deleted: 'var(--v-danger)',
+  tracker_checkpoint: 'var(--v-text-secondary)',
+  tracker_updated: 'var(--v-text-secondary)',
+  tracker_restored: 'var(--v-accent)',
 }
 
 export function getTrackerStatusLabel(status) {
@@ -75,4 +110,8 @@ export function getTrackerStatusTextColor(status) {
 
 export function getTrackerEventIcon(type) {
   return TRACKER_EVENT_ICONS[type] || '#icon-activity'
+}
+
+export function getTrackerEventColor(type) {
+  return TRACKER_EVENT_COLORS[type] || 'var(--v-text-muted)'
 }

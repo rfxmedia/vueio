@@ -80,7 +80,6 @@ const {
 const sidebarTab = state.sidebarTab
 const publicationNeedsAttention = computed(() => (
   presentation.canManageVersionPublication?.value
-  && presentation.versionReviewEnabled?.value
   && String(state.currentMedia.value?.share_state || '').trim().toLowerCase() === 'pending'
 ))
 const sidebarTabs = computed(() => (
@@ -113,6 +112,7 @@ const surfaceProps = computed(() => ({
   mediaStreamUrl: core.mediaStreamUrl.value,
   mediaUnavailable: state.mediaUnavailable.value,
   currentMedia: state.currentMedia.value,
+  videoPosterUrl: state.currentMedia.value ? core.getThumbnailUrl(state.currentMedia.value) : '',
   comments: comments.comments.value,
   playerMuted: transport.playerMuted.value,
   nativeVideoLoop: transport.nativeVideoLoopEnabled.value,
@@ -146,9 +146,11 @@ const surfaceProps = computed(() => ({
 const toolbarProps = computed(() => ({
   comments: comments.comments.value,
   duration: transport.duration.value,
-  progress: transport.progress.value,
-  currentTime: transport.currentTime.value,
-  currentFrame: state.currentFrame.value,
+  // The playback clock is passed as a ref, not a value: reading it here would
+  // rebuild these props (and re-render the host + toolbar) 60×/s during
+  // playback. The toolbar writes clock-driven DOM imperatively instead.
+  currentTimeRef: transport.currentTime,
+  frameRate: videoFrameRate.value,
   streamPreparing: stream.preparing.value,
   playerVolume: transport.playerVolume.value,
   loopEnabled: transport.loopEnabled.value,
@@ -195,10 +197,12 @@ const infoPanelProps = computed(() => ({
 
 const commentsPanelProps = computed(() => ({
   comments: comments.comments.value,
+  commentPosting: comments.commentPosting?.value ?? false,
   userName: comments.userName.value,
   pendingAnnotation: annotations.pendingAnnotation.value,
   replyTarget: comments.replyTarget.value,
   pendingCommentAttachments: comments.pendingCommentAttachments.value,
+  mentionContext: comments.mentionContext?.value ?? { enabled: false, projectId: '', trackerId: '', shots: [] },
   pendingVoiceNote: comments.pendingVoiceNote?.value ?? null,
   voiceRecorderState: comments.voiceRecorderState?.value ?? 'idle',
   voiceRecorderSupported: comments.voiceRecorderSupported?.value ?? false,
@@ -223,6 +227,7 @@ const commentsPanelProps = computed(() => ({
   onRemovePendingCommentAttachment: comments.removePendingCommentAttachment,
   onHandleCommentAttachmentChange: comments.handleCommentAttachmentChange,
   onAddPendingCommentReferences: comments.addPendingCommentReferences,
+  onAddPendingInlineMention: comments.addPendingInlineMention,
   onStartVoiceRecording: comments.startVoiceRecording,
   onStopVoiceRecording: comments.stopVoiceRecording,
   onCancelVoiceRecording: comments.cancelVoiceRecording,

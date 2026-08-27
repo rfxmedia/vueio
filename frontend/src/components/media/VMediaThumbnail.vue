@@ -1,5 +1,5 @@
 <template>
-  <div class="v-media-thumb" :class="{ 'is-pending': isPending, 'is-ready': isReady, 'is-failed': isFailed }">
+  <div ref="thumbnailRoot" class="v-media-thumb" :class="{ 'is-pending': isPending, 'is-ready': isReady, 'is-failed': isFailed }">
     <img
       v-if="resolvedSrc"
       class="v-media-thumb-image"
@@ -7,6 +7,8 @@
       :src="resolvedSrc"
       :alt="alt"
       loading="lazy"
+      decoding="async"
+      fetchpriority="low"
       @load="handleImageLoad"
       @error="handleImageError"
     />
@@ -20,10 +22,15 @@
 </template>
 
 <script setup>
-import { onBeforeUnmount, ref, watch } from 'vue'
-import api from '../../lib/api'
-
-const thumbnailStateCache = new Map()
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import {
+  clearThumbnailState,
+  getThumbnailState,
+  observeThumbnail,
+  probeThumbnail,
+  setThumbnailState,
+  subscribeToThumbnailVisibility,
+} from './mediaThumbnailProbe'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -32,12 +39,21 @@ const props = defineProps({
   pollPending: { type: Boolean, default: true },
 })
 
+const emit = defineEmits(['visible'])
+
 const resolvedSrc = ref('')
 const isPending = ref(false)
 const isReady = ref(false)
 const isFailed = ref(false)
+const thumbnailRoot = ref(null)
 let refreshTimer = null
 let requestToken = 0
+let isObserved = false
+let isDocumentVisible = typeof document === 'undefined' || document.visibilityState !== 'hidden'
+let retryDelayMs = Math.max(400, props.pollMs || 1500)
+let visibleEmittedSrc = ''
+let stopObserving = null
+let stopVisibilitySubscription = null
 
 function clearRefreshTimer() {
   if (!refreshTimer) return
@@ -45,17 +61,22 @@ function clearRefreshTimer() {
   refreshTimer = null
 }
 
-function scheduleRetry() {
-  clearRefreshTimer()
-  refreshTimer = setTimeout(() => {
-    if (props.src && thumbnailStateCache.get(props.src) === 'pending') {
-      thumbnailStateCache.delete(props.src)
-    }
-    refreshSource(props.src)
-  }, Math.max(400, props.pollMs || 1500))
+function canProbe() {
+  return isObserved && isDocumentVisible
 }
 
-async function refreshSource(src) {
+function scheduleRetry() {
+  clearRefreshTimer()
+  if (!canProbe() || !props.pollPending) return
+  const delay = retryDelayMs
+  refreshTimer = setTimeout(() => {
+    if (!canProbe()) return
+    retryDelayMs = Math.min(delay * 2, 15000)
+    refreshSource(props.src, { forceProbe: true })
+  }, delay)
+}
+
+async function refreshSource(src, { forceProbe = false } = {}) {
   clearRefreshTimer()
   requestToken += 1
   const token = requestToken
@@ -68,38 +89,42 @@ async function refreshSource(src) {
     return
   }
 
-  const cachedState = thumbnailStateCache.get(src)
+  resolvedSrc.value = ''
+  isFailed.value = false
+  isPending.value = false
+  isReady.value = false
+
+  // Do not assign an image URL until the thumbnail is near the viewport.
+  // Native lazy loading is retained as a second browser-level safeguard.
+  if (!canProbe()) return
+
+  const cachedState = getThumbnailState(src)
   if (cachedState === 'ready') {
-    resolvedSrc.value = src
     isPending.value = false
-    isReady.value = false
-    isFailed.value = false
+    isReady.value = true
+    resolvedSrc.value = src
     return
   }
-  if (cachedState === 'pending') {
+  if (cachedState === 'pending' && !forceProbe) {
     resolvedSrc.value = ''
     isPending.value = props.pollPending
     isReady.value = false
-    isFailed.value = false
     if (props.pollPending) scheduleRetry()
     return
   }
 
-  isFailed.value = false
-  resolvedSrc.value = src
-  isPending.value = false
-  isReady.value = false
+  isPending.value = true
 
   try {
-    const response = await api.head(src)
+    const state = await probeThumbnail(src)
     if (token !== requestToken) return
-    const contentType = String(response.headers?.['content-type'] || '').toLowerCase()
-    const pending = contentType.includes('image/svg+xml')
-    thumbnailStateCache.set(src, pending ? 'pending' : 'ready')
+    const pending = state === 'pending'
     isPending.value = pending && props.pollPending
     if (pending) {
       resolvedSrc.value = ''
       isReady.value = false
+    } else {
+      resolvedSrc.value = src
     }
     if (pending && props.pollPending) {
       scheduleRetry()
@@ -111,29 +136,62 @@ async function refreshSource(src) {
   }
 }
 
+function handleIntersection(intersecting) {
+  isObserved = intersecting
+  if (!intersecting) {
+    clearRefreshTimer()
+    return
+  }
+  if (props.src && visibleEmittedSrc !== props.src) {
+    visibleEmittedSrc = props.src
+    emit('visible', props.src)
+  }
+  refreshSource(props.src)
+}
+
+function handleVisibilityChange(visible) {
+  isDocumentVisible = visible
+  if (!visible) {
+    clearRefreshTimer()
+    return
+  }
+  if (isObserved) refreshSource(props.src)
+}
+
 function handleImageLoad() {
   if (!props.src || isPending.value) return
-  thumbnailStateCache.set(props.src, 'ready')
+  setThumbnailState(props.src, 'ready')
   isReady.value = true
   isFailed.value = false
 }
 
 function handleImageError() {
   if (isPending.value) return
-  if (props.src) thumbnailStateCache.delete(props.src)
+  if (props.src) clearThumbnailState(props.src)
   resolvedSrc.value = ''
   isReady.value = false
   isFailed.value = true
 }
 
 watch(() => props.src, (next) => {
+  requestToken += 1
+  clearRefreshTimer()
+  retryDelayMs = Math.max(400, props.pollMs || 1500)
+  visibleEmittedSrc = ''
   isReady.value = false
   refreshSource(next)
 }, { immediate: true })
 
+onMounted(() => {
+  stopVisibilitySubscription = subscribeToThumbnailVisibility(handleVisibilityChange)
+  stopObserving = observeThumbnail(thumbnailRoot.value, handleIntersection)
+})
+
 onBeforeUnmount(() => {
   requestToken += 1
   clearRefreshTimer()
+  stopObserving?.()
+  stopVisibilitySubscription?.()
 })
 </script>
 

@@ -1,7 +1,9 @@
 import { ref, reactive, computed, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { normalizeMediaEntity } from '../lib/mediaEntity'
+import { normalizeProjectContentItems } from '../lib/projectContentItems'
 import { notify } from '../utils/toasts'
+import { formatVersionLabel } from '../utils/versionLabels'
 
 const TRACKER_IMPORT_MEDIA_EXTS = new Set([
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif',
@@ -9,6 +11,13 @@ const TRACKER_IMPORT_MEDIA_EXTS = new Set([
 ])
 
 const PROJECT_PICKER_MODES = new Set(['shot-import', 'shot', 'bulk-version-update', 'comment-reference'])
+
+function isTrackerImportMediaItem(item) {
+  if (!item) return false
+  if (item.type === 'image' || item.type === 'video') return true
+  const ext = String(item.extension || item.name || '').split('.').pop()?.toLowerCase?.() || ''
+  return TRACKER_IMPORT_MEDIA_EXTS.has(ext)
+}
 
 export function useFilePickerModal({
   canAddShots,
@@ -21,7 +30,6 @@ export function useFilePickerModal({
   getLatestShotFilePath,
   formatTimecode,
   refreshCurrentTrackerPreserveState,
-  openTracker,
   refreshProjectContents,
   onThumbnailSourcePicked,
   onDeliveryLogoSourcePicked,
@@ -47,7 +55,9 @@ export function useFilePickerModal({
   let commentReferenceApplyHandler = null
   let commentUploadHandler = null
   const versionPickerCurrentInfo = ref(null)
+  const pendingPickerMediaInfoPaths = new Set()
   let versionPickerCurrentInfoToken = 0
+  let pickerMediaInfoQueueRunning = false
 
   const currentTrackerRef = () => (
     currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || ''
@@ -118,13 +128,6 @@ export function useFilePickerModal({
   })
 
   const selectedVersionPickerCurrentPath = computed(() => selectedVersionPickerCurrentMedia.value?.path || '')
-  function isTrackerImportMediaItem(item) {
-    if (!item) return false
-    if (item.type === 'image' || item.type === 'video') return true
-    const ext = String(item.extension || item.name || '').split('.').pop()?.toLowerCase?.() || ''
-    return TRACKER_IMPORT_MEDIA_EXTS.has(ext)
-  }
-
   const versionPickerBrowserItems = computed(() => {
     const query = versionPickerFileSearch.value.trim().toLowerCase()
     const filteredItems = pickerFiles.value.filter(item => {
@@ -171,7 +174,8 @@ export function useFilePickerModal({
   ))
   const shotImportApplyLabel = computed(() => {
     const count = selectedShotImportCount.value
-    if (shotImportApplyBusy.value) return 'Importing...'
+    if (shotImportApplyBusy.value) return count === 1 ? 'Importing 1 file…' : `Importing ${count} files…`
+    if (count === 0) return 'Import files'
     if (count === 1) return 'Import 1 file'
     return `Import ${count} files`
   })
@@ -184,6 +188,7 @@ export function useFilePickerModal({
   const projectLinkApplyLabel = computed(() => {
     const count = selectedProjectLinkCount.value
     if (projectLinkApplyBusy.value) return 'Linking...'
+    if (count === 0) return pickerMode.value === 'comment-reference' ? 'Attach items' : 'Link files'
     if (pickerMode.value === 'comment-reference') return count === 1 ? 'Attach 1 item' : `Attach ${count} items`
     if (count === 1) return 'Link 1 file'
     return `Link ${count} files`
@@ -210,6 +215,7 @@ export function useFilePickerModal({
   }
 
   function closeFilePicker() {
+    pendingPickerMediaInfoPaths.clear()
     showFilePicker.value = false
   }
 
@@ -231,7 +237,7 @@ export function useFilePickerModal({
 
   function getMediaDurationLabel(mediaInput, info = null) {
     const media = typeof mediaInput === 'string' ? { path: mediaInput } : normalizeMediaEntity(mediaInput)
-    const source = info || getQuickMediaInfo(media?.path)
+    const source = info || getQuickMediaInfo(media?.path) || media
     if (!source) return ''
     if (source.duration_formatted) return source.duration_formatted
     if (Number.isFinite(source.duration) && source.duration > 0) return formatTimecode(source.duration)
@@ -294,20 +300,7 @@ export function useFilePickerModal({
 
   function normalizePickerItems(items = []) {
     if (effectivePickerSource.value !== 'project') return items || []
-    return (items || [])
-      .filter(item => ['folder', 'file', 'tracker', 'page'].includes(item?.type))
-      .map(item => {
-        if (item.type === 'folder') return { ...item, _pickerSource: 'project' }
-        if (item.type === 'tracker') return { ...item, _pickerSource: 'project' }
-        if (item.type === 'page') return { ...item, _pickerSource: 'project' }
-        return {
-          ...item,
-          type: item.is_video ? 'video' : item.is_image ? 'image' : 'file',
-          project_item_type: 'file',
-          _pickerSource: 'project',
-          _projectFile: !item.is_linked,
-        }
-      })
+    return normalizeProjectContentItems(items)
   }
 
   function getTrackerImportFilePath(item) {
@@ -353,6 +346,32 @@ export function useFilePickerModal({
         mediaQuickInfo[path] = { ...(mediaQuickInfo[path] || {}), path, _loading: false, _loaded: false }
       })
     }
+  }
+
+  async function drainPickerMediaInfoQueue() {
+    if (pickerMediaInfoQueueRunning) return
+    pickerMediaInfoQueueRunning = true
+    try {
+      // Duration probes can invoke ffprobe, so enrich only one visible row at
+      // a time. Cached results still return immediately from the backend.
+      while (showFilePicker.value && pendingPickerMediaInfoPaths.size) {
+        const path = pendingPickerMediaInfoPaths.values().next().value
+        pendingPickerMediaInfoPaths.delete(path)
+        await fetchBatchMediaInfo([path])
+      }
+    } finally {
+      pickerMediaInfoQueueRunning = false
+      if (showFilePicker.value && pendingPickerMediaInfoPaths.size) void drainPickerMediaInfoQueue()
+    }
+  }
+
+  function requestPickerItemMediaInfo(item) {
+    if (!showFilePicker.value || !item || ['folder', 'tracker', 'page'].includes(item.type)) return
+    const path = getPickerItemMedia(item)?.path || item.path || ''
+    const cached = path ? mediaQuickInfo[path] : null
+    if (!path || cached?._loaded || cached?._loading || pendingPickerMediaInfoPaths.has(path)) return
+    pendingPickerMediaInfoPaths.add(path)
+    void drainPickerMediaInfoQueue()
   }
 
   async function fetchDetailedMediaInfo(mediaInput) {
@@ -497,6 +516,9 @@ export function useFilePickerModal({
 
   function getPickerSelectionKey(item) {
     if (pickerMode.value === 'comment-reference') {
+      if (item?.type === 'folder') {
+        return item.path ? `folder:${item.path}` : ''
+      }
       if (item?.type === 'tracker' || item?.type === 'page') {
         return item.id ? `${item.type}:${item.id}` : ''
       }
@@ -515,7 +537,7 @@ export function useFilePickerModal({
 
   function togglePickerSelectedItem(item) {
     const key = getPickerSelectionKey(item)
-    if (!key || item.type === 'folder') return
+    if (!key || (item.type === 'folder' && pickerMode.value !== 'comment-reference')) return
     const existingIndex = pickerSelectedItems.value.findIndex(selected => getPickerSelectionKey(selected) === key)
     if (existingIndex >= 0) {
       pickerSelectedItems.value = pickerSelectedItems.value.filter((_, index) => index !== existingIndex)
@@ -536,6 +558,48 @@ export function useFilePickerModal({
     versionPickerSelectedCandidatePath.value = item?.path || ''
   }
 
+  function notifyVersionAdded(updatedShot, shot, previousStatus) {
+    const versions = updatedShot?.versions || []
+    const latest = versions.find(version => (
+      String(version?.label ?? version?.version ?? '').trim()
+      === String(updatedShot?.latest_version_label ?? '').trim()
+    )) || versions[versions.length - 1]
+    const versionLabel = formatVersionLabel(latest, versions.length)
+    const shotLabel = updatedShot?.shot_id || shot.shot_id || 'Shot'
+    if (latest?.share_state === 'pending') {
+      notify(`${versionLabel} added to ${shotLabel}. It is awaiting publication and hidden from shares.`)
+    } else if (updatedShot?.status === 'waiting_review' && previousStatus !== 'waiting_review') {
+      notify(`${versionLabel} added. ${shotLabel} moved to Review.`)
+    } else {
+      notify(`${versionLabel} added to ${shotLabel}.`)
+    }
+  }
+
+  async function addVersionToShot(shot, candidate, { notes = '', announce = false } = {}) {
+    if (!canAddVersions.value || !currentProject.value || !currentTracker.value || versionPickerApplyBusy.value) return false
+    const shotRef = getShotPickerRef(shot)
+    const filePath = getTrackerImportFilePath(candidate)
+    if (!shotRef || !filePath || candidate?.type === 'folder' || !isTrackerImportMediaItem(candidate)) return false
+
+    versionPickerApplyBusy.value = true
+    try {
+      const previousStatus = shot.status
+      const { data: updatedShot } = await api.put(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/${encodeURIComponent(shotRef)}`, {
+        file_path: filePath,
+        version_notes: String(notes || '').trim() || null,
+      })
+
+      if (announce) notifyVersionAdded(updatedShot, shot, previousStatus)
+      await refreshCurrentTrackerPreserveState()
+      return true
+    } catch (error) {
+      notify('Failed to add version: ' + (getApiErrorMessage(error, 'Unknown error')))
+      return false
+    } finally {
+      versionPickerApplyBusy.value = false
+    }
+  }
+
   async function applyVersionPickerSelection() {
     if (!currentProject.value || !currentTracker.value) return
 
@@ -550,30 +614,40 @@ export function useFilePickerModal({
       ? getShotPickerRef(nextBulkShot) || shotRef
       : shotRef
 
-    versionPickerApplyBusy.value = true
+    const added = await addVersionToShot(shot, candidate, {
+      notes: versionPickerNotes.value,
+      announce: pickerMode.value === 'shot',
+    })
+    if (!added) return false
 
-    try {
-      if (!shotRef) throw new Error('Shot reference missing')
-      await api.put(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/${encodeURIComponent(shotRef)}`, {
-        file_path: getTrackerImportFilePath(candidate),
-        version_notes: versionPickerNotes.value.trim() || null,
-      })
+    const refreshedShot = (currentTracker.value?.shots || []).find(item => getShotPickerRef(item) === nextShotRef || item.shot_id === nextShotRef)
+    if (refreshedShot) setVersionPickerTarget(refreshedShot)
+    versionPickerSelectedCandidatePath.value = ''
+    versionPickerNotes.value = ''
+    return true
+  }
 
-      await refreshCurrentTrackerPreserveState()
-      const refreshedShot = (currentTracker.value?.shots || []).find(item => getShotPickerRef(item) === nextShotRef || item.shot_id === nextShotRef)
-      if (refreshedShot) setVersionPickerTarget(refreshedShot)
-      versionPickerSelectedCandidatePath.value = ''
-      versionPickerNotes.value = ''
-    } catch (error) {
-      notify('Failed to add version: ' + (getApiErrorMessage(error, 'Unknown error')))
-    } finally {
-      versionPickerApplyBusy.value = false
+  async function addProjectItemVersion(shot, item) {
+    if (!canAddVersions.value) {
+      notify('You do not have permission to add versions to this tracker.')
+      return false
     }
+    if (versionPickerApplyBusy.value || shotImportApplyBusy.value) {
+      notify('Another tracker update is already in progress.')
+      return false
+    }
+    const candidate = normalizeProjectContentItems([item])[0]
+    if (!candidate || candidate.type === 'folder' || !isTrackerImportMediaItem(candidate)) {
+      notify('Drop one image or video file to add it as a version.')
+      return false
+    }
+    return addVersionToShot(shot, candidate, { announce: true })
   }
 
   async function importFolder(folder) {
-    if (!currentProject.value || !currentTracker.value) return
+    if (!currentProject.value || !currentTracker.value || shotImportApplyBusy.value) return
 
+    shotImportApplyBusy.value = true
     try {
       const items = await fetchPickerItems(folder.path)
       const mediaFiles = items
@@ -586,14 +660,60 @@ export function useFilePickerModal({
         return
       }
 
-      await api.post(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/bulk`, {
+      const trackerName = currentTracker.value.name || currentTracker.value.title || 'tracker'
+      const { data } = await api.post(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/bulk`, {
         files: mediaFiles,
       })
-
-      showFilePicker.value = false
-      openTracker(currentTrackerRef())
+      await completeShotImport(data, mediaFiles.length, trackerName)
     } catch (error) {
       notify('Failed to import shots: ' + (getApiErrorMessage(error)))
+    } finally {
+      shotImportApplyBusy.value = false
+    }
+  }
+
+  async function completeShotImport(response, fallbackCount, trackerName, { skippedCount = 0 } = {}) {
+    const importedCount = Number.isFinite(Number(response?.imported))
+      ? Number(response.imported)
+      : fallbackCount
+
+    try {
+      await refreshCurrentTrackerPreserveState()
+      pickerSelectedItems.value = []
+      showFilePicker.value = false
+      const shotLabel = importedCount === 1 ? 'shot' : 'shots'
+      const skippedLabel = skippedCount > 0
+        ? ` ${skippedCount} unsupported ${skippedCount === 1 ? 'item was' : 'items were'} skipped.`
+        : ''
+      notify(`${importedCount} ${shotLabel} imported into ${trackerName}.${skippedLabel}`, { tone: 'success' })
+    } catch (_error) {
+      pickerSelectedItems.value = []
+      showFilePicker.value = false
+      notify(
+        `${importedCount} ${importedCount === 1 ? 'shot was' : 'shots were'} imported, but the tracker could not refresh. Reopen the tracker to see ${importedCount === 1 ? 'it' : 'them'}.`,
+        { tone: 'error' },
+      )
+    }
+  }
+
+  async function importShotFiles(mediaFiles, { skippedCount = 0 } = {}) {
+    if (!mediaFiles.length || !canAddShots.value || !currentProject.value || !currentTracker.value || shotImportApplyBusy.value) {
+      return false
+    }
+
+    shotImportApplyBusy.value = true
+    try {
+      const trackerName = currentTracker.value.name || currentTracker.value.title || 'tracker'
+      const { data } = await api.post(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/bulk`, {
+        files: mediaFiles,
+      })
+      await completeShotImport(data, mediaFiles.length, trackerName, { skippedCount })
+      return true
+    } catch (error) {
+      notify('Failed to import shots: ' + getApiErrorMessage(error))
+      return false
+    } finally {
+      shotImportApplyBusy.value = false
     }
   }
 
@@ -604,21 +724,25 @@ export function useFilePickerModal({
       .filter(Boolean)
 
     if (!mediaFiles.length || !currentProject.value || !currentTracker.value) return
+    return importShotFiles(mediaFiles)
+  }
 
-    shotImportApplyBusy.value = true
-    try {
-      await api.post(`/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/bulk`, {
-        files: mediaFiles,
-      })
+  async function importProjectItems(items = []) {
+    if (!canAddShots.value || !currentProject.value || !currentTracker.value || shotImportApplyBusy.value) return false
 
-      pickerSelectedItems.value = []
-      showFilePicker.value = false
-      openTracker(currentTrackerRef())
-    } catch (error) {
-      notify('Failed to import shots: ' + (getApiErrorMessage(error)))
-    } finally {
-      shotImportApplyBusy.value = false
+    const normalizedItems = normalizeProjectContentItems(items)
+    const mediaFiles = [...new Set(normalizedItems
+      .filter(item => item.type !== 'folder' && isTrackerImportMediaItem(item))
+      .map(getTrackerImportFilePath)
+      .filter(Boolean))]
+    const skippedCount = normalizedItems.filter(item => (
+      item.type === 'folder' || !isTrackerImportMediaItem(item)
+    )).length
+    if (!mediaFiles.length) {
+      notify('Drop image or video files to import them into this tracker.')
+      return false
     }
+    return importShotFiles(mediaFiles, { skippedCount })
   }
 
   async function linkFolderToProject(folderPath) {
@@ -667,6 +791,7 @@ export function useFilePickerModal({
   }
 
   async function loadPickerFiles(path) {
+    pendingPickerMediaInfoPaths.clear()
     try {
       const items = await fetchPickerItems(path)
       const isTrackerMediaMode = ['shot-import', 'shot', 'bulk-version-update'].includes(pickerMode.value)
@@ -705,6 +830,11 @@ export function useFilePickerModal({
     if (pickerMode.value === 'page-resource' && item?._selectFolder) {
       await onPageResourcePicked?.(item)
       showFilePicker.value = false
+      return
+    }
+
+    if (pickerMode.value === 'comment-reference' && item?._selectFolder) {
+      togglePickerSelectedItem(item)
       return
     }
 
@@ -765,6 +895,7 @@ export function useFilePickerModal({
 
   watch(showFilePicker, (value) => {
     if (!value) {
+      pendingPickerMediaInfoPaths.clear()
       pickerSelectedItems.value = []
       pickerShot.value = null
       shotImportApplyBusy.value = false
@@ -800,34 +931,13 @@ export function useFilePickerModal({
   })
 
   watch(
-    () => {
-      if (!showFilePicker.value) return []
-      const items = isVersionPickerMode.value ? versionPickerBrowserItems.value : pickerFiles.value
-      return items
-        .filter(item => !['folder', 'tracker', 'page'].includes(item?.type))
-        .map(item => getPickerItemMedia(item)?.path || item.path)
-        .filter(Boolean)
-    },
-    (paths) => {
-      if (!paths.length) return
-      fetchBatchMediaInfo(paths)
-    },
-    { deep: true }
-  )
-
-  watch(
-    () => trackerShotsForDisplay.value.map(shot => getLatestShotFilePath(shot)).filter(Boolean),
-    (paths) => {
-      if (!currentProject.value?.id || !paths.length) return
-      fetchBatchMediaInfo(paths)
-    },
-    { deep: true, immediate: true }
-  )
-
-  watch(
-    () => selectedVersionPickerCurrentMedia.value?.media_entity_key || selectedVersionPickerCurrentPath.value,
-    () => {
-      if (!showFilePicker.value || !isVersionPickerMode.value) return
+    () => [
+      showFilePicker.value,
+      isVersionPickerMode.value,
+      selectedVersionPickerCurrentMedia.value?.media_entity_key || selectedVersionPickerCurrentPath.value,
+    ],
+    ([show, versionMode, mediaKey]) => {
+      if (!show || !versionMode || !mediaKey) return
       loadVersionPickerCurrentInfo(selectedVersionPickerCurrentMedia.value)
     },
     { immediate: true }
@@ -879,10 +989,14 @@ export function useFilePickerModal({
     fetchBatchMediaInfo,
     getShotVersionCount,
     getPickerItemMedia,
+    requestPickerItemMediaInfo,
+    isTrackerImportMediaItem,
     selectVersionPickerShot,
     applyVersionPickerSelection,
+    addProjectItemVersion,
     importFolder,
     applyShotImportSelection,
+    importProjectItems,
     linkFolderToProject,
     applyProjectLinkSelection,
     pickerGoUp,

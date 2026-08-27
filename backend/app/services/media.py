@@ -6,13 +6,15 @@ import math
 import os
 import subprocess
 import threading
+from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Callable
 
 from fastapi import HTTPException, Response
 from fastapi.responses import FileResponse
 
 from app.config import get_settings
-from app.runtime_state import executor
 
 settings = get_settings()
 
@@ -24,6 +26,18 @@ AUDIO_EXTENSIONS = {'.weba', '.m4a', '.mp3', '.wav', '.ogg', '.opus'}
 PDF_EXTENSIONS = {'.pdf'}
 _thumbnail_jobs_in_progress: set[str] = set()
 _thumbnail_jobs_lock = threading.Lock()
+# Thumbnail misses are background work. Keep them from competing with playback
+# or fanning out into an unbounded set of ffmpeg processes on large folders.
+THUMBNAIL_GENERATION_WORKERS = 1
+THUMBNAIL_MAX_PENDING_JOBS = 8
+_thumbnail_executor = ThreadPoolExecutor(
+    max_workers=THUMBNAIL_GENERATION_WORKERS,
+    thread_name_prefix='media-thumbnail',
+)
+_VIDEO_DURATION_CACHE_MAX_ENTRIES = 4096
+_VIDEO_DURATION_PROBE_WORKERS = 4
+_video_duration_cache: OrderedDict[tuple[str, int, int], float] = OrderedDict()
+_video_duration_cache_lock = threading.Lock()
 
 
 def get_file_hash(path: str) -> str:
@@ -119,6 +133,62 @@ def get_video_duration_quick(path: Path) -> float:
         return probe_duration_seconds(data)
     except Exception:
         return 0
+
+
+def _video_duration_cache_key(path: Path, stat: os.stat_result) -> tuple[str, int, int]:
+    return str(path.resolve(strict=False)), int(stat.st_mtime_ns), int(stat.st_size)
+
+
+def probe_cached_video_durations(
+    files: list[tuple[Path, os.stat_result]],
+    *,
+    probe: Callable[[Path], float] = get_video_duration_quick,
+) -> dict[Path, float | Exception]:
+    """Return cached durations, probing cache misses in a bounded worker pool.
+
+    The exact file generation is part of the cache key, so replacing a file at
+    the same path cannot return metadata for the old contents. Probe failures
+    are returned per path so batch endpoints can preserve their item-level
+    error handling without exposing runtime details.
+    """
+    results: dict[Path, float | Exception] = {}
+    misses: dict[tuple[str, int, int], Path] = {}
+    paths_by_key: dict[tuple[str, int, int], list[Path]] = {}
+
+    with _video_duration_cache_lock:
+        for path, stat in files:
+            key = _video_duration_cache_key(path, stat)
+            paths_by_key.setdefault(key, []).append(path)
+            if key in _video_duration_cache:
+                results[path] = _video_duration_cache[key]
+                _video_duration_cache.move_to_end(key)
+            else:
+                misses.setdefault(key, path)
+
+    if not misses:
+        return results
+
+    with ThreadPoolExecutor(
+        max_workers=min(_VIDEO_DURATION_PROBE_WORKERS, len(misses)),
+        thread_name_prefix='media-duration',
+    ) as pool:
+        futures = {key: pool.submit(probe, path) for key, path in misses.items()}
+        for key, future in futures.items():
+            try:
+                duration = float(future.result() or 0)
+            except Exception as exc:
+                duration = exc
+            else:
+                with _video_duration_cache_lock:
+                    _video_duration_cache[key] = duration
+                    _video_duration_cache.move_to_end(key)
+                    while len(_video_duration_cache) > _VIDEO_DURATION_CACHE_MAX_ENTRIES:
+                        _video_duration_cache.popitem(last=False)
+
+            for path in paths_by_key[key]:
+                results[path] = duration
+
+    return results
 
 
 def _clean_probe_value(value) -> str:
@@ -348,11 +418,13 @@ def build_thumbnail_response(
     raise HTTPException(status_code=404, detail=missing_detail)
 
 
-def queue_thumbnail_generation(media_path: Path, output_path: Path, *, width: int = THUMBNAIL_WIDTH):
+def queue_thumbnail_generation(media_path: Path, output_path: Path, *, width: int = THUMBNAIL_WIDTH) -> bool:
     job_key = str(output_path)
     with _thumbnail_jobs_lock:
         if job_key in _thumbnail_jobs_in_progress:
-            return
+            return False
+        if len(_thumbnail_jobs_in_progress) >= THUMBNAIL_MAX_PENDING_JOBS:
+            return False
         _thumbnail_jobs_in_progress.add(job_key)
 
     def _worker():
@@ -362,4 +434,5 @@ def queue_thumbnail_generation(media_path: Path, output_path: Path, *, width: in
             with _thumbnail_jobs_lock:
                 _thumbnail_jobs_in_progress.discard(job_key)
 
-    executor.submit(_worker)
+    _thumbnail_executor.submit(_worker)
+    return True

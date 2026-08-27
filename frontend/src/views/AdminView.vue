@@ -3,39 +3,30 @@
     <header class="admin-page-header">
       <div class="admin-header-copy">
         <h1 class="admin-title">Settings</h1>
-        <p>Manage your account, team, and Vueio installation.</p>
+        <p>Manage your account, workspace, and Vueio installation.</p>
       </div>
       <div class="admin-header-overview">
-        <dl v-if="isAdmin" class="admin-stat-strip">
-          <div class="admin-stat">
-            <dt class="v-eyebrow">Shares</dt>
-            <dd>{{ activeShareCount }}</dd>
-          </div>
-          <div class="admin-stat">
-            <dt class="v-eyebrow">Keys</dt>
-            <dd>{{ activeKeyCount }}</dd>
-          </div>
-          <div class="admin-stat">
-            <dt class="v-eyebrow">Users</dt>
-            <dd>{{ users.length }}</dd>
-          </div>
-          <div v-if="systemHealth" class="admin-stat" :class="{ warn: systemHealth.cpu_percent > 80 }">
-            <dt class="v-eyebrow">CPU</dt>
-            <dd>{{ systemHealth.cpu_percent }}%</dd>
-          </div>
-          <div v-if="systemHealth" class="admin-stat" :class="{ warn: systemHealth.mem_percent > 85 }">
-            <dt class="v-eyebrow">Mem</dt>
-            <dd>{{ systemHealth.mem_percent }}%</dd>
-          </div>
-        </dl>
+        <div v-if="isAdmin" class="admin-workspace-summary" aria-label="Workspace summary">
+          <span><strong>{{ users.length }}</strong> members</span>
+          <span><strong>{{ activeShareCount }}</strong> active shares</span>
+          <span><strong>{{ activeKeyCount }}</strong> active keys</span>
+          <span
+            v-if="systemHealth"
+            class="admin-system-summary"
+            :class="{ warn: systemHealth.cpu_percent > 80 || systemHealth.mem_percent > 85 }"
+          >
+            {{ systemHealth.cpu_percent }}% CPU, {{ systemHealth.mem_percent }}% memory
+          </span>
+        </div>
         <button
           class="v-btn v-btn-ghost v-btn-icon v-btn-sm admin-refresh"
           type="button"
-          aria-label="Refresh settings"
-          title="Refresh settings"
+          :aria-label="settingsRefreshing ? 'Refreshing settings' : 'Refresh settings'"
+          :title="settingsRefreshing ? 'Refreshing settings' : 'Refresh settings'"
+          :disabled="settingsRefreshing"
           @click="refreshAll"
         >
-          <svg class="icon"><use href="#icon-refresh"/></svg>
+          <svg class="icon" :class="{ spinning: settingsRefreshing }"><use href="#icon-refresh"/></svg>
         </button>
       </div>
     </header>
@@ -48,12 +39,50 @@
       <div class="admin-token-row">
         <code class="admin-token">{{ visibleAgentToken.token }}</code>
         <button class="v-btn v-btn-primary v-btn-sm" @click="copyText(visibleAgentToken.token, 'Agent key copied')">Copy</button>
-        <button class="v-btn v-btn-secondary v-btn-sm" @click="copyVisibleAgentSkill">Copy Skill</button>
+        <button class="v-btn v-btn-secondary v-btn-sm" @click="copyVisibleAgentSkill">Copy skill</button>
         <button class="v-btn v-btn-secondary v-btn-sm" @click="visibleAgentToken = null">Dismiss</button>
       </div>
     </div>
 
-    <VTabs class="admin-tabs" v-model="activeTab" variant="segmented" :tabs="adminTabs" />
+    <div class="admin-settings-shell">
+      <aside class="admin-settings-rail" aria-label="Settings navigation">
+        <nav class="admin-settings-nav">
+          <section v-for="group in settingsNavGroups" :key="group.label" class="admin-nav-group">
+            <h2>{{ group.label }}</h2>
+            <button
+              v-for="tab in group.tabs"
+              :key="tab.value"
+              type="button"
+              class="admin-nav-item"
+              :class="{ active: activeTab === tab.value }"
+              :aria-current="activeTab === tab.value ? 'page' : undefined"
+              @click="activeTab = tab.value"
+            >
+              <svg class="icon" aria-hidden="true"><use :href="tab.icon" /></svg>
+              <span>
+                <strong>{{ tab.label }}</strong>
+                <small>{{ tab.description }}</small>
+              </span>
+              <svg class="icon admin-nav-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+            </button>
+          </section>
+        </nav>
+      </aside>
+
+      <label class="admin-mobile-nav">
+        <span class="admin-mobile-nav-label">Settings section</span>
+        <span class="admin-mobile-nav-control">
+          <svg class="icon" aria-hidden="true"><use :href="activeSettingsTab.icon" /></svg>
+          <select :value="activeTab" aria-label="Settings section" @change="activeTab = $event.target.value">
+            <optgroup v-for="group in settingsNavGroups" :key="group.label" :label="group.label">
+              <option v-for="tab in group.tabs" :key="tab.value" :value="tab.value">{{ tab.label }}</option>
+            </optgroup>
+          </select>
+          <svg class="icon admin-mobile-nav-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+        </span>
+      </label>
+
+      <main class="admin-settings-content" :class="{ 'is-wide': activeSettingsTab.wide }">
 
     <section v-if="activeTab === 'account'" class="admin-section account-settings-section">
       <AdminSettingsHeader
@@ -115,7 +144,7 @@
           <p v-if="passwordMessage" class="v-inline-note admin-note">{{ passwordMessage }}</p>
           <div class="admin-card-actions">
             <button class="v-btn v-btn-primary" :disabled="passwordSaving || !canSavePassword" @click="saveMyPassword">
-              {{ passwordSaving ? 'Saving' : 'Update Password' }}
+              {{ passwordSaving ? 'Saving' : 'Update password' }}
             </button>
           </div>
         </section>
@@ -130,7 +159,7 @@
         icon="#icon-bell"
       >
         <button class="v-btn v-btn-primary v-btn-sm" :disabled="notificationSaving" @click="saveNotificationPrefs">
-          {{ notificationSaving ? 'Saving' : 'Save Preferences' }}
+          {{ notificationSaving ? 'Saving' : 'Save preferences' }}
         </button>
       </AdminSettingsHeader>
 
@@ -259,6 +288,12 @@
       @toggle-unified-agent-key="toggleUnifiedAgentKey"
     />
 
+    <header v-if="isAdmin && activeTab === 'notifications'" class="settings-admin-heading">
+      <p class="settings-eyebrow">Administration</p>
+      <h2>External delivery</h2>
+      <p>Connect Discord and review recent delivery health for the workspace.</p>
+    </header>
+
     <details v-if="isAdmin && activeTab === 'notifications'" class="admin-section settings-disclosure discord-settings-section">
       <summary class="settings-disclosure-summary">
         <span class="settings-disclosure-icon"><svg class="icon"><use href="#icon-send" /></svg></span>
@@ -327,12 +362,12 @@
             <strong>Invite URL</strong>
             <p class="admin-note">Use this to add the configured bot to a Discord server. Private channels still need the bot role added inside Discord.</p>
           </div>
-          <a class="v-btn v-btn-secondary v-btn-sm" :href="discordProvider.invite_url" target="_blank" rel="noreferrer">Open Invite</a>
+          <a class="v-btn v-btn-secondary v-btn-sm" :href="discordProvider.invite_url" target="_blank" rel="noreferrer">Open invite</a>
         </div>
         <p v-if="discordProviderMessage" class="v-inline-note admin-note">{{ discordProviderMessage }}</p>
         <div class="admin-form-actions">
           <button class="v-btn v-btn-primary" :disabled="discordProviderSaving" @click="saveDiscordProvider">
-            {{ discordProviderSaving ? 'Saving' : 'Save Discord Setup' }}
+            {{ discordProviderSaving ? 'Saving' : 'Save Discord setup' }}
           </button>
           <button
             v-if="discordProvider.has_saved_token"
@@ -348,7 +383,7 @@
       <div class="settings-panel discord-channel-panel">
         <div class="admin-toolbar discord-channel-toolbar">
           <div>
-            <strong>Discord Channels</strong>
+            <strong>Discord channels</strong>
             <p class="admin-note">Map each channel to the Vueio user whose related activity should be delivered there.</p>
           </div>
           <button class="v-btn v-btn-primary v-btn-sm" @click="openCreateSubscriptionModal">
@@ -473,7 +508,7 @@
     <section v-if="isAdmin && activeTab === 'downloads'" class="admin-section download-audit-section">
       <AdminSettingsHeader
         eyebrow="Audit"
-        title="Download History"
+        title="Download history"
         description="See who downloaded files, folders, tracker packages, and shared-link media."
         icon="#icon-download"
       >
@@ -566,7 +601,7 @@
     <section v-if="isAdmin && activeTab === 'shares'" class="admin-section share-settings-section">
       <AdminSettingsHeader
         eyebrow="Access"
-        title="Shared Links"
+        title="Shared links"
         description="Find, update, revoke, or permanently remove every client-facing link from one place."
         icon="#icon-share"
       />
@@ -632,7 +667,7 @@
                 <span v-else>No expiration</span>
               </div>
               <div class="share-item-actions">
-                <button class="v-btn v-btn-ghost v-btn-sm" @click="copyShareToClipboard(share)">Copy Link</button>
+                <button class="v-btn v-btn-ghost v-btn-sm" @click="copyShareToClipboard(share)">Copy link</button>
                 <button class="v-btn v-btn-ghost v-btn-sm" @click="openShareEditor(share)">Edit</button>
                 <VMenu
                   :open="shareActionMenuOpen === share.id"
@@ -665,10 +700,12 @@
         Show 12 more groups
       </button>
     </section>
+      </main>
+    </div>
 
     <VModal :modelValue="!!editingShare" size="md" @update:modelValue="closeShareEditor">
       <template #header>
-        <VModalHeader title="Edit Shared Link" @close="closeShareEditor" />
+        <VModalHeader title="Edit shared link" @close="closeShareEditor" />
       </template>
       <div class="v-form-grid admin-form-grid">
         <VField label="Expiration" hint="Leave blank to keep the link available until it is revoked.">
@@ -693,7 +730,7 @@
 
     <VModal :modelValue="showUserModal" size="md" @update:modelValue="closeUserModal">
       <template #header>
-        <VModalHeader :title="editingUser ? 'Edit Team Member' : 'Add Team Member'" @close="closeUserModal" />
+        <VModalHeader :title="editingUser ? 'Edit team member' : 'Add team member'" @close="closeUserModal" />
       </template>
       <div class="v-form-grid admin-form-grid">
         <VField label="Username" hint="Used to sign in. A username cannot be changed later." :required="!editingUser">
@@ -745,13 +782,13 @@
       </div>
       <template #footer>
         <button class="v-btn v-btn-secondary" @click="closeUserModal">Cancel</button>
-        <button class="v-btn v-btn-primary" @click="saveUser">{{ editingUser ? 'Save Changes' : 'Add Member' }}</button>
+        <button class="v-btn v-btn-primary" @click="saveUser">{{ editingUser ? 'Save changes' : 'Add member' }}</button>
       </template>
     </VModal>
 
     <VModal :modelValue="showKeyModal" size="md" @update:modelValue="closeKeyModal">
       <template #header>
-        <VModalHeader :title="editingKey ? 'Edit Agent Key' : 'New Managed Agent Key'" @close="closeKeyModal" />
+        <VModalHeader :title="editingKey ? 'Edit agent key' : 'New managed agent key'" @close="closeKeyModal" />
       </template>
       <div class="v-form-grid admin-form-grid">
         <VField label="Label" hint="Use a name that identifies the agent or automation using this key.">
@@ -762,13 +799,13 @@
       </div>
       <template #footer>
         <button class="v-btn v-btn-secondary" @click="closeKeyModal">Cancel</button>
-        <button class="v-btn v-btn-primary" @click="saveAgentKey">{{ editingKey ? 'Save Changes' : 'Create Key' }}</button>
+        <button class="v-btn v-btn-primary" @click="saveAgentKey">{{ editingKey ? 'Save changes' : 'Create key' }}</button>
       </template>
     </VModal>
 
     <VModal :modelValue="showSubscriptionModal" size="md" @update:modelValue="closeSubscriptionModal">
       <template #header>
-        <VModalHeader :title="editingSubscription ? 'Edit Discord Channel' : 'Connect Discord Channel'" @close="closeSubscriptionModal" />
+        <VModalHeader :title="editingSubscription ? 'Edit Discord channel' : 'Connect Discord channel'" @close="closeSubscriptionModal" />
       </template>
       <div class="v-form-grid admin-form-grid">
         <VField label="Recipient" hint="Vueio evaluates visibility and preferences as this person.">
@@ -805,7 +842,7 @@
       <template #footer>
         <button class="v-btn v-btn-secondary" @click="closeSubscriptionModal">Cancel</button>
         <button class="v-btn v-btn-primary" :disabled="subscriptionSaving" @click="saveSubscription">
-          {{ subscriptionSaving ? 'Saving' : 'Save Channel' }}
+          {{ subscriptionSaving ? 'Saving' : 'Save channel' }}
         </button>
       </template>
     </VModal>
@@ -825,7 +862,6 @@ import {
   VModalHeader,
   VOverflowButton,
   VSwitch,
-  VTabs,
 } from '../components/primitives'
 import AdminSettingsHeader from '../components/admin/AdminSettingsHeader.vue'
 import { formatDateMMDDYYYYFromEpoch as formatDateLabel, formatSizeBytes } from '../utils/formatters'
@@ -846,22 +882,35 @@ const { currentUser } = useSessionAuthStore()
 const { identity: appIdentity, update: updateAppIdentity } = useAppIdentityStore()
 const isAdmin = computed(() => currentUser.value?.role === 'admin')
 const userTabs = [
-  { value: 'account', label: 'Account', icon: '#icon-user' },
-  { value: 'notifications', label: 'Notifications', icon: '#icon-bell' },
-  { value: 'agent-keys', label: 'Agent Keys', icon: '#icon-zap' },
+  { value: 'account', label: 'Account', description: 'Identity and password', icon: '#icon-user' },
+  { value: 'notifications', label: 'Notifications', description: 'Delivery and activity', icon: '#icon-bell', wide: true },
+  { value: 'agent-keys', label: 'Agent keys', description: 'Agent access and rotation', icon: '#icon-zap', wide: true },
 ]
 const adminOnlyTabs = [
-  { value: 'team', label: 'Team', icon: '#icon-users' },
-  { value: 'storage', label: 'Storage', icon: '#icon-package' },
-  { value: 'downloads', label: 'Downloads', icon: '#icon-download' },
-  { value: 'theme', label: 'Theme', icon: '#icon-pen' },
-  { value: 'shares', label: 'Shares', icon: '#icon-share' },
-  { value: 'updates', label: 'Updates', icon: '#icon-refresh' },
+  { value: 'team', label: 'Team', description: 'Identity and members', icon: '#icon-users', wide: true },
+  { value: 'shares', label: 'Shared links', description: 'Client-facing access', icon: '#icon-share', wide: true },
+  { value: 'theme', label: 'Theme', description: 'Workspace appearance', icon: '#icon-pen', wide: true },
+  { value: 'storage', label: 'Storage', description: 'Previews and transcodes', icon: '#icon-package' },
+  { value: 'downloads', label: 'Download history', description: 'Transfer activity', icon: '#icon-download', wide: true },
+  { value: 'updates', label: 'Updates', description: 'Version and releases', icon: '#icon-refresh' },
 ]
 const activeTab = ref('account')
 const systemHealth = ref(null)
+const settingsRefreshing = ref(false)
 const transcodesResetting = ref(false)
 const adminTabs = computed(() => isAdmin.value ? [...userTabs, ...adminOnlyTabs] : userTabs)
+const settingsNavGroups = computed(() => [
+  { label: 'Personal', tabs: userTabs },
+  ...(isAdmin.value
+    ? [
+        { label: 'Workspace', tabs: adminOnlyTabs.slice(0, 3) },
+        { label: 'System', tabs: adminOnlyTabs.slice(3) },
+      ]
+    : []),
+])
+const activeSettingsTab = computed(() => (
+  adminTabs.value.find(tab => tab.value === activeTab.value) || userTabs[0]
+))
 
 const defaultNotificationPrefs = () => ({
   default_scope: currentUser.value?.role === 'admin' ? 'all_visible' : 'related_to_me',
@@ -1603,13 +1652,19 @@ async function loadDownloadEvents() {
 }
 
 async function refreshAll() {
-  const tasks = [loadNotificationPrefs(), loadMyAgentKeys()]
-  if (isAdmin.value) {
-    tasks.push(loadIdentity(), loadUsers(), loadShares(), loadSystemHealth(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
+  if (settingsRefreshing.value) return
+  settingsRefreshing.value = true
+  try {
+    const tasks = [loadNotificationPrefs(), loadMyAgentKeys()]
+    if (isAdmin.value) {
+      tasks.push(loadIdentity(), loadUsers(), loadShares(), loadSystemHealth(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
+    }
+    const results = await Promise.allSettled(tasks)
+    const failedCount = results.filter(result => result.status === 'rejected').length
+    if (failedCount) console.warn(`[vue.io settings load] ${failedCount} request(s) failed`)
+  } finally {
+    settingsRefreshing.value = false
   }
-  const results = await Promise.allSettled(tasks)
-  const failedCount = results.filter(result => result.status === 'rejected').length
-  if (failedCount) console.warn(`[vue.io settings load] ${failedCount} request(s) failed`)
 }
 
 function openShareEditor(share) {
@@ -2090,20 +2145,22 @@ onMounted(refreshAll)
 .admin-page {
   flex: 1;
   min-height: 0;
-  padding: 22px 28px 28px;
+  padding: 24px clamp(20px, 3vw, 44px) 40px;
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-4);
+  gap: var(--v-space-6);
 }
 
 .admin-page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: var(--v-space-4);
+  gap: var(--v-space-6);
+  width: min(100%, 1440px);
+  margin-inline: auto;
   flex-shrink: 0;
 }
 
@@ -2112,76 +2169,72 @@ onMounted(refreshAll)
 }
 
 .admin-header-copy p {
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   color: var(--v-text-muted);
-  font-size: var(--v-text-base);
+  font-size: var(--v-text-md);
 }
 
 .admin-title {
   margin: 0;
-  font-size: 25px;
-  line-height: 1.05;
+  color: var(--v-text);
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 760;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
 }
 
 .admin-header-overview {
   display: flex;
   align-items: center;
-  gap: var(--v-space-2);
+  gap: var(--v-space-3);
   min-width: 0;
 }
 
-.admin-stat-strip {
+.admin-refresh .icon.spinning {
+  animation: v-spin 0.8s linear infinite;
+}
+
+.admin-workspace-summary {
   display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0;
-  padding: 3px;
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-button-radius);
-  background: var(--v-surface-inset);
-  box-shadow: var(--v-surface-shadow-inset);
-}
-
-.admin-stat {
-  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 8px;
-  border-radius: var(--v-radius-sm);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px 16px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  font-variant-numeric: tabular-nums;
 }
 
-.admin-stat dd {
-  margin: 0;
+.admin-workspace-summary span {
+  white-space: nowrap;
+}
+
+.admin-workspace-summary strong {
   color: var(--v-text-secondary);
-  font-size: var(--v-text-base);
-  font-weight: 700;
+  font-weight: 760;
 }
 
-.admin-stat .v-eyebrow {
-  margin: 0;
-  font-size: var(--v-text-3xs);
-}
-
-.admin-stat.warn dd {
+.admin-system-summary.warn {
   color: var(--v-warning);
 }
 
-.admin-callout,
 .admin-section {
-  border: 1px solid color-mix(in srgb, var(--v-divider-subtle) 86%, transparent);
-  border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-bg-raised) 82%, transparent);
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--v-bg-base) 14%, transparent);
+  min-width: 0;
   flex: 0 0 auto;
 }
 
 .admin-callout {
+  width: min(100%, 1440px);
+  margin-inline: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   flex-shrink: 0;
+  border: 1px solid color-mix(in srgb, var(--v-accent) 22%, var(--v-surface-border-soft));
+  border-radius: var(--v-radius-lg);
+  background: color-mix(in srgb, var(--v-accent) 6%, var(--v-surface-panel));
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .admin-callout-title {
@@ -2212,44 +2265,141 @@ onMounted(refreshAll)
   overflow: auto;
 }
 
-.admin-tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-  overflow-x: auto;
-  padding: 0;
+.admin-settings-shell {
+  display: grid;
+  grid-template-columns: 224px minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(22px, 3vw, 42px);
+  width: min(100%, 1440px);
+  margin-inline: auto;
 }
 
-.admin-tabs.v-tabs {
-  gap: var(--v-space-1);
-  width: max-content;
-  padding: 3px;
-  border: 1px solid color-mix(in srgb, var(--v-divider-subtle) 82%, transparent);
-  border-radius: var(--v-button-radius);
-  background: var(--v-surface-tint-strong);
-  justify-content: flex-start;
+.admin-settings-rail {
+  position: sticky;
+  top: 20px;
+  min-width: 0;
+  padding-right: var(--v-space-5);
+  border-right: 1px solid var(--v-divider-subtle);
 }
 
-.admin-tabs :deep(.v-tab-btn) {
-  flex: 0 0 auto;
-  min-height: 34px;
-  border-radius: var(--v-button-radius);
-  padding: 0 12px;
-  font-size: var(--v-text-base);
+.admin-settings-nav {
+  display: grid;
+  gap: var(--v-space-5);
 }
 
-.admin-tabs :deep(.v-tab-btn:nth-child(4)) {
+.admin-nav-group {
+  display: grid;
+  gap: 5px;
+}
+
+.admin-nav-group h2 {
+  margin: 0 0 3px;
+  padding: 0 9px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  font-weight: 760;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.admin-nav-item {
   position: relative;
-  margin-left: 9px;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 12px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 50px;
+  padding: 8px 9px;
+  border: 1px solid transparent;
+  border-radius: var(--v-radius-md);
+  background: transparent;
+  color: var(--v-text-muted);
+  font-family: var(--v-font);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--v-duration-fast) var(--v-ease-emphasized),
+    border-color var(--v-duration-fast) var(--v-ease-emphasized),
+    color var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
-.admin-tabs :deep(.v-tab-btn:nth-child(4)::before) {
-  content: '';
-  position: absolute;
-  left: -8px;
-  width: 1px;
-  height: 20px;
-  background: var(--v-divider-subtle);
+.admin-nav-item:hover {
+  border-color: color-mix(in srgb, var(--v-border) 56%, transparent);
+  background: var(--v-surface-tint);
+  color: var(--v-text-secondary);
+}
+
+.admin-nav-item.active {
+  border-color: color-mix(in srgb, var(--v-accent) 18%, var(--v-border));
+  background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface-tint));
+  color: var(--v-accent);
+}
+
+.admin-nav-item > .icon:first-child {
+  width: 16px;
+  height: 16px;
+}
+
+.admin-nav-item > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.admin-nav-item strong {
+  overflow: hidden;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-base);
+  font-weight: 720;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-nav-item.active strong {
+  color: var(--v-text);
+}
+
+.admin-nav-item small {
+  overflow: hidden;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-nav-chevron {
+  width: 11px;
+  height: 11px;
+  opacity: 0;
+  transform: translateX(-3px);
+  transition:
+    opacity var(--v-duration-fast) var(--v-ease-emphasized),
+    transform var(--v-duration-fast) var(--v-ease-emphasized);
+}
+
+.admin-nav-item.active .admin-nav-chevron {
+  opacity: 0.8;
+  transform: translateX(0);
+}
+
+.admin-mobile-nav {
+  display: none;
+}
+
+.admin-settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-space-4);
+  width: min(100%, 920px);
+  min-width: 0;
+}
+
+.admin-settings-content.is-wide {
+  width: min(100%, 1180px);
 }
 
 .account-settings-section,
@@ -2260,18 +2410,19 @@ onMounted(refreshAll)
 .account-settings-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.62fr) minmax(520px, 1.38fr);
-  gap: 14px;
-  padding: 14px;
+  gap: var(--v-space-4);
+  padding-top: var(--v-space-4);
 }
 
 .account-profile-card,
 .account-password-card,
 .notification-preference-card {
   min-width: 0;
-  padding: 16px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-tint);
+  padding: 18px;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .account-profile-card {
@@ -2404,8 +2555,8 @@ onMounted(refreshAll)
 .notification-preferences-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  padding: 14px;
+  gap: var(--v-space-4);
+  padding-top: var(--v-space-4);
 }
 
 .notification-preference-card {
@@ -2475,6 +2626,28 @@ onMounted(refreshAll)
 
 .settings-disclosure {
   overflow: hidden;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
+}
+
+.settings-admin-heading {
+  padding: var(--v-space-3) 2px 0;
+}
+
+.settings-admin-heading h2 {
+  margin: 0;
+  color: var(--v-text);
+  font-size: var(--v-text-xl);
+  line-height: 1.25;
+}
+
+.settings-admin-heading > p:last-child {
+  margin: 5px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-base);
+  line-height: 1.45;
 }
 
 .settings-disclosure-summary {
@@ -2554,8 +2727,8 @@ onMounted(refreshAll)
 
 .discord-settings-body {
   display: grid;
-  gap: 14px;
-  padding: 14px;
+  gap: var(--v-space-4);
+  padding: var(--v-space-4);
 }
 
 .discord-provider-panel {
@@ -2701,7 +2874,7 @@ onMounted(refreshAll)
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--v-space-2);
-  padding: 12px 14px 4px;
+  padding: 16px 0 4px;
 }
 
 /* Recessed like every other read-only stat surface in the app, rather than
@@ -2725,7 +2898,7 @@ onMounted(refreshAll)
 .download-audit-list {
   display: grid;
   gap: var(--v-space-2);
-  padding: 10px 14px 14px;
+  padding: 10px 0 14px;
 }
 
 .download-audit-list-head {
@@ -2738,9 +2911,10 @@ onMounted(refreshAll)
   gap: 14px;
   align-items: center;
   padding: var(--v-space-3);
-  border: 1px solid color-mix(in srgb, var(--v-border) 68%, transparent);
+  border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-surface-inline) 42%, var(--v-bg-raised));
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .download-audit-main,
@@ -2880,15 +3054,23 @@ onMounted(refreshAll)
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: start;
   gap: var(--v-space-3);
-  padding: 14px 16px 16px;
+  padding: var(--v-space-4) 0;
 }
 
 .share-project-group {
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--v-border) 70%, transparent);
+  border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-surface-inline) 44%, var(--v-bg-raised));
-  box-shadow: none;
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
+}
+
+.share-settings-section > .admin-toolbar {
+  margin-top: var(--v-space-4);
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .share-project-group[open] {
@@ -3201,69 +3383,110 @@ onMounted(refreshAll)
   }
 }
 
-@media (max-width: 768px) {
-  .admin-page {
-    padding: 10px 12px 80px;
-    gap: 10px;
+@media (max-width: 900px) {
+  .admin-settings-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--v-space-4);
   }
 
-  .admin-tabs {
+  .admin-settings-rail {
+    display: none;
+  }
+
+  .admin-mobile-nav {
+    display: grid;
+    gap: 7px;
     position: sticky;
     top: 0;
-    z-index: 5;
-    margin-inline: -12px;
-    padding: 4px 12px;
-    background: color-mix(in srgb, var(--v-bg-base) 94%, transparent);
+    z-index: var(--v-z-sticky);
+    margin-inline: -2px;
+    padding: 10px 2px 12px;
+    background: color-mix(in srgb, var(--v-bg-base) 96%, transparent);
   }
 
-  .admin-tabs :deep(.v-tab-btn) {
-    min-height: 44px;
-    scroll-snap-align: start;
+  .admin-mobile-nav-label {
+    padding-inline: 2px;
+    color: var(--v-text-muted);
+    font-size: var(--v-text-xs);
+    font-weight: 720;
   }
 
-  .admin-tabs :deep(.v-tab-btn:nth-child(4)) {
-    margin-left: 0;
+  .admin-mobile-nav-control {
+    position: relative;
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) 14px;
+    align-items: center;
+    gap: 10px;
+    min-height: 46px;
+    padding: 0 13px;
+    border: 1px solid var(--v-control-border);
+    border-radius: var(--v-radius-md);
+    background: var(--v-control-bg);
+    box-shadow: var(--v-surface-shadow-inset);
+    color: var(--v-accent);
   }
 
-  .admin-tabs :deep(.v-tab-btn:nth-child(4)::before) {
-    display: none;
+  .admin-mobile-nav-control > .icon:first-child {
+    width: 17px;
+    height: 17px;
+  }
+
+  .admin-mobile-nav-control select {
+    width: 100%;
+    min-width: 0;
+    height: 44px;
+    padding: 0;
+    border: 0;
+    outline: 0;
+    appearance: none;
+    background: transparent;
+    color: var(--v-text);
+    font: 720 var(--v-text-md)/1 var(--v-font);
+    cursor: pointer;
+  }
+
+  .admin-mobile-nav-chevron {
+    width: 13px;
+    height: 13px;
+    color: var(--v-text-muted);
+    pointer-events: none;
+  }
+
+  .admin-settings-content,
+  .admin-settings-content.is-wide {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-page {
+    padding: 14px 14px 80px;
+    gap: var(--v-space-4);
   }
 
   .admin-page-header {
     align-items: stretch;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--v-space-3);
   }
 
   .admin-header-copy p {
-    font-size: var(--v-text-sm);
+    font-size: var(--v-text-base);
   }
 
   .admin-header-overview {
-    gap: 6px;
+    align-items: flex-start;
+    gap: var(--v-space-2);
   }
 
-  .admin-stat-strip {
+  .admin-workspace-summary {
     flex: 1 1 auto;
-    flex-wrap: nowrap;
-    overflow-x: auto;
+    justify-content: flex-start;
+    gap: 5px 12px;
   }
 
   .admin-title {
-    font-size: var(--v-text-2xl);
-  }
-
-  .admin-stat-strip {
-    gap: 2px;
-  }
-
-  .admin-stat dd {
-    font-size: var(--v-text-sm);
-  }
-
-  .admin-stat {
-    flex: 0 0 auto;
-    padding-inline: 7px;
+    font-size: 24px;
   }
 
   .admin-token {
@@ -3274,13 +3497,13 @@ onMounted(refreshAll)
   .notification-preferences-body {
     grid-template-columns: 1fr;
     gap: 10px;
-    padding: 10px;
+    padding-top: var(--v-space-3);
   }
 
   .account-profile-card,
   .account-password-card,
   .notification-preference-card {
-    padding: 13px;
+    padding: 14px;
   }
 
   .account-password-head {
@@ -3319,7 +3542,7 @@ onMounted(refreshAll)
   }
 
   .discord-settings-body {
-    padding: 10px;
+    padding: var(--v-space-3);
   }
 
   .delivery-health-toolbar,
@@ -3330,7 +3553,7 @@ onMounted(refreshAll)
   }
 
   .share-project-list {
-    padding: 10px;
+    padding: var(--v-space-3) 0;
     gap: 10px;
   }
 
@@ -3447,6 +3670,10 @@ onMounted(refreshAll)
 }
 
 @media (max-width: 480px) {
+  .admin-workspace-summary span:nth-child(n + 2) {
+    display: none;
+  }
+
   .share-project-header {
     align-items: flex-start;
     flex-direction: column;

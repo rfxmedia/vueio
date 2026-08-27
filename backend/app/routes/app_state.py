@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Cookie, HTTPException
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
 from pydantic import BaseModel
+from sqlalchemy import and_, or_
+from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models import RecentlyViewed
-from app.services.auth import get_user_from_session
+from app.db import SessionLocal, get_db
+from app.models import (
+    HorizonProject,
+    HorizonShot,
+    HorizonShotAssignee,
+    HorizonShotVersion,
+    HorizonTracker,
+    RecentlyViewed,
+)
+from app.services.auth import get_request_user, get_user_from_session
 from app.services.file_access import check_folder_read_permission
 from app.services.horizons.projects import list_visible_horizon_projects
 from app.services.recently_viewed import exclude_deleted_project_recently_viewed
@@ -22,6 +31,94 @@ class RecentlyViewedItem(BaseModel):
     projectId: str | None = None
     title: str | None = None
     subtitle: str | None = None
+
+
+@router.get('/api/home/assigned-edits')
+def get_home_assigned_edits(
+    vueio_session: str | None = Cookie(None),
+    x_vueio_agent_key: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
+    user_id = str(user.get('id') or user.get('username') or '').strip()
+    visible_projects = list_visible_horizon_projects(db, user, auth_mode=auth_mode)
+    visible_project_ids = [project.id for project in visible_projects]
+    if not user_id or not visible_project_ids:
+        return {'total': 0, 'projects': []}
+
+    rows = (
+        db.query(HorizonShot, HorizonTracker, HorizonProject)
+        .join(HorizonTracker, HorizonTracker.id == HorizonShot.tracker_id)
+        .join(HorizonProject, HorizonProject.id == HorizonShot.project_id)
+        .outerjoin(
+            HorizonShotAssignee,
+            and_(
+                HorizonShotAssignee.shot_id == HorizonShot.id,
+                HorizonShotAssignee.user_id == user_id,
+            ),
+        )
+        .filter(HorizonShot.project_id.in_(visible_project_ids))
+        .filter(HorizonProject.status.notin_(('done', 'completed')))
+        .filter(HorizonShot.status == 'edits_requested')
+        .filter(HorizonShot.archived_at.is_(None))
+        .filter(or_(
+            HorizonShotAssignee.user_id == user_id,
+            HorizonShot.assignee_user_id == user_id,
+        ))
+        .order_by(
+            HorizonProject.title.asc(),
+            HorizonTracker.name.asc(),
+            HorizonShot.updated_at.desc(),
+            HorizonShot.shot_code.asc(),
+        )
+        .all()
+    )
+
+    shot_ids = [shot.id for shot, _tracker, _project in rows]
+    latest_version_ids: dict[str, str] = {}
+    if shot_ids:
+        versions = (
+            db.query(HorizonShotVersion)
+            .filter(HorizonShotVersion.shot_id.in_(shot_ids))
+            .order_by(
+                HorizonShotVersion.updated_at.desc(),
+                HorizonShotVersion.created_at.desc(),
+                HorizonShotVersion.id.asc(),
+            )
+            .all()
+        )
+        for version in versions:
+            latest_version_ids.setdefault(version.shot_id, version.id)
+
+    grouped: dict[str, dict] = {}
+    for shot, tracker, project in rows:
+        project_group = grouped.setdefault(project.id, {
+            'id': project.id,
+            'title': project.title,
+            'status': project.status,
+            'due_date': project.due_date,
+            'thumbnail_path': project.thumbnail_path,
+            'updated_at': 0,
+            'shots': [],
+        })
+        project_group['updated_at'] = max(project_group['updated_at'], shot.updated_at or 0)
+        project_group['shots'].append({
+            'id': shot.id,
+            'shot_id': shot.shot_code,
+            'description': shot.description,
+            'category': shot.category,
+            'tracker_id': tracker.id,
+            'tracker_name': tracker.name,
+            'latest_version_label': shot.latest_version_label,
+            'latest_version_id': latest_version_ids.get(shot.id),
+            'updated_at': shot.updated_at,
+        })
+
+    projects = sorted(grouped.values(), key=lambda project: (
+        -float(project['updated_at'] or 0),
+        str(project['title']).casefold(),
+    ))
+    return {'total': len(rows), 'projects': projects}
 
 
 @router.get('/api/recently-viewed')

@@ -4,6 +4,7 @@
       v-if="canEditShotName && !shareMode"
       class="tracker-row-id-input"
       :value="shot.shot_id"
+      aria-label="Shot name"
       @input="shot.shot_id = $event.target.value"
       @blur="saveShot(shot)"
       @keydown.enter="$event.target.blur()"

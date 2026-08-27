@@ -14,6 +14,8 @@ export function createNavigationStore({
   projectPath,
   artistWorkspaceRoot,
   sharedSingleFile,
+  canReturnToCommentOrigin,
+  returnToCommentOrigin,
   closeViewer,
   closeTracker,
   closePage,
@@ -70,6 +72,8 @@ export function createNavigationStore({
   })
 
   const backTarget = computed(() => {
+    if (canReturnToCommentOrigin?.value) return 'comment-origin'
+
     if (currentMedia.value) {
       return share.shareMode.value && sharedSingleFile.value ? null : 'viewer'
     }
@@ -110,6 +114,9 @@ export function createNavigationStore({
 
   function goBack() {
     switch (backTarget.value) {
+      case 'comment-origin':
+        void returnToCommentOrigin?.()
+        break
       case 'viewer':
         closeViewer()
         break

@@ -63,8 +63,21 @@ export function useAppRouting({
     navigateProjectFolder,
   } = workspace
   const { openTracker } = tracker
-  const { dismissCurrentMedia: dismissCurrentMediaForNavigation } = viewer.media
+  const {
+    dismissCurrentMedia: dismissCurrentMediaForNavigation,
+    returnToCommentOrigin,
+  } = viewer.media
+  const {
+    canReturnToCommentOrigin,
+    commentReferenceOriginContext,
+  } = viewer.state || {}
   let currentNavigationId = 0
+  let currentNavigationController = null
+
+  function isCommentOriginRoute() {
+    const originPath = commentReferenceOriginContext?.value?.routeFullPath || ''
+    return Boolean(canReturnToCommentOrigin?.value && originPath && originPath === route.fullPath)
+  }
 
   function reuseHydratedProjectRoute(routeName, params) {
     if (!routeRefMatches(currentProject.value, params.projectId, ['id'])) return false
@@ -124,16 +137,16 @@ export function useAppRouting({
     }
   }
 
-  async function handleProtectedHomeRoute() {
+  async function handleProtectedHomeRoute(signal) {
     activeModule.value = 'home'
     currentProject.value = null
     currentTracker.value = null
     if (currentPage) currentPage.value = null
-    await loadProjects()
+    await loadProjects({ signal })
     loading.value = false
   }
 
-  async function handleProtectedRoute(routeName, params, isStale) {
+  async function handleProtectedRoute(routeName, params, isStale, signal) {
     if (routeName === 'files') {
       if (currentUser.value?.role === 'artist') {
         router.replace('/projects')
@@ -153,7 +166,7 @@ export function useAppRouting({
       currentProject.value = null
       currentTracker.value = null
       if (currentPage) currentPage.value = null
-      await loadProjects()
+      await loadProjects({ signal })
       if (isStale()) return
       loading.value = false
       return
@@ -172,11 +185,12 @@ export function useAppRouting({
         loading.value = false
         return
       }
-      await loadProjects()
+      await loadProjects({ signal })
       if (isStale()) return
       await openProject(params.projectId, {
         skipRouteUpdate: true,
         contentsPath: folderPath,
+        signal,
       })
       if (isStale()) return
       if (!folderPath && currentUser.value?.role === 'artist' && projectPath?.value) {
@@ -193,11 +207,15 @@ export function useAppRouting({
 
     if (routeName === 'project-tracker') {
       activeModule.value = 'projects'
-      await loadProjects()
-      if (isStale()) return
-      await openProject(params.projectId, true)
-      if (isStale()) return
-      await openTracker(params.tracker, true)
+      if (routeRefMatches(currentProject.value, params.projectId, ['id'])) {
+        await openTracker(params.tracker, { skipRouteUpdate: true, signal })
+      } else {
+        await loadProjects({ signal })
+        if (isStale()) return
+        await openProject(params.projectId, { skipRouteUpdate: true, signal })
+        if (isStale()) return
+        await openTracker(params.tracker, { skipRouteUpdate: true, signal })
+      }
       if (isStale()) return
       loading.value = false
       return
@@ -205,11 +223,11 @@ export function useAppRouting({
 
     if (routeName === 'project-page') {
       activeModule.value = 'projects'
-      await loadProjects()
+      await loadProjects({ signal })
       if (isStale()) return
-      await openProject(params.projectId, true)
+      await openProject(params.projectId, { skipRouteUpdate: true, signal })
       if (isStale()) return
-      await openPage(params.page, true)
+      await openPage(params.page, { skipRouteUpdate: true, signal })
       if (isStale()) return
       loading.value = false
       return
@@ -229,11 +247,20 @@ export function useAppRouting({
 
   async function handleRouteChange() {
     const navId = ++currentNavigationId
+    currentNavigationController?.abort()
+    const navigationController = new AbortController()
+    currentNavigationController = navigationController
+    const { signal } = navigationController
     const isStale = () => navId !== currentNavigationId
 
     const routeName = route.name
     const params = route.params
     const query = route.query
+    const returningToCommentOrigin = isCommentOriginRoute()
+    const preservingCommentOrigin = Boolean(
+      canReturnToCommentOrigin?.value
+      && String(params.projectId || '') === String(currentProject.value?.id || ''),
+    )
 
     loading.value = true
 
@@ -250,7 +277,11 @@ export function useAppRouting({
     const isShareRoute = route.meta?.public && route.meta?.shareType
     const isShareRouteName = SHARE_ROUTE_NAMES.includes(routeName)
 
-    dismissCurrentMediaForNavigation?.()
+    if (!returningToCommentOrigin) {
+      dismissCurrentMediaForNavigation?.(
+        preservingCommentOrigin ? { preserveCommentHistory: true } : undefined,
+      )
+    }
 
     if (isShareRoute || isShareRouteName) {
       await handleShareRoute(routeName, params, route.meta)
@@ -286,6 +317,16 @@ export function useAppRouting({
 
     resetAuthenticatedNavigationState()
 
+    if (returningToCommentOrigin) {
+      const restored = await returnToCommentOrigin?.()
+      if (isStale()) return
+      if (restored) {
+        activeModule.value = 'projects'
+        loading.value = false
+        return
+      }
+    }
+
     if (reuseHydratedProjectRoute(routeName, params)) {
       activeModule.value = 'projects'
       loading.value = false
@@ -293,11 +334,11 @@ export function useAppRouting({
     }
 
     if (routeName === 'home' || !routeName) {
-      await handleProtectedHomeRoute()
+      await handleProtectedHomeRoute(signal)
       return
     }
 
-    await handleProtectedRoute(routeName, params, isStale)
+    await handleProtectedRoute(routeName, params, isStale, signal)
   }
 
   return {

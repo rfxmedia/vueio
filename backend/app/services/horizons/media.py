@@ -3,19 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from fastapi import HTTPException
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models import (
     Comment,
     HorizonShot,
-    HorizonShotAssignee,
     HorizonShotVersion,
     MediaAsset,
 )
 from app.services.media_assets import is_generated_media_scope, media_asset_matches_filters
 
-from .team import _subject_candidates_for_user, get_horizon_user_workspace_path, is_restricted_horizon_artist
+from .team import _horizon_shot_assignment_clause, _subject_candidates_for_user, get_horizon_user_workspace_path, is_restricted_horizon_artist
 
 
 def list_horizon_media_assets(db: Session, project_id: str) -> list[MediaAsset]:
@@ -56,10 +56,8 @@ def _list_visible_horizon_media_asset_ids(db: Session, project_id: str, user: di
     visible_shot_ids = [
         shot.id
         for shot in db.query(HorizonShot)
-        .join(HorizonShotAssignee, HorizonShotAssignee.shot_id == HorizonShot.id)
         .filter(HorizonShot.project_id == project_id)
-        .filter(HorizonShotAssignee.user_id.in_(subject_ids))
-        .distinct()
+        .filter(_horizon_shot_assignment_clause(subject_ids))
         .all()
     ]
 
@@ -104,6 +102,22 @@ def _list_visible_horizon_media_asset_ids(db: Session, project_id: str, user: di
         )
     )
 
+    referenced_folders = _restricted_artist_visible_comment_folder_paths(
+        db,
+        project_id,
+        user,
+        access_role,
+    )
+    if referenced_folders:
+        visible_asset_ids.update(
+            asset.id
+            for asset in db.query(MediaAsset)
+            .filter(MediaAsset.project_id == project_id)
+            .filter(MediaAsset.unavailable_at.is_(None))
+            .all()
+            if asset.id and _asset_is_within_virtual_folders(asset, referenced_folders, links)
+        )
+
     return visible_asset_ids
 
 
@@ -146,11 +160,10 @@ def _restricted_artist_has_direct_media_access(
     assigned_version = (
         db.query(HorizonShotVersion.id)
         .join(HorizonShot, HorizonShot.id == HorizonShotVersion.shot_id)
-        .join(HorizonShotAssignee, HorizonShotAssignee.shot_id == HorizonShot.id)
         .filter(HorizonShotVersion.project_id == project_id)
         .filter(HorizonShotVersion.media_asset_id == asset_id)
         .filter(HorizonShot.project_id == project_id)
-        .filter(HorizonShotAssignee.user_id.in_(subject_ids))
+        .filter(_horizon_shot_assignment_clause(subject_ids))
         .first()
     )
     if assigned_version is not None:
@@ -192,16 +205,144 @@ def _restricted_artist_has_direct_media_access(
 
 
 def _reference_targets_asset(raw_attachments: str | None, asset_id: str) -> bool:
-    try:
-        attachments = json.loads(raw_attachments or '[]')
-    except (TypeError, ValueError):
-        return False
+    attachments = _load_reference_attachments(raw_attachments)
     return any(
-        isinstance(item, dict)
-        and item.get('attachment_type') == 'reference'
+        item.get('attachment_type') == 'reference'
         and item.get('target_type') == 'media_asset'
         and str(item.get('target_id') or '') == asset_id
         for item in attachments
+    )
+
+
+def _load_reference_attachments(raw_attachments: str | None) -> list[dict]:
+    try:
+        attachments = json.loads(raw_attachments or '[]')
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(attachments, list):
+        return []
+    return [item for item in attachments if isinstance(item, dict)]
+
+
+def _path_is_within_folder(path: str | None, folder_path: str | None) -> bool:
+    candidate = str(path or '').strip().strip('/')
+    folder = str(folder_path or '').strip().strip('/')
+    return bool(candidate and folder) and (candidate == folder or candidate.startswith(f'{folder}/'))
+
+
+def _reference_folder_paths(raw_attachments: str | None) -> set[str]:
+    from app.services.share_access import normalize_virtual_path
+
+    paths: set[str] = set()
+    for item in _load_reference_attachments(raw_attachments):
+        if item.get('attachment_type') != 'reference' or item.get('target_type') != 'folder':
+            continue
+        try:
+            path = normalize_virtual_path(item.get('target_id'), allow_empty=False, field_name='folder path')
+        except HTTPException:
+            continue
+        paths.add(path)
+    return paths
+
+
+def _asset_is_within_virtual_folders(asset: MediaAsset, folder_paths: set[str], links: list[dict]) -> bool:
+    asset_path = str(asset.file_path or '').strip().strip('/')
+    virtual_paths = set()
+    if asset.storage_scope == 'project' and asset_path:
+        virtual_paths.add(asset_path)
+
+    from app.services.project_links import linked_virtual_paths_for_source
+
+    virtual_paths.update(linked_virtual_paths_for_source(links, asset_path))
+    return any(
+        _path_is_within_folder(virtual_path, folder_path)
+        for virtual_path in virtual_paths
+        for folder_path in folder_paths
+    )
+
+
+def _restricted_artist_can_access_comment_target(
+    db: Session,
+    project_id: str,
+    comment: Comment,
+    user: dict | None,
+    access_role: str | None,
+) -> bool:
+    if comment.horizons_shot_version_id and can_access_horizon_shot_version_id(
+        db,
+        project_id,
+        comment.horizons_shot_version_id,
+        user=user,
+        access_role=access_role,
+    ):
+        return True
+    if comment.horizons_media_asset_id and _restricted_artist_has_direct_media_access(
+        db,
+        project_id,
+        comment.horizons_media_asset_id,
+        user,
+    ):
+        return True
+    target_asset = get_horizon_media_asset_by_path(db, project_id, comment.file_path)
+    return bool(
+        target_asset
+        and _restricted_artist_has_direct_media_access(
+            db,
+            project_id,
+            target_asset.id,
+            user,
+        )
+    )
+
+
+def _restricted_artist_visible_comment_folder_paths(
+    db: Session,
+    project_id: str,
+    user: dict | None,
+    access_role: str | None,
+) -> set[str]:
+    folder_paths: set[str] = set()
+    comments = (
+        db.query(Comment)
+        .filter(Comment.project_id == project_id)
+        .filter(Comment.attachments_data.isnot(None))
+        .filter(Comment.attachments_data.contains('folder'))
+        .all()
+    )
+    for comment in comments:
+        referenced_paths = _reference_folder_paths(comment.attachments_data)
+        if not referenced_paths:
+            continue
+        if _restricted_artist_can_access_comment_target(db, project_id, comment, user, access_role):
+            folder_paths.update(referenced_paths)
+    return folder_paths
+
+
+def can_access_horizon_folder_path(
+    db: Session,
+    project_id: str,
+    folder_path: str | None,
+    *,
+    user: dict | None = None,
+    access_role: str | None = None,
+) -> bool:
+    if not is_restricted_horizon_artist(user, access_role):
+        return True
+
+    candidate = str(folder_path or '').strip().strip('/')
+    if not candidate:
+        return False
+    workspace_path = get_horizon_user_workspace_path(user)
+    if _path_is_within_folder(candidate, workspace_path):
+        return True
+    return any(
+        _path_is_within_folder(candidate, referenced_path)
+        for referenced_path in _restricted_artist_visible_comment_folder_paths(
+            db,
+            project_id,
+            user,
+            access_role,
+        )
     )
 
 
@@ -212,38 +353,39 @@ def _restricted_artist_has_comment_reference_access(
     user: dict | None,
     access_role: str | None,
 ) -> bool:
+    asset = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.project_id == project_id)
+        .filter(MediaAsset.id == asset_id)
+        .filter(MediaAsset.unavailable_at.is_(None))
+        .first()
+    )
+    if asset is None:
+        return False
+
+    from app.services.projects import load_project_links
+
+    links = load_project_links(project_id).get('links', [])
     comments = (
         db.query(Comment)
         .filter(Comment.project_id == project_id)
         .filter(Comment.attachments_data.isnot(None))
-        .filter(Comment.attachments_data.contains(asset_id))
+        .filter(or_(
+            Comment.attachments_data.contains(asset_id),
+            Comment.attachments_data.contains('folder'),
+        ))
         .all()
     )
     for comment in comments:
-        if not _reference_targets_asset(comment.attachments_data, asset_id):
+        directly_referenced = _reference_targets_asset(comment.attachments_data, asset_id)
+        folder_referenced = _asset_is_within_virtual_folders(
+            asset,
+            _reference_folder_paths(comment.attachments_data),
+            links,
+        )
+        if not directly_referenced and not folder_referenced:
             continue
-        if comment.horizons_shot_version_id and can_access_horizon_shot_version_id(
-            db,
-            project_id,
-            comment.horizons_shot_version_id,
-            user=user,
-            access_role=access_role,
-        ):
-            return True
-        if comment.horizons_media_asset_id and _restricted_artist_has_direct_media_access(
-            db,
-            project_id,
-            comment.horizons_media_asset_id,
-            user,
-        ):
-            return True
-        target_asset = get_horizon_media_asset_by_path(db, project_id, comment.file_path)
-        if target_asset and _restricted_artist_has_direct_media_access(
-            db,
-            project_id,
-            target_asset.id,
-            user,
-        ):
+        if _restricted_artist_can_access_comment_target(db, project_id, comment, user, access_role):
             return True
     return False
 
@@ -269,11 +411,10 @@ def can_access_horizon_shot_version_id(
     visible_version = (
         db.query(HorizonShotVersion.id)
         .join(HorizonShot, HorizonShot.id == HorizonShotVersion.shot_id)
-        .join(HorizonShotAssignee, HorizonShotAssignee.shot_id == HorizonShot.id)
         .filter(HorizonShotVersion.project_id == project_id)
         .filter(HorizonShotVersion.id == normalized_version_id)
         .filter(HorizonShot.project_id == project_id)
-        .filter(HorizonShotAssignee.user_id.in_(subject_ids))
+        .filter(_horizon_shot_assignment_clause(subject_ids))
         .first()
     )
     return visible_version is not None
@@ -333,6 +474,46 @@ def get_visible_horizon_media_asset_by_path(db: Session, project_id: str, file_p
     if visible_asset_ids is None or asset.id in visible_asset_ids:
         return asset
     return None
+
+
+def get_visible_horizon_media_assets_by_paths(
+    db: Session,
+    project_id: str,
+    file_paths: list[str],
+    *,
+    user: dict | None = None,
+    access_role: str | None = None,
+) -> dict[str, MediaAsset]:
+    normalized_paths = {
+        str(file_path or '').strip().strip('/')
+        for file_path in file_paths
+        if str(file_path or '').strip().strip('/')
+    }
+    if not normalized_paths:
+        return {}
+
+    assets = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.project_id == project_id)
+        .filter(MediaAsset.file_path.in_(normalized_paths))
+        .filter(MediaAsset.unavailable_at.is_(None))
+        .order_by(MediaAsset.updated_at.desc())
+        .all()
+    )
+    visible_asset_ids = _list_visible_horizon_media_asset_ids(
+        db,
+        project_id,
+        user=user,
+        access_role=access_role,
+    )
+    assets_by_path: dict[str, MediaAsset] = {}
+    for asset in assets:
+        if is_generated_media_scope(asset.storage_scope):
+            continue
+        if visible_asset_ids is not None and asset.id not in visible_asset_ids:
+            continue
+        assets_by_path.setdefault(str(asset.file_path or '').strip().strip('/'), asset)
+    return assets_by_path
 
 
 def select_horizon_preview_asset(db: Session, project_id: str, *, user: dict | None = None, access_role: str | None = None) -> MediaAsset | None:

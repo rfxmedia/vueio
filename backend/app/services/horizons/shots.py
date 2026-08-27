@@ -16,7 +16,7 @@ from app.models import (
 
 from .common import _dedupe_ordered, _normalize_shot_status
 from .projects import get_horizon_project, require_horizon_project_writable
-from .team import _ensure_horizon_project_memberships_for_assignees, _resolve_horizon_assignee_ids, _shot_assignee_rows, _subject_candidates_for_user, get_horizon_shot_assignee_ids, is_restricted_horizon_artist
+from .team import _ensure_horizon_project_memberships_for_assignees, _horizon_shot_assignment_clause, _resolve_horizon_assignee_ids, _shot_assignee_rows, _subject_candidates_for_user, get_horizon_shot_assignee_ids, is_restricted_horizon_artist
 from .trackers import get_horizon_tracker, get_horizon_tracker_by_ref
 from .version_publication import initial_version_publication, set_version_share_state, version_is_published, version_media_is_publishable
 
@@ -48,12 +48,7 @@ def list_visible_horizon_shots(
         subject_ids = {value for _stype, value in _subject_candidates_for_user(user)}
         if not subject_ids:
             return []
-        query = (
-            query
-            .join(HorizonShotAssignee, HorizonShotAssignee.shot_id == HorizonShot.id)
-            .filter(HorizonShotAssignee.user_id.in_(subject_ids))
-            .distinct()
-        )
+        query = query.filter(_horizon_shot_assignment_clause(subject_ids))
     return query.order_by(HorizonShot.created_at.asc()).all()
 
 
@@ -350,6 +345,7 @@ def create_horizon_shot_version(db: Session, *, project_id: str, shot_id: str, l
 def _create_horizon_shot_version_no_commit(db: Session, *, project_id: str, shot_id: str, label: str, media_asset_id: str | None = None, notes: str | None = None, created_by: str | None = None) -> HorizonShotVersion:
     require_horizon_project_writable(db, project_id)
     shot = get_horizon_shot_by_ref(db, project_id, shot_id)
+    shot = db.query(HorizonShot).filter(HorizonShot.id == shot.id).with_for_update().one()
     tracker = get_horizon_tracker(db, project_id, shot.tracker_id)
     project = get_horizon_project(db, project_id)
     normalized_label = (label or '').strip()

@@ -19,6 +19,7 @@ from app.services.media import (
     format_duration_label,
     format_size,
     get_video_duration_quick,
+    probe_cached_video_durations,
 )
 from app.services.hls_streaming import get_hls_thumbnail_source
 from app.services.media_serving import DownloadAuditSpec, media_target, serve_thumbnail, serve_zip_entries
@@ -81,7 +82,8 @@ def batch_media_info(payload: BatchMediaInfoRequest, vueio_session: str | None =
 
     project_user = require_project_auth(project_id, vueio_session) if project_id else None
 
-    items = []
+    resolved_items = []
+    videos = []
     for path in paths:
         try:
             if project_id:
@@ -95,28 +97,50 @@ def batch_media_info(payload: BatchMediaInfoRequest, vueio_session: str | None =
                 from app.services.media import get_safe_path
                 full_path = get_safe_path(path)
             if not full_path or not full_path.exists() or not full_path.is_file():
-                items.append({'path': path, 'missing': True})
+                resolved_items.append({'path': path, 'missing': True})
                 continue
             stat = full_path.stat()
             ext = full_path.suffix.lower()
-            duration = get_video_duration_quick(full_path) if ext in VIDEO_EXTENSIONS else None
-            items.append({
+            if ext in VIDEO_EXTENSIONS:
+                videos.append((full_path, stat))
+            resolved_items.append({
                 'path': path,
-                'name': full_path.name,
-                'extension': ext.lstrip('.'),
-                'size': stat.st_size,
-                'size_formatted': format_size(stat.st_size),
-                'created_at': getattr(stat, 'st_birthtime', stat.st_ctime),
-                'modified_at': stat.st_mtime,
-                'is_video': ext in VIDEO_EXTENSIONS,
-                'is_image': ext in IMAGE_EXTENSIONS,
-                'duration': duration,
-                'duration_formatted': format_duration_label(duration) if duration else None,
+                'full_path': full_path,
+                'stat': stat,
+                'ext': ext,
             })
         except HTTPException:
             raise
         except Exception:
+            resolved_items.append({'path': path, 'error': 'Unable to inspect file'})
+
+    durations = probe_cached_video_durations(videos, probe=get_video_duration_quick)
+    items = []
+    for resolved in resolved_items:
+        if resolved.get('missing') or resolved.get('error'):
+            items.append(resolved)
+            continue
+        path = resolved['path']
+        full_path = resolved['full_path']
+        stat = resolved['stat']
+        ext = resolved['ext']
+        duration = durations.get(full_path) if ext in VIDEO_EXTENSIONS else None
+        if isinstance(duration, Exception):
             items.append({'path': path, 'error': 'Unable to inspect file'})
+            continue
+        items.append({
+            'path': path,
+            'name': full_path.name,
+            'extension': ext.lstrip('.'),
+            'size': stat.st_size,
+            'size_formatted': format_size(stat.st_size),
+            'created_at': getattr(stat, 'st_birthtime', stat.st_ctime),
+            'modified_at': stat.st_mtime,
+            'is_video': ext in VIDEO_EXTENSIONS,
+            'is_image': ext in IMAGE_EXTENSIONS,
+            'duration': duration,
+            'duration_formatted': format_duration_label(duration) if duration else None,
+        })
     return {'items': items}
 
 

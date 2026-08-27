@@ -16,8 +16,7 @@ from app.db import SessionLocal
 from app.models import TranscodeJob
 from app.runtime_state import executor, transcode_cancel_requested, transcode_processes, transcode_progress
 from app.services.media import get_video_info, is_video, needs_transcode
-from app.services.media_resolution import transcode_cache_path_for_identity
-from app.services.media_resolution import source_signature
+from app.services.media_resolution import legacy_media_source_identities, source_signature, transcode_cache_path_for_identity
 from app.services.storage_capacity import ensure_data_capacity
 from app.services.transcode_lifecycle import (
     cancel_all_transcodes,
@@ -338,6 +337,15 @@ def stream_file_response(full_path: Path, transcode_job_key: str, db: Session):
     preview_job_key = mp4_job_key(transcode_job_key)
     transcode_path = transcode_cache_path_for_identity(preview_job_key)
     _adopt_legacy_mp4_artifact(db, legacy_job_key=transcode_job_key, artifact_job_key=preview_job_key, artifact_path=transcode_path)
+    for legacy_identity in legacy_media_source_identities(db, full_path, transcode_job_key):
+        if _is_nonempty_file(transcode_path):
+            break
+        _adopt_legacy_mp4_artifact(
+            db,
+            legacy_job_key=mp4_job_key(legacy_identity),
+            artifact_job_key=preview_job_key,
+            artifact_path=transcode_path,
+        )
     if ensure_transcode_running(db, job_key=preview_job_key, input_path=full_path, output_path=transcode_path):
         touch_transcode_access(preview_job_key)
         return FileResponse(transcode_path, media_type='video/mp4')

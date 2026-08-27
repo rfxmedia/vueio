@@ -13,7 +13,14 @@ const PROJECT_SORT_LABELS = {
 
 const PROJECT_GROUP_ORDER = ['in_progress', 'waiting_review', 'edits_requested', 'not_started', 'done']
 
+function normalizedProjectStatus(status) {
+  return status === 'active' ? 'in_progress' : (status || 'not_started')
+}
+
 function timestampValue(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? (value < 1e12 ? value * 1000 : value) : 0
+  }
   const timestamp = Date.parse(value || '')
   return Number.isFinite(timestamp) ? timestamp : 0
 }
@@ -61,7 +68,7 @@ export function useProjectListState({
   const projectGroups = computed(() => {
     const groups = {}
     for (const project of sortedProjects.value) {
-      const status = project.status || 'not_started'
+      const status = normalizedProjectStatus(project.status)
       if (!groups[status]) groups[status] = []
       groups[status].push(project)
     }

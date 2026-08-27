@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy import BigInteger, Boolean, Column, Float, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import declarative_base
+from sqlalchemy import BigInteger, Boolean, Column, Float, Index, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy.orm import declarative_base, deferred
 
 Base = declarative_base()
 
@@ -137,6 +137,10 @@ class ActivityLog(Base):
 
 class TrackerEvent(Base):
     __tablename__ = 'tracker_events'
+    __table_args__ = (
+        Index('uq_tracker_events_undo_of_event_id', 'undo_of_event_id', unique=True),
+    )
+
     id = Column(Integer, primary_key=True)
     project_id = Column(String, nullable=False, index=True)
     tracker_id = Column(String, nullable=False, index=True)
@@ -148,7 +152,36 @@ class TrackerEvent(Base):
     actor_name = Column(String, nullable=False)
     source = Column(String, nullable=False, default='app')
     payload_json = Column(Text, nullable=True)
+    undo_of_event_id = Column(Integer, nullable=True)
+    state_snapshot = deferred(Column(LargeBinary, nullable=True))
+    state_hash = Column(String, nullable=True)
     created_at = Column(Float, default=time.time, index=True)
+
+
+class TrackerViewEvent(Base):
+    __tablename__ = 'tracker_view_events'
+    __table_args__ = (
+        Index('ix_tracker_view_events_history', 'project_id', 'tracker_id', 'created_at'),
+        Index('ix_tracker_view_events_presence', 'project_id', 'tracker_id', 'event_type', 'last_seen_at'),
+        Index('ix_tracker_view_events_visit', 'project_id', 'tracker_id', 'visit_id'),
+        Index('ix_tracker_view_events_created_at', 'created_at'),
+    )
+
+    id = Column(Integer, primary_key=True)
+    project_id = Column(String, nullable=False)
+    tracker_id = Column(String, nullable=False)
+    shot_id = Column(String, nullable=True)
+    shot_version_id = Column(String, nullable=True)
+    visit_id = Column(String, nullable=False)
+    viewer_user_id = Column(String, nullable=True)
+    viewer_name = Column(String, nullable=False)
+    source = Column(String, nullable=False, default='app')
+    share_id = Column(String, nullable=True)
+    event_type = Column(String, nullable=False)
+    device_type = Column(String, nullable=False, default='desktop')
+    client_metadata_json = Column(Text, nullable=True)
+    created_at = Column(Float, nullable=False, default=time.time)
+    last_seen_at = Column(Float, nullable=False, default=time.time)
 
 
 class DownloadEvent(Base):

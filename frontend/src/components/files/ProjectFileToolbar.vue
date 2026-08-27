@@ -3,7 +3,7 @@
     <div class="project-file-toolbar-context" :class="{ 'has-breadcrumbs': path }">
       <span class="project-file-toolbar-heading">
         <span class="project-file-toolbar-label">Project contents</span>
-        <span class="project-file-toolbar-count">{{ itemCount }}</span>
+        <span class="project-file-toolbar-count">{{ itemCount }} item{{ itemCount === 1 ? '' : 's' }}</span>
       </span>
       <nav
         v-if="path"
@@ -98,9 +98,10 @@ watch(
 <style scoped>
 .project-file-toolbar {
   justify-content: space-between;
-  min-height: 44px;
-  padding: 0 0 14px;
+  min-height: 48px;
+  padding: 0 0 16px;
   border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--v-border) 72%, transparent);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -216,17 +217,17 @@ watch(
 @media (max-width: 768px) {
   .project-file-toolbar {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    gap: var(--v-space-2);
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 10px;
     min-height: 0;
-    padding-bottom: 10px;
+    padding-bottom: 14px;
   }
 
   .project-file-toolbar-actions {
-    justify-content: flex-end;
+    justify-content: space-between;
     gap: 6px;
-    width: auto;
+    width: 100%;
   }
 
   .project-file-toolbar-context {
@@ -252,37 +253,40 @@ watch(
   }
 
   .project-file-toolbar-actions :deep(.v-file-browser-controls) {
+    flex: 1 1 auto;
+    min-width: 0;
     gap: 4px;
   }
 
   .project-file-toolbar-actions :deep(.v-view-toggle),
   .project-file-toolbar-actions :deep(.v-file-sort-select),
   .project-file-toolbar-actions :deep(.v-file-sort-direction) {
-    height: 32px;
+    height: 44px;
   }
 
   .project-file-toolbar-actions :deep(.v-view-toggle) {
-    padding: 2px;
+    padding: 3px;
   }
 
   .project-file-toolbar-actions :deep(.v-view-toggle-btn) {
-    width: 26px;
-    height: 26px;
+    width: 36px;
+    height: 36px;
   }
 
   .project-file-toolbar-actions :deep(.v-file-sort-select) {
-    width: 110px;
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
   }
 
   .project-file-toolbar-actions :deep(.v-file-sort-direction) {
-    width: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .project-file-download-all {
-    min-width: 32px;
-    min-height: 32px;
+    min-height: 44px;
   }
 
   .project-file-download-all .icon {
@@ -297,9 +301,9 @@ watch(
   }
 
   .project-file-download-all {
-    width: 32px;
-    min-width: 32px;
-    min-height: 32px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
     padding: 0;
   }
 
@@ -307,22 +311,14 @@ watch(
     display: none;
   }
 
-  .project-file-toolbar-context.has-breadcrumbs .project-file-toolbar-label {
+  .project-file-toolbar-context.has-breadcrumbs .project-file-toolbar-heading {
     display: none;
-  }
-
-  .project-file-toolbar-context.has-breadcrumbs .project-file-toolbar-count::after {
-    content: ' items';
   }
 }
 
 @media (max-width: 420px) {
-  .project-file-toolbar-label {
-    display: none;
-  }
-
-  .project-file-toolbar-count::after {
-    content: ' items';
+  .project-file-toolbar-heading {
+    gap: var(--v-space-1);
   }
 }
 </style>

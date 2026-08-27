@@ -20,7 +20,7 @@ from app.models import TranscodeJob
 from app.runtime_state import executor, transcode_cancel_requested, transcode_processes, transcode_progress
 from app.services.media import is_video, probe_duration_seconds
 from app.services.media_resolution import source_signature
-from app.services.media_resolution import hls_master_playlist_path_for_identity, hls_package_dir_for_identity
+from app.services.media_resolution import hls_master_playlist_path_for_identity, hls_package_dir_for_identity, legacy_media_source_identities
 from app.services.storage_capacity import ensure_data_capacity
 from app.services.transcode_lifecycle import (
     artifact_job_key,
@@ -872,6 +872,18 @@ def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -
 
     probe = _probe_video_streams(input_path)
     _adopt_legacy_hls_artifact(db, legacy_job_key=job_key, artifact_job_key=package_job_key, probe=probe, package_dir=package_dir, master_playlist=master_playlist)
+    for legacy_identity in legacy_media_source_identities(db, input_path, job_key):
+        active_package_dir = _active_hls_package_dir(package_dir)
+        if _is_nonempty_file(active_package_dir / 'master.m3u8') and validate_hls_package(active_package_dir, probe):
+            break
+        _adopt_legacy_hls_artifact(
+            db,
+            legacy_job_key=hls_job_key(legacy_identity),
+            artifact_job_key=package_job_key,
+            probe=probe,
+            package_dir=package_dir,
+            master_playlist=master_playlist,
+        )
     job = db.query(TranscodeJob).filter(TranscodeJob.file_path == package_job_key).first()
 
     active_package_dir = _active_hls_package_dir(package_dir)

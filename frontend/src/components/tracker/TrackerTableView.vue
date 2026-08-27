@@ -19,7 +19,10 @@
       <div
         v-else
         class="tracker-row-list"
-        :class="{ 'is-grid-view': trackerDisplayMode === 'grid' }"
+        :class="{
+          'is-grid-view': trackerDisplayMode === 'grid',
+          'uses-native-virtualization': virtualizeActiveRows,
+        }"
       >
         <div
           v-if="selectionEnabled"
@@ -46,13 +49,14 @@
           :key="group.key"
         >
           <div
-            v-if="showActiveTagGroups"
-            class="tracker-tag-group-heading v-section-label v-section-label--ruled"
+            v-if="showActiveGroups"
+            class="tracker-shot-group-heading v-section-label v-section-label--ruled"
           >
-            <span class="tracker-tag-group-dot" :style="{ backgroundColor: group.color }"></span>
-            <span class="tracker-tag-group-name">{{ group.label }}</span>
-            <span class="tracker-tag-group-count v-section-count">{{ group.items.length }}</span>
-            <span v-if="canReorderTagGroup(group)" class="tracker-tag-group-actions">
+            <svg v-if="group.icon" class="icon tracker-shot-group-icon"><use :href="group.icon" /></svg>
+            <span v-else class="tracker-shot-group-dot" :style="{ backgroundColor: group.color }"></span>
+            <span class="tracker-shot-group-name">{{ group.label }}</span>
+            <span class="tracker-shot-group-count v-section-count">{{ group.items.length }}</span>
+            <span v-if="canReorderTagGroup(group)" class="tracker-shot-group-actions">
               <button
                 class="tracker-tag-reorder-btn"
                 type="button"
@@ -84,8 +88,16 @@
             :index="item.index"
             :presentation="trackerDisplayMode === 'grid' ? 'grid' : 'list'"
             :selection-enabled="selectionEnabled"
+            :selected="isShotSelected(item.shot)"
+            :status-picker-open="showStatusPicker === item.shot.shot_id"
+            :category-picker-open="showCategoryPicker === item.shot.shot_id"
+            :assignee-picker-open="showAssigneePicker === item.shot.shot_id"
+            :picker-flip-up="dropdownFlipUp"
             :toggle-shot-selected="toggleActiveShotSelected || toggleShotSelected"
             :shot="item.shot"
+            :version-drop-active="versionDropShotRef === getShotRef(item.shot)"
+            :version-drop-blocked-reason="versionDropBlockedReason"
+            :version-drop-item-name="versionDropItemName"
           />
         </template>
       </div>
@@ -108,7 +120,10 @@
         <div
           v-if="archivedExpanded"
           class="tracker-archive-list"
-          :class="{ 'is-grid-view': trackerDisplayMode === 'grid' }"
+          :class="{
+            'is-grid-view': trackerDisplayMode === 'grid',
+            'uses-native-virtualization': virtualizeArchivedRows,
+          }"
         >
           <div
             v-if="archivedSelectionEnabled"
@@ -135,13 +150,14 @@
             :key="group.key"
           >
             <div
-              v-if="showArchivedTagGroups"
-              class="tracker-tag-group-heading v-section-label v-section-label--ruled"
+              v-if="showArchivedGroups"
+              class="tracker-shot-group-heading v-section-label v-section-label--ruled"
             >
-              <span class="tracker-tag-group-dot" :style="{ backgroundColor: group.color }"></span>
-              <span class="tracker-tag-group-name">{{ group.label }}</span>
-              <span class="tracker-tag-group-count v-section-count">{{ group.items.length }}</span>
-              <span v-if="canReorderTagGroup(group)" class="tracker-tag-group-actions">
+              <svg v-if="group.icon" class="icon tracker-shot-group-icon"><use :href="group.icon" /></svg>
+              <span v-else class="tracker-shot-group-dot" :style="{ backgroundColor: group.color }"></span>
+              <span class="tracker-shot-group-name">{{ group.label }}</span>
+              <span class="tracker-shot-group-count v-section-count">{{ group.items.length }}</span>
+              <span v-if="canReorderTagGroup(group)" class="tracker-shot-group-actions">
                 <button
                   class="tracker-tag-reorder-btn"
                   type="button"
@@ -173,8 +189,16 @@
               :index="item.index"
               :presentation="trackerDisplayMode === 'grid' ? 'grid' : 'list'"
               :selection-enabled="archivedSelectionEnabled"
+              :selected="isShotSelected(item.shot)"
+              :status-picker-open="showStatusPicker === item.shot.shot_id"
+              :category-picker-open="showCategoryPicker === item.shot.shot_id"
+              :assignee-picker-open="showAssigneePicker === item.shot.shot_id"
+              :picker-flip-up="dropdownFlipUp"
               :toggle-shot-selected="toggleArchivedShotSelected || toggleShotSelected"
               :shot="item.shot"
+              :version-drop-active="versionDropShotRef === getShotRef(item.shot)"
+              :version-drop-blocked-reason="versionDropBlockedReason"
+              :version-drop-item-name="versionDropItemName"
             />
           </template>
         </div>
@@ -195,6 +219,18 @@ const props = defineProps({
     type: String,
     default: 'list',
   },
+  versionDropShotRef: {
+    type: String,
+    default: '',
+  },
+  versionDropBlockedReason: {
+    type: String,
+    default: '',
+  },
+  versionDropItemName: {
+    type: String,
+    default: '',
+  },
 })
 
 const {
@@ -210,22 +246,34 @@ const {
   clearTrackerFilters,
   currentTracker,
   dragOverIndex,
+  dropdownFlipUp,
+  formatStatus,
   getCategoryColor,
+  getShotAssigneeIds,
+  getShotAssigneeLabel,
   hasTrackerFilters,
   moveTrackerTag,
   selectionEnabled,
   shareMode,
+  showAssigneePicker,
+  showCategoryPicker,
+  showStatusPicker,
   toggleActiveShotSelected,
   toggleArchivedShotSelected,
   toggleSelectAllArchived,
   toggleSelectAllVisible,
   toggleShotSelected,
+  isShotSelected,
   trackerCategories,
+  trackerGroupKey,
   trackerShotsForDisplay,
+  trackerStatusOptions,
 } = useTrackerStore()
 
 const archivedExpanded = ref(false)
 const archivedShots = computed(() => archivedTrackerShots.value || [])
+const virtualizeActiveRows = computed(() => trackerShotsForDisplay.value.length > 50)
+const virtualizeArchivedRows = computed(() => archivedShots.value.length > 50)
 const hasArchivedShots = computed(() => archivedShots.value.length > 0)
 const hasAnyTrackerShots = computed(() => (currentTracker.value?.shots || []).length > 0)
 const archivedSelectionEnabled = computed(() => (
@@ -243,8 +291,13 @@ const activeEmptyHint = computed(() => (
 
 const activeShotGroups = computed(() => buildShotGroups(trackerShotsForDisplay.value || []))
 const archivedShotGroups = computed(() => buildShotGroups(archivedShots.value))
-const showActiveTagGroups = computed(() => shouldShowTagGroups(activeShotGroups.value))
-const showArchivedTagGroups = computed(() => shouldShowTagGroups(archivedShotGroups.value))
+const showActiveGroups = computed(() => Boolean(trackerGroupKey.value && activeShotGroups.value.length))
+const showArchivedGroups = computed(() => Boolean(trackerGroupKey.value && archivedShotGroups.value.length))
+
+function getShotRef(shot) {
+  return String(shot?.id || shot?._originalId || shot?.shot_id || shot?.shot_code || '')
+}
+
 const orderedTagKeys = computed(() => {
   const keys = []
   const seen = new Set()
@@ -259,7 +312,11 @@ const orderedTagKeys = computed(() => {
   return keys
 })
 const tagOrderLookup = computed(() => new Map(orderedTagKeys.value.map((key, index) => [key, index])))
+const statusOptionLookup = computed(() => new Map(
+  (trackerStatusOptions.value || []).map((option, index) => [option.value, { ...option, index }]),
+))
 const canReorderTagGroups = computed(() => (
+  trackerGroupKey.value === 'category' &&
   !shareMode.value &&
   !hasTrackerFilters.value &&
   canCategorizeShots.value &&
@@ -275,10 +332,6 @@ function normalizeTagLabel(value) {
   const raw = String(value || '').trim()
   if (!raw || raw === 'Uncategorized') return ''
   return raw
-}
-
-function shouldShowTagGroups(groups) {
-  return groups.length > 1 || (groups.length === 1 && !groups[0].isUntagged)
 }
 
 function getTagOrderIndex(label) {
@@ -303,33 +356,75 @@ function moveTagGroup(group, direction) {
   moveTrackerTag(group.label, direction)
 }
 
+function getShotGroup(shot) {
+  if (trackerGroupKey.value === 'status') {
+    const value = shot?.status || 'not_started'
+    const option = statusOptionLookup.value.get(value)
+    return {
+      key: `status:${value}`,
+      value,
+      label: option?.label || formatStatus?.(value) || value,
+      color: option?.color || 'var(--v-text-muted)',
+    }
+  }
+
+  if (trackerGroupKey.value === 'assignee') {
+    const assigneeIds = getShotAssigneeIds?.(shot) || []
+    return {
+      key: assigneeIds.length ? `assignee:${[...assigneeIds].sort().join(',')}` : 'assignee:unassigned',
+      label: getShotAssigneeLabel?.(shot) || 'Unassigned',
+      icon: '#icon-user',
+    }
+  }
+
+  const label = getShotTagLabel(shot)
+  return {
+    key: `category:${label.toLowerCase()}`,
+    label,
+    color: getCategoryColor?.(label) || 'var(--v-text-muted)',
+    isUntagged: label === 'Untagged',
+  }
+}
+
+function compareShotGroups(left, right) {
+  if (trackerGroupKey.value === 'status') {
+    const leftRank = statusOptionLookup.value.get(left.value)?.index ?? Number.MAX_SAFE_INTEGER
+    const rightRank = statusOptionLookup.value.get(right.value)?.index ?? Number.MAX_SAFE_INTEGER
+    if (leftRank !== rightRank) return leftRank - rightRank
+  } else if (trackerGroupKey.value === 'category') {
+    const rank = getTagOrderIndex(left.label) - getTagOrderIndex(right.label)
+    if (rank !== 0) return rank
+  }
+  return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })
+}
+
 function buildShotGroups(shots) {
+  if (!trackerGroupKey.value) {
+    return [{
+      key: 'all',
+      label: '',
+      items: (shots || []).map((shot, index) => ({ shot, index })),
+    }]
+  }
+
   const groups = []
   const groupMap = new Map()
 
   ;(shots || []).forEach((shot, index) => {
-    const label = getShotTagLabel(shot)
-    const key = label.toLowerCase()
-    let group = groupMap.get(key)
+    const descriptor = getShotGroup(shot)
+    let group = groupMap.get(descriptor.key)
     if (!group) {
       group = {
-        key,
-        label,
-        color: getCategoryColor?.(label) || 'var(--v-text-muted)',
-        isUntagged: label === 'Untagged',
+        ...descriptor,
         items: [],
       }
-      groupMap.set(key, group)
+      groupMap.set(descriptor.key, group)
       groups.push(group)
     }
     group.items.push({ shot, index })
   })
 
-  return groups.sort((left, right) => {
-    const rank = getTagOrderIndex(left.label) - getTagOrderIndex(right.label)
-    if (rank !== 0) return rank
-    return left.label.localeCompare(right.label, undefined, { numeric: true, sensitivity: 'base' })
-  })
+  return groups.sort(compareShotGroups)
 }
 </script>
 
@@ -366,9 +461,28 @@ function buildShotGroups(shots) {
   grid-column: 1 / -1;
 }
 
+/* Browser-native rendering containment keeps large trackers light without
+   changing their DOM order, scrollbar, grouping, selection, or drag targets. */
+.uses-native-virtualization > .tracker-row-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 202px;
+}
+
+.uses-native-virtualization.is-grid-view > .tracker-row-card {
+  contain-intrinsic-size: auto 520px;
+}
+
+.uses-native-virtualization > .tracker-row-card.has-open-picker,
+.uses-native-virtualization > .tracker-row-card:focus-within,
+.uses-native-virtualization > .tracker-row-card:has(.media-version-switcher.is-open),
+.uses-native-virtualization > .tracker-row-card.is-version-drop-target,
+.uses-native-virtualization > .tracker-row-card.drag-over {
+  content-visibility: visible;
+}
+
 /* Section-label styling comes from .v-section-label; this only adds the
    sticky behaviour that parks the group name under the pinned toolbar. */
-.tracker-tag-group-heading {
+.tracker-shot-group-heading {
   position: sticky;
   top: calc(var(--tracker-toolbar-height, 56px) - 1px);
   z-index: 12;
@@ -377,7 +491,7 @@ function buildShotGroups(shots) {
   margin: 18px 0 2px;
 }
 
-.tracker-tag-group-heading::before {
+.tracker-shot-group-heading::before {
   content: '';
   position: absolute;
   inset: -4px calc(var(--tracker-list-pad-x, 18px) * -1);
@@ -388,18 +502,18 @@ function buildShotGroups(shots) {
   pointer-events: none;
 }
 
-.tracker-row-list > .tracker-tag-group-heading:first-child,
-.tracker-archive-list > .tracker-tag-group-heading:first-child,
-.tracker-list-selectall + .tracker-tag-group-heading {
+.tracker-row-list > .tracker-shot-group-heading:first-child,
+.tracker-archive-list > .tracker-shot-group-heading:first-child,
+.tracker-list-selectall + .tracker-shot-group-heading {
   margin-top: 2px;
 }
 
-.tracker-row-list.is-grid-view .tracker-tag-group-heading,
-.tracker-archive-list.is-grid-view .tracker-tag-group-heading {
+.tracker-row-list.is-grid-view .tracker-shot-group-heading,
+.tracker-archive-list.is-grid-view .tracker-shot-group-heading {
   grid-column: 1 / -1;
 }
 
-.tracker-tag-group-dot {
+.tracker-shot-group-dot {
   width: 7px;
   height: 7px;
   flex: 0 0 auto;
@@ -407,7 +521,14 @@ function buildShotGroups(shots) {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-surface-panel) 70%, transparent);
 }
 
-.tracker-tag-group-name {
+.tracker-shot-group-icon {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  color: var(--v-text-muted);
+}
+
+.tracker-shot-group-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -415,7 +536,7 @@ function buildShotGroups(shots) {
   color: var(--v-text-secondary);
 }
 
-.tracker-tag-group-actions {
+.tracker-shot-group-actions {
   order: 91;
   display: inline-flex;
   align-items: center;
@@ -429,8 +550,8 @@ function buildShotGroups(shots) {
     transform var(--v-transition-fast);
 }
 
-.tracker-tag-group-heading:hover .tracker-tag-group-actions,
-.tracker-tag-group-heading:focus-within .tracker-tag-group-actions {
+.tracker-shot-group-heading:hover .tracker-shot-group-actions,
+.tracker-shot-group-heading:focus-within .tracker-shot-group-actions {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(0);
@@ -690,7 +811,7 @@ function buildShotGroups(shots) {
     gap: 14px;
   }
 
-  .tracker-tag-group-heading {
+  .tracker-shot-group-heading {
     width: 100%;
     min-height: 32px;
     margin: 12px 0 2px;
@@ -698,16 +819,16 @@ function buildShotGroups(shots) {
     gap: 8px;
   }
 
-  .tracker-tag-group-heading:has(.tracker-tag-group-actions) {
+  .tracker-shot-group-heading:has(.tracker-shot-group-actions) {
     min-height: 40px;
   }
 
-  .tracker-tag-group-dot {
+  .tracker-shot-group-dot {
     width: 6px;
     height: 6px;
   }
 
-  .tracker-tag-group-actions {
+  .tracker-shot-group-actions {
     opacity: 1;
     pointer-events: auto;
     transform: none;
@@ -733,7 +854,7 @@ function buildShotGroups(shots) {
   }
 
   .tracker-header-select-btn {
-    min-height: 32px;
+    min-height: 44px;
     padding: 0 8px 0 0;
     font-size: var(--v-text-xs);
     font-weight: 650;

@@ -23,6 +23,7 @@ from app.services.horizons_fresh import (
     select_horizon_preview_asset,
     update_horizon_project,
 )
+from app.services.horizons.media import get_visible_horizon_media_assets_by_paths
 from app.services.hls_streaming import get_hls_thumbnail_source
 from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_path
 from app.services.media import (
@@ -34,6 +35,7 @@ from app.services.media import (
     format_duration_label,
     format_size,
     get_video_duration_quick,
+    probe_cached_video_durations,
     queue_thumbnail_generation,
 )
 from app.services.media_serving import MAX_CUSTOM_THUMBNAIL_BYTES, DownloadAuditSpec, serve_zip_entries
@@ -279,9 +281,17 @@ def batch_horizons_media_info(project_id: str, payload: HorizonsBatchMediaInfoRe
         raise HTTPException(status_code=400, detail='Too many paths (max 80)')
 
     restricted_view = is_restricted_horizon_artist(user, access_role)
-    items = []
+    assets_by_path = get_visible_horizon_media_assets_by_paths(
+        db,
+        project_id,
+        paths,
+        user=user,
+        access_role=access_role,
+    )
+    resolved_items = []
+    videos = []
     for path in paths:
-        asset = get_visible_horizon_media_asset_by_path(db, project_id, path, user=user, access_role=access_role)
+        asset = assets_by_path.get(path.strip('/'))
         full_path = None
         if asset is not None:
             full_path, _cache_key, _storage_scope = resolve_media_asset_path(asset, project_id=project_id, db=db)
@@ -289,12 +299,36 @@ def batch_horizons_media_info(project_id: str, payload: HorizonsBatchMediaInfoRe
             full_path, _cache_key = resolve_media_full_path(path, project_id, storage_scope='project')
 
         if not full_path or not full_path.exists() or not full_path.is_file():
-            items.append({'path': path, 'missing': True})
+            resolved_items.append({'path': path, 'missing': True})
             continue
 
         stat = full_path.stat()
         ext = full_path.suffix.lower()
-        duration = get_video_duration_quick(full_path) if ext in VIDEO_EXTENSIONS else None
+        if ext in VIDEO_EXTENSIONS:
+            videos.append((full_path, stat))
+        resolved_items.append({
+            'path': path,
+            'asset': asset,
+            'full_path': full_path,
+            'stat': stat,
+            'ext': ext,
+        })
+
+    durations = probe_cached_video_durations(videos, probe=get_video_duration_quick)
+    items = []
+    for resolved in resolved_items:
+        if resolved.get('missing'):
+            items.append(resolved)
+            continue
+        path = resolved['path']
+        asset = resolved['asset']
+        full_path = resolved['full_path']
+        stat = resolved['stat']
+        ext = resolved['ext']
+        duration = durations.get(full_path) if ext in VIDEO_EXTENSIONS else None
+        if isinstance(duration, Exception):
+            items.append({'path': path, 'error': 'Unable to inspect file'})
+            continue
         items.append(attach_canonical_media_identity({
             'path': path,
             'file_path': path,

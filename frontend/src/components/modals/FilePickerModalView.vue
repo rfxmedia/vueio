@@ -6,21 +6,30 @@
     :class="{ 'is-version-picker': isVersionPickerMode }"
     :full-height="true"
     :mobile-full-height="true"
+    :aria-labelledby="filePickerTitleId"
     @update:modelValue="closeFilePicker"
   >
     <template #header>
-      <VModalHeader :title="filePickerTitle" @close="closeFilePicker" />
+      <VModalHeader
+        :title="filePickerTitle"
+        :title-id="filePickerTitleId"
+        :subtitle="filePickerSubtitle"
+        @close="closeFilePicker"
+      />
     </template>
 
     <!-- Mode rail (tracker import: Add Shots / Bulk Update) -->
-    <div v-if="showTrackerImportModeToggle" class="fp-mode-rail">
-      <VTabs
-        :model-value="trackerImportMode"
-        :tabs="trackerImportModeTabs"
-        variant="segmented"
-        :full-width="true"
-        @update:modelValue="setTrackerImportMode"
-      />
+    <div v-if="showTrackerImportModeToggle" class="fp-mode-block">
+      <span class="fp-control-label">Import type</span>
+      <div class="fp-mode-rail">
+        <VTabs
+          :model-value="trackerImportMode"
+          :tabs="trackerImportModeTabs"
+          variant="segmented"
+          :full-width="true"
+          @update:modelValue="setTrackerImportMode"
+        />
+      </div>
     </div>
 
     <!-- Target strip (version picker modes only) -->
@@ -87,7 +96,7 @@
     <div v-if="canUseProjectPicker" class="v-modal-section fp-source-section">
       <div class="v-modal-section-head fp-source-head">
         <div>
-          <h3 class="v-section-label">Source</h3>
+          <h3 class="v-modal-section-title">Choose a source</h3>
           <p class="v-modal-section-copy">Choose where to browse for files.</p>
         </div>
         <button
@@ -147,21 +156,24 @@
     <!-- Browser -->
     <div class="v-modal-card fp-browser">
       <div class="fp-browser-toolbar">
-        <div class="fp-browser-path">
-          <span class="fp-browser-path-icon" aria-hidden="true">
-            <svg class="icon"><use :href="canUseProjectPicker ? getSourceMeta(pickerSource).icon : '#icon-cloud'" /></svg>
-          </span>
-          <button
-            v-if="pickerPath"
-            type="button"
-            class="fp-browser-up v-btn v-btn-quiet v-btn-icon v-btn-sm"
-            aria-label="Up one folder"
-            @click="pickerGoUp"
-          >
-            <svg class="icon"><use href="#icon-back" /></svg>
-          </button>
-          <span class="fp-browser-path-text v-truncate">{{ pickerPath || pickerRootLabel }}</span>
-          <span class="fp-browser-count" :aria-label="`${pickerCount} items`">{{ pickerCount }}</span>
+        <div class="fp-browser-location">
+          <div class="fp-browser-path">
+            <span class="fp-browser-path-icon" aria-hidden="true">
+              <svg class="icon"><use :href="canUseProjectPicker ? getSourceMeta(pickerSource).icon : '#icon-cloud'" /></svg>
+            </span>
+            <button
+              v-if="pickerPath"
+              type="button"
+              class="fp-browser-up v-btn v-btn-quiet v-btn-icon v-btn-sm"
+              aria-label="Up one folder"
+              @click="pickerGoUp"
+            >
+              <svg class="icon"><use href="#icon-back" /></svg>
+            </button>
+            <span class="fp-browser-path-text v-truncate">{{ pickerPath || pickerRootLabel }}</span>
+            <span class="fp-browser-count" :aria-label="`${pickerCount} items`">{{ pickerCount }}</span>
+          </div>
+          <p class="fp-browser-guide">{{ browserGuide }}</p>
         </div>
         <div v-if="isVersionPickerMode" class="fp-browser-filter">
           <svg class="icon fp-browser-filter-icon" aria-hidden="true"><use href="#icon-search" /></svg>
@@ -187,8 +199,9 @@
           >
             <div v-if="item.type !== 'folder'" class="fp-list-thumb">
               <VMediaThumbnail
-                :src="getThumbnailUrl(getPickerItemMedia(item), cachedThumbnailOptions)"
+                :src="getThumbnailUrl(getPickerItemMedia(item))"
                 :alt="item.name"
+                @visible="requestPickerItemMediaInfo(item)"
               />
               <span v-if="getMediaDurationLabel(getPickerItemMedia(item))" class="fp-list-duration">{{ getMediaDurationLabel(getPickerItemMedia(item)) }}</span>
             </div>
@@ -220,40 +233,66 @@
             :key="[item.type, item.id, item.media_asset_id, item.path].filter(Boolean).join(':')"
             class="fp-list-row"
             :class="{ 'is-selected': isPickerSelected(item), 'is-folder': item.type === 'folder' }"
-            role="button"
-            tabindex="0"
-            :aria-pressed="isMultiSelectPickerMode && item.type !== 'folder' ? isPickerSelected(item) : undefined"
-            @click="pickerSelect(item)"
-            @keydown.enter.prevent="pickerSelect(item)"
-            @keydown.space.prevent="pickerSelect(item)"
           >
-            <div v-if="['shot-import', 'page-resource', 'delivery-logo-source'].includes(pickerMode) && isMediaPickerItem(item)" class="fp-list-thumb">
-              <VMediaThumbnail
-                :src="getThumbnailUrl(getPickerItemMedia(item), cachedThumbnailOptions)"
-                :alt="item.name"
-              />
-              <span v-if="getMediaDurationLabel(getPickerItemMedia(item))" class="fp-list-duration">{{ getMediaDurationLabel(getPickerItemMedia(item)) }}</span>
-            </div>
-            <div v-else class="fp-list-icon" aria-hidden="true">
-              <svg class="icon">
-                <use :href="getPickerItemIcon(item)" />
-              </svg>
-            </div>
-            <div class="fp-list-copy">
-              <span class="v-truncate fp-list-name">{{ item.name }}</span>
-              <span v-if="pickerMode === 'shot-import' && item.type !== 'folder' && getMediaDurationLabel(getPickerItemMedia(item))" class="fp-list-meta v-truncate">
-                {{ getMediaDurationLabel(getPickerItemMedia(item)) }}
+            <button
+              type="button"
+              class="fp-list-main"
+              :aria-pressed="isMultiSelectPickerMode && item.type !== 'folder' ? isPickerSelected(item) : undefined"
+              @click="pickerSelect(item)"
+            >
+              <span v-if="isMediaPickerItem(item)" class="fp-list-thumb">
+                <VMediaThumbnail
+                  :src="getThumbnailUrl(getPickerItemMedia(item))"
+                  :alt="item.name"
+                  @visible="requestPickerItemMediaInfo(item)"
+                />
+                <span v-if="getMediaDurationLabel(getPickerItemMedia(item))" class="fp-list-duration">{{ getMediaDurationLabel(getPickerItemMedia(item)) }}</span>
               </span>
-              <span v-else-if="getPickerItemMeta(item)" class="fp-list-meta v-truncate">{{ getPickerItemMeta(item) }}</span>
-            </div>
+              <span v-else class="fp-list-icon" aria-hidden="true">
+                <svg class="icon">
+                  <use :href="getPickerItemIcon(item)" />
+                </svg>
+              </span>
+              <span class="fp-list-copy">
+                <span class="v-truncate fp-list-name">{{ item.name }}</span>
+                <span v-if="pickerMode === 'shot-import' && item.type !== 'folder' && getMediaDurationLabel(getPickerItemMedia(item))" class="fp-list-meta v-truncate">
+                  {{ getMediaDurationLabel(getPickerItemMedia(item)) }}
+                </span>
+                <span v-else-if="getPickerItemMeta(item)" class="fp-list-meta v-truncate">{{ getPickerItemMeta(item) }}</span>
+              </span>
+              <span
+                v-if="isMultiSelectPickerMode && item.type !== 'folder'"
+                class="fp-list-checkbox"
+                :class="{ 'is-checked': isPickerSelected(item) }"
+                aria-hidden="true"
+              >
+                <svg v-if="isPickerSelected(item)" class="icon"><use href="#icon-check" /></svg>
+              </span>
+              <span v-else class="fp-list-trail" aria-hidden="true">
+                <svg v-if="item.type === 'folder'" class="icon fp-list-chevron"><use href="#icon-chevron-down" /></svg>
+                <svg v-else-if="isPickerSelected(item)" class="icon fp-list-check"><use href="#icon-check" /></svg>
+              </span>
+            </button>
             <button
               v-if="pickerMode === 'shot-import' && item.type === 'folder'"
               type="button"
               class="fp-list-action v-btn v-btn-quiet v-btn-sm"
+              :disabled="shotImportApplyBusy"
               @click.stop="importFolder(item)"
             >
-              <svg class="icon"><use href="#icon-download" /></svg>
-              <span class="fp-list-action-label">Import all</span>
+              <svg class="icon" :class="{ 'is-spinning': shotImportApplyBusy }"><use :href="shotImportApplyBusy ? '#icon-loader' : '#icon-download'" /></svg>
+              <span class="fp-list-action-label">{{ shotImportApplyBusy ? 'Importing…' : 'Import all' }}</span>
+            </button>
+            <button
+              v-else-if="pickerMode === 'comment-reference' && item.type === 'folder'"
+              type="button"
+              class="fp-list-action v-btn v-btn-quiet v-btn-sm"
+              :class="{ 'is-selected': isPickerSelected(item) }"
+              :aria-pressed="isPickerSelected(item)"
+              @click.stop="pickerSelect({ ...item, _selectFolder: true })"
+            >
+              <svg class="icon"><use :href="isPickerSelected(item) ? '#icon-check' : '#icon-link'" /></svg>
+              <span class="fp-list-action-label">{{ isPickerSelected(item) ? 'Attached' : 'Attach' }}</span>
             </button>
             <button
               v-else-if="pickerMode === 'project-link' && item.type === 'folder'"
@@ -273,18 +312,6 @@
               <svg class="icon"><use href="#icon-plus" /></svg>
               <span class="fp-list-action-label">Add</span>
             </button>
-            <span
-              v-else-if="isMultiSelectPickerMode && item.type !== 'folder'"
-              class="fp-list-checkbox"
-              :class="{ 'is-checked': isPickerSelected(item) }"
-              aria-hidden="true"
-            >
-              <svg v-if="isPickerSelected(item)" class="icon"><use href="#icon-check" /></svg>
-            </span>
-            <span v-else class="fp-list-trail" aria-hidden="true">
-              <svg v-if="item.type === 'folder'" class="icon fp-list-chevron"><use href="#icon-chevron-down" /></svg>
-              <svg v-else-if="isPickerSelected(item)" class="icon fp-list-check"><use href="#icon-check" /></svg>
-            </span>
           </div>
 
           <div v-if="!pickerFiles.length" class="fp-empty">
@@ -307,8 +334,11 @@
           v-if="versionPickerFooterText"
           class="fp-footer-status"
           :class="{ 'is-ready': canApplyVersionPickerSelection }"
+          aria-live="polite"
         >
-          <span class="fp-footer-status-dot" aria-hidden="true"></span>
+          <span class="fp-footer-status-icon" aria-hidden="true">
+            <svg class="icon"><use :href="canApplyVersionPickerSelection ? '#icon-check' : '#icon-info'" /></svg>
+          </span>
           <span class="fp-footer-status-text v-truncate">{{ versionPickerFooterText }}</span>
         </p>
         <div class="fp-footer-row">
@@ -335,8 +365,10 @@
         </div>
       </div>
       <div v-else-if="isMultiSelectPickerMode" class="fp-footer fp-footer-compact">
-        <p class="fp-footer-status" :class="{ 'is-ready': canApplyMultiSelectPickerSelection }">
-          <span class="fp-footer-status-dot" aria-hidden="true"></span>
+        <p class="fp-footer-status" :class="{ 'is-ready': canApplyMultiSelectPickerSelection }" aria-live="polite">
+          <span class="fp-footer-status-icon" aria-hidden="true">
+            <svg class="icon"><use :href="canApplyMultiSelectPickerSelection ? '#icon-check' : '#icon-info'" /></svg>
+          </span>
           <span class="fp-footer-status-text v-truncate">
             {{ selectedMultiSelectPickerCount ? `${selectedMultiSelectPickerCount} selected` : multiSelectPickerEmptyLabel }}
           </span>
@@ -362,7 +394,7 @@ import { computed } from 'vue'
 import VMediaThumbnail from '../media/VMediaThumbnail.vue'
 import { VModal, VModalHeader, VTabs } from '../primitives'
 
-const cachedThumbnailOptions = Object.freeze({ cachedOnly: true })
+const filePickerTitleId = 'file-picker-modal-title'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -405,6 +437,7 @@ const props = defineProps({
   getMediaDurationLabel: { type: Function, required: true },
   getShotVersionCount: { type: Function, required: true },
   getPickerItemMedia: { type: Function, required: true },
+  requestPickerItemMediaInfo: { type: Function, required: true },
   selectVersionPickerShot: { type: Function, required: true },
   setVersionPickerFileSearch: { type: Function, required: true },
   setVersionPickerNotes: { type: Function, required: true },
@@ -436,6 +469,24 @@ const pickerRootLabel = computed(() => (
   props.canUseProjectPicker ? 'Root' : 'NAS'
 ))
 
+const filePickerSubtitle = computed(() => {
+  if (props.pickerMode === 'shot-import') return 'Select media files, or import every compatible file in a folder.'
+  if (props.pickerMode === 'bulk-version-update') return 'Choose a shot, then select the file that should become its next version.'
+  if (props.pickerMode === 'shot') return 'Select the file that should become this shot\'s next version.'
+  if (props.pickerMode === 'comment-reference') return 'Attach up to three files, folders, trackers, or dashboards.'
+  if (props.pickerMode === 'project-link') return 'Select the files you want to link to this project.'
+  if (props.pickerMode === 'page-resource') return 'Choose a file or folder to add to this dashboard.'
+  return 'Browse folders and choose the file you need.'
+})
+
+const browserGuide = computed(() => {
+  if (props.pickerMode === 'shot-import') return 'Open a folder to browse it. Select files individually or import the whole folder.'
+  if (props.isVersionPickerMode) return 'Open folders to browse, then select one media file.'
+  if (props.pickerMode === 'comment-reference') return 'Open a folder to browse it, or use Attach to link the whole folder.'
+  if (props.isMultiSelectPickerMode) return 'Open folders to browse, then select one or more items.'
+  return 'Open folders to browse, then choose an item.'
+})
+
 const pickerCount = computed(() => (
   props.isVersionPickerMode ? props.versionPickerBrowserItems.length : props.pickerFiles.length
 ))
@@ -458,7 +509,7 @@ const multiSelectPickerEmptyLabel = computed(() => (
   props.pickerMode === 'shot-import'
     ? 'Select files to import'
     : props.pickerMode === 'comment-reference'
-      ? 'Select files, trackers, or dashboards'
+      ? 'Select files, folders, trackers, or dashboards'
       : 'Select files to link'
 ))
 
@@ -554,26 +605,64 @@ function getFileMetaLine(item) {
 <style scoped>
 /* ─── Shell ────────────────────────────────────────────── */
 
-.file-picker-modal {
+:global(.file-picker-modal.v-modal-md),
+:global(.file-picker-modal.v-modal-lg) {
   display: flex;
   flex-direction: column;
+  max-width: 700px;
+  max-height: min(calc(100dvh - 48px), 780px);
+  --v-modal-header-padding: 18px 20px 16px;
+  --v-modal-body-padding: 16px 18px 18px;
+  --v-modal-footer-padding: 12px 18px 16px;
+  --v-modal-bg: color-mix(in srgb, var(--v-surface-canvas) 96%, var(--v-bg-base));
+  --v-modal-header-bg: color-mix(in srgb, var(--v-surface-panel) 82%, var(--v-modal-bg));
+  --v-modal-footer-bg: color-mix(in srgb, var(--v-surface-panel) 82%, var(--v-modal-bg));
   border-radius: var(--v-modal-radius);
+  border-color: color-mix(in srgb, var(--v-surface-border-strong) 86%, transparent);
+  box-shadow:
+    0 28px 72px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.035);
   overflow: hidden;
 }
 
 :deep(.v-modal-body) {
-  gap: var(--v-modal-body-gap);
+  gap: 14px;
+  scrollbar-gutter: stable;
+}
+
+:deep(.v-modal-footer) {
+  min-height: 66px;
 }
 
 /* ─── Mode rail ────────────────────────────────────────── */
 
+.fp-mode-block {
+  display: grid;
+  gap: 7px;
+}
+
+.fp-control-label {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
 .fp-mode-rail {
   display: flex;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 78%, transparent);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-inset) 76%, var(--v-modal-bg));
 }
 
 .fp-mode-rail :deep(.v-tabs--segmented) {
-  --v-tab-height: 34px;
+  --v-tab-height: 38px;
   width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .fp-mode-rail :deep(.v-tab-btn) {
@@ -701,7 +790,7 @@ function getFileMetaLine(item) {
 .fp-source-section {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-3);
+  gap: 10px;
 }
 
 .fp-source-head {
@@ -715,21 +804,21 @@ function getFileMetaLine(item) {
 .fp-source-toggle {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
 .fp-source-option {
   position: relative;
   min-width: 0;
-  min-height: 70px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--v-space-3);
-  padding: var(--v-space-3);
+  gap: 10px;
+  padding: 10px 11px;
   border: 1px solid color-mix(in srgb, var(--v-control-border) 76%, transparent);
-  border-radius: var(--v-button-radius);
-  background: var(--v-surface-tint-strong);
+  border-radius: var(--v-radius-md);
+  background: color-mix(in srgb, var(--v-surface-raised) 68%, var(--v-modal-bg));
   color: var(--v-text-secondary);
   font: inherit;
   cursor: pointer;
@@ -747,9 +836,9 @@ function getFileMetaLine(item) {
 
 .fp-source-option.is-active {
   color: var(--v-text);
-  background: color-mix(in srgb, var(--v-accent) 10%, var(--v-surface-inline));
-  border-color: color-mix(in srgb, var(--v-accent) 34%, var(--v-control-border));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 15%, transparent);
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-raised));
+  border-color: color-mix(in srgb, var(--v-accent) 32%, var(--v-control-border));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 11%, transparent);
 }
 
 .fp-source-option-icon,
@@ -761,8 +850,8 @@ function getFileMetaLine(item) {
 }
 
 .fp-source-option-icon {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: var(--v-radius-md);
   border: 1px solid color-mix(in srgb, var(--v-control-border) 70%, transparent);
   background: color-mix(in srgb, var(--v-control-bg) 76%, transparent);
@@ -807,8 +896,8 @@ function getFileMetaLine(item) {
 }
 
 .fp-source-option-check {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: var(--v-radius-full);
   background: color-mix(in srgb, var(--v-accent) 14%, transparent);
   opacity: 0;
@@ -877,19 +966,30 @@ function getFileMetaLine(item) {
   gap: 0;
   padding: 0;
   overflow: hidden;
+  border-radius: var(--v-radius-md);
+  border-color: color-mix(in srgb, var(--v-surface-border-soft) 82%, transparent);
+  background: color-mix(in srgb, var(--v-surface-raised) 72%, var(--v-modal-bg));
+  box-shadow: none;
 }
 
 .fp-browser-toolbar {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--v-modal-divider);
-  background: var(--v-bg-field);
+  background: color-mix(in srgb, var(--v-surface-inset) 68%, var(--v-modal-bg));
+}
+
+.fp-browser-location {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .fp-browser-path {
-  flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
@@ -933,6 +1033,16 @@ function getFileMetaLine(item) {
   letter-spacing: 0;
 }
 
+.fp-browser-guide {
+  margin: 0 0 0 34px;
+  overflow: hidden;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fp-browser-count {
   flex: 0 0 auto;
   display: inline-flex;
@@ -954,7 +1064,8 @@ function getFileMetaLine(item) {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  width: 200px;
+  width: 210px;
+  margin-top: 1px;
 }
 
 .fp-browser-filter-icon {
@@ -968,10 +1079,10 @@ function getFileMetaLine(item) {
 
 .fp-browser-filter-input {
   width: 100%;
-  height: var(--v-control-pill-height-compact);
+  height: 34px;
   padding: 0 12px 0 30px;
   border-radius: var(--v-button-radius);
-  border: 1px solid transparent;
+  border: 1px solid var(--v-control-border);
   background: var(--v-surface-inline);
   color: var(--v-text);
   font-family: var(--v-font);
@@ -994,11 +1105,11 @@ function getFileMetaLine(item) {
 .fp-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
   min-height: 0;
   overflow-y: auto;
   margin: 0;
-  padding: var(--v-space-1);
+  padding: 5px;
   flex: 1;
 }
 
@@ -1006,23 +1117,36 @@ function getFileMetaLine(item) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--v-space-3);
+  gap: 6px;
   width: 100%;
-  min-height: 52px;
-  padding: 7px 8px;
+  min-height: 50px;
+  padding: 0;
   border: 0;
   border-radius: var(--v-button-radius);
   background: transparent;
   color: var(--v-text);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition: background var(--v-transition-fast), color var(--v-transition-fast);
 }
 
+.fp-list-row:has(> .fp-list-main) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.fp-list-row:not(:has(> .fp-list-main)) {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
 .fp-list-row:hover,
-.fp-list-row:focus-visible {
+.fp-list-row:focus-within {
   background: var(--v-bg-hover);
-  outline: none;
+}
+
+.fp-list-row:not(:has(> .fp-list-main)):focus-visible {
+  outline: 2px solid var(--v-control-border-focus);
+  outline-offset: -2px;
 }
 
 .fp-list-row.is-selected {
@@ -1030,8 +1154,30 @@ function getFileMetaLine(item) {
 }
 
 .fp-list-row.is-selected:hover,
-.fp-list-row.is-selected:focus-visible {
+.fp-list-row.is-selected:focus-within {
   background: color-mix(in srgb, var(--v-accent-muted) 60%, transparent);
+}
+
+.fp-list-main {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  min-width: 0;
+  min-height: 50px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fp-list-main:focus-visible {
+  outline: 2px solid var(--v-control-border-focus);
+  outline-offset: -2px;
 }
 
 .fp-list-thumb {
@@ -1110,7 +1256,7 @@ function getFileMetaLine(item) {
 }
 
 .fp-list-row:hover .fp-list-chevron,
-.fp-list-row:focus-visible .fp-list-chevron {
+.fp-list-row:focus-within .fp-list-chevron {
   color: var(--v-text-muted);
 }
 
@@ -1147,9 +1293,10 @@ function getFileMetaLine(item) {
 
 .fp-list-action {
   flex: 0 0 auto;
-  height: 28px;
-  min-height: 28px;
+  height: 32px;
+  min-height: 32px;
   padding: 0 12px;
+  margin-right: 7px;
   gap: 6px;
   font-size: var(--v-text-sm);
   font-weight: 600;
@@ -1226,23 +1373,28 @@ function getFileMetaLine(item) {
   line-height: 1.35;
 }
 
-.fp-footer-status-dot {
+.fp-footer-status-icon {
   display: inline-flex;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-text-dim);
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--v-text-dim);
   flex: 0 0 auto;
-  transition: background var(--v-transition-fast), box-shadow var(--v-transition-fast);
+  transition: color var(--v-transition-fast);
+}
+
+.fp-footer-status-icon .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .fp-footer-status.is-ready {
   color: var(--v-text);
 }
 
-.fp-footer-status.is-ready .fp-footer-status-dot {
-  background: var(--v-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-accent) 22%, transparent);
+.fp-footer-status.is-ready .fp-footer-status-icon {
+  color: var(--v-accent);
 }
 
 .fp-footer-status-text {
@@ -1305,12 +1457,30 @@ function getFileMetaLine(item) {
 /* ─── Mobile ───────────────────────────────────────── */
 
 @media (max-width: 768px) {
+  :global(.file-picker-modal.v-modal-md.is-mobile-full-height),
+  :global(.file-picker-modal.v-modal-lg.is-mobile-full-height) {
+    min-height: calc(100dvh - 8px);
+    max-height: calc(100dvh - 8px);
+    --v-modal-header-padding: 18px 16px 16px;
+    --v-modal-body-padding: 14px 14px 18px;
+    --v-modal-footer-padding: 12px 14px max(14px, env(safe-area-inset-bottom));
+  }
+
   :deep(.v-modal-body) {
-    gap: 10px;
+    gap: 12px;
+    scrollbar-gutter: auto;
+  }
+
+  :deep(.v-modal-footer) {
+    min-height: 76px;
+  }
+
+  .fp-control-label {
+    display: none;
   }
 
   .fp-mode-rail :deep(.v-tabs--segmented) {
-    --v-tab-height: 36px;
+    --v-tab-height: 44px;
   }
 
   .fp-target {
@@ -1350,7 +1520,7 @@ function getFileMetaLine(item) {
 
   .fp-source-section {
     grid-template-columns: 1fr;
-    gap: 7px;
+    gap: 8px;
   }
 
   .fp-source-head {
@@ -1361,32 +1531,30 @@ function getFileMetaLine(item) {
   }
 
   .fp-source-head .v-modal-section-copy {
-    display: none;
+    margin-top: 2px;
   }
 
   .fp-source-toggle {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
-    gap: 3px;
-    padding: 3px;
+    gap: 6px;
+    padding: 0;
   }
 
   .fp-source-option {
-    height: 34px;
-    min-height: 34px;
-    grid-template-columns: auto minmax(0, 1fr);
-    gap: 7px;
-    padding: 0 11px;
-    border-radius: var(--v-button-radius);
-    border-color: transparent;
-    background: transparent;
+    height: 48px;
+    min-height: 48px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 0 10px;
+    border-radius: var(--v-radius-md);
   }
 
   .fp-source-option:hover,
   .fp-source-option:focus-visible {
     background: color-mix(in srgb, var(--v-surface-inline-pressed) 48%, transparent);
-    border-color: transparent;
+    border-color: color-mix(in srgb, var(--v-control-border-hover) 62%, transparent);
   }
 
   .fp-source-option.is-active {
@@ -1395,15 +1563,19 @@ function getFileMetaLine(item) {
   }
 
   .fp-source-option-icon {
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     border: 0;
     background: transparent;
   }
 
-  .fp-source-option-hint,
-  .fp-source-option-check {
+  .fp-source-option-hint {
     display: none;
+  }
+
+  .fp-source-option-check {
+    width: 18px;
+    height: 18px;
   }
 
   .fp-source-option-title {
@@ -1411,27 +1583,23 @@ function getFileMetaLine(item) {
   }
 
   .fp-browser-toolbar {
-    flex-wrap: wrap;
-    gap: var(--v-space-2);
-    padding: var(--v-space-2);
+    display: grid;
+    gap: 10px;
+    padding: 10px;
   }
 
-  .fp-browser-path-text {
-    flex: 1 1 100%;
-    order: 2;
-  }
-
-  .fp-browser-count {
-    order: 3;
+  .fp-browser-guide {
+    margin-left: 34px;
+    white-space: normal;
   }
 
   .fp-browser-filter {
-    order: 4;
     width: 100%;
+    margin: 0;
   }
 
   .fp-browser-filter-input {
-    height: 38px;
+    height: 44px;
     border-color: var(--v-control-border);
     background: var(--v-surface-inline);
     font-size: var(--v-text-base);
@@ -1445,8 +1613,13 @@ function getFileMetaLine(item) {
   }
 
   .fp-list-row {
-    min-height: 52px;
-    gap: var(--v-space-3);
+    min-height: 56px;
+    gap: 4px;
+  }
+
+  .fp-list-main {
+    min-height: 56px;
+    gap: 10px;
     padding: 7px 8px;
   }
 
@@ -1463,14 +1636,13 @@ function getFileMetaLine(item) {
     font-size: var(--v-text-md);
   }
 
-  .fp-list-action-label {
-    display: none;
-  }
-
   .fp-list-action {
-    width: 32px;
-    padding: 0;
-    border-radius: var(--v-button-radius);
+    min-width: 94px;
+    height: 44px;
+    min-height: 44px;
+    margin-right: 6px;
+    padding: 0 10px;
+    border-radius: var(--v-radius-md);
   }
 
   .fp-footer-row {
@@ -1479,7 +1651,7 @@ function getFileMetaLine(item) {
   }
 
   .fp-footer-changelog {
-    height: 40px;
+    height: 44px;
   }
 
   .fp-footer-actions {
@@ -1495,6 +1667,7 @@ function getFileMetaLine(item) {
 
   .fp-footer-actions .v-btn {
     width: 100%;
+    min-height: 44px;
     justify-content: center;
   }
 }

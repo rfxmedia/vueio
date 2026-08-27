@@ -1,13 +1,14 @@
 <template>
-  <ul class="nav-tree">
+  <ul class="nav-tree" @keydown.esc="clearSelection">
     <AppNavigatorTreeNode :node="rootNode" />
   </ul>
 </template>
 
 <script setup>
-import { computed, provide, reactive, watch } from 'vue'
+import { computed, provide, reactive, ref, watch } from 'vue'
 import AppNavigatorTreeNode from './AppNavigatorTreeNode.vue'
 import { navigatorTreeKey } from './navigatorTreeKey'
+import { clearProjectItemDrag, writeProjectItemDrag } from '../../lib/projectItemDrag'
 
 const props = defineProps({
   rootLabel: { type: String, default: 'Folders' },
@@ -15,12 +16,16 @@ const props = defineProps({
   activePath: { type: String, default: null },
   loadItems: { type: Function, required: true },
   emptyLabel: { type: String, default: 'No files or folders yet' },
+  dragScope: { type: Object, default: null },
 })
 
 const emit = defineEmits(['open-folder', 'open-file'])
 
 const nodes = reactive({})
 const expandedPaths = reactive(new Set())
+const selectedPaths = reactive(new Set())
+const draggingPaths = reactive(new Set())
+const selectionAnchor = ref('')
 
 const rootNode = computed(() => ({ path: props.rootPath || '', name: props.rootLabel }))
 
@@ -62,6 +67,69 @@ function isActive(path) {
   return props.activePath !== null && keyFor(props.activePath) === keyFor(path)
 }
 
+function canDrag(node) {
+  return Boolean(props.dragScope?.projectId && node?.item && ['file', 'folder', 'image', 'video'].includes(node.item.type))
+}
+
+function isSelected(path) {
+  return selectedPaths.has(keyFor(path))
+}
+
+function isDragging(path) {
+  return draggingPaths.has(keyFor(path))
+}
+
+function replaceSelection(paths) {
+  selectedPaths.clear()
+  for (const path of paths) selectedPaths.add(keyFor(path))
+}
+
+function clearSelection() {
+  selectedPaths.clear()
+  selectionAnchor.value = ''
+}
+
+function visibleDraggableNodes(path = props.rootPath, result = []) {
+  for (const child of childrenOf(path)) {
+    if (canDrag(child)) result.push(child)
+    if (child.type !== 'file' && isExpanded(child.path)) visibleDraggableNodes(child.path, result)
+  }
+  return result
+}
+
+function updateSelection(node, event) {
+  const path = keyFor(node.path)
+  const additive = Boolean(event?.metaKey || event?.ctrlKey)
+  if (event?.shiftKey) {
+    const visible = visibleDraggableNodes()
+    const anchorPath = selectionAnchor.value || path
+    const anchorIndex = visible.findIndex(item => keyFor(item.path) === anchorPath)
+    const targetIndex = visible.findIndex(item => keyFor(item.path) === path)
+    if (anchorIndex < 0 || targetIndex < 0) {
+      replaceSelection([path])
+      selectionAnchor.value = path
+      return
+    }
+    const [start, end] = anchorIndex <= targetIndex
+      ? [anchorIndex, targetIndex]
+      : [targetIndex, anchorIndex]
+    const range = visible.slice(start, end + 1).map(item => item.path)
+    replaceSelection(additive ? [...selectedPaths, ...range] : range)
+    if (!selectionAnchor.value) selectionAnchor.value = path
+    return
+  }
+
+  if (additive) {
+    if (selectedPaths.has(path)) selectedPaths.delete(path)
+    else selectedPaths.add(path)
+    selectionAnchor.value = path
+    return
+  }
+
+  replaceSelection([path])
+  selectionAnchor.value = path
+}
+
 // A listing that echoes its own parent would recurse forever, so only accept
 // entries that sit strictly below the folder they were requested for.
 function descendantsOf(parent, items) {
@@ -99,12 +167,44 @@ function open(path) {
   emit('open-folder', keyFor(path))
 }
 
-function select(node) {
+function select(node, event) {
+  if (canDrag(node)) {
+    updateSelection(node, event)
+    if (event?.shiftKey || event?.metaKey || event?.ctrlKey) return
+  } else {
+    clearSelection()
+  }
   if (node?.type === 'file') {
     emit('open-file', node.item || node)
     return
   }
   open(node?.path)
+}
+
+function startDrag(node, event) {
+  if (!canDrag(node) || !event?.dataTransfer) {
+    event?.preventDefault?.()
+    return
+  }
+  if (!selectedPaths.has(keyFor(node.path))) updateSelection(node)
+  const selectedNodes = visibleDraggableNodes().filter(item => selectedPaths.has(keyFor(item.path)))
+  const dragNodes = selectedNodes.length ? selectedNodes : [node]
+  const payload = writeProjectItemDrag(event.dataTransfer, {
+    projectId: props.dragScope.projectId,
+    items: dragNodes.map(item => item.item),
+  })
+  if (!payload) {
+    event.preventDefault()
+    return
+  }
+  draggingPaths.clear()
+  for (const item of dragNodes) draggingPaths.add(keyFor(item.path))
+  event.stopPropagation()
+}
+
+function finishDrag() {
+  draggingPaths.clear()
+  clearProjectItemDrag()
 }
 
 // The chain of folders between the tree root and `path`, so navigating anywhere
@@ -134,17 +234,27 @@ watch(
   { immediate: true },
 )
 
+watch(
+  () => props.dragScope?.projectId || '',
+  clearSelection,
+)
+
 provide(navigatorTreeKey, {
   childrenOf,
   emptyLabel: props.emptyLabel,
   hasError,
   hasLoaded,
+  canDrag,
   isActive,
+  isDragging,
   isEmpty,
   isExpanded,
   isLoading,
+  isSelected,
   open,
   select,
+  startDrag,
+  finishDrag,
   toggle,
 })
 </script>

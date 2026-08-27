@@ -1,5 +1,4 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import Hls from 'hls.js'
 
 const MENU_QUALITY_MIN_HEIGHT = 360
 const PREFERRED_START_QUALITY_HEIGHT = 1080
@@ -7,6 +6,7 @@ const PREFERRED_START_QUALITY_HEIGHT = 1080
 export function useViewerStreamEngine(ctx) {
   let hls = null
   let attachedManifestUrl = ''
+  let streamAttachmentRequestId = 0
   let nativeManifestRequestId = 0
   let nativeQualitySwitchRequestId = 0
 
@@ -165,6 +165,7 @@ export function useViewerStreamEngine(ctx) {
   }
 
   function destroyEngine({ resetElement = true } = {}) {
+    streamAttachmentRequestId += 1
     const video = ctx.videoEl.value
     if (hls) {
       try { hls.destroy() } catch {}
@@ -275,7 +276,7 @@ export function useViewerStreamEngine(ctx) {
     void loadNativeManifestQualityOptions(manifestUrl)
   }
 
-  function attachHlsJs(video, manifestUrl) {
+  function attachHlsJs(Hls, video, manifestUrl) {
     if (attachedManifestUrl === manifestUrl && hls) return
     destroyEngine({ resetElement: true })
     attachedManifestUrl = manifestUrl
@@ -284,7 +285,12 @@ export function useViewerStreamEngine(ctx) {
       enableWorker: true,
       lowLatencyMode: false,
       preferManagedMediaSource: false,
-      backBufferLength: 90,
+      // Review sessions are short-look dominant: cap how far ahead we buffer
+      // (defaults are 600s/60MB) without touching rendition quality.
+      maxBufferLength: 20,
+      maxMaxBufferLength: 60,
+      maxBufferSize: 20 * 1000 * 1000,
+      backBufferLength: 30,
       autoStartLoad: false,
       startFragPrefetch: true,
     })
@@ -308,15 +314,32 @@ export function useViewerStreamEngine(ctx) {
     hls.on(Hls.Events.MEDIA_ATTACHED, () => { hls?.loadSource(manifestUrl) })
   }
 
-  function syncStreamAttachment() {
+  async function syncStreamAttachment() {
+    const requestId = ++streamAttachmentRequestId
     const video = ctx.videoEl.value
     const manifestUrl = ctx.videoManifestUrl.value
     if (!shouldAttachStream() || !video || !manifestUrl) {
       destroyEngine()
       return
     }
+
+    let Hls
+    try {
+      const hlsModule = await import('hls.js')
+      Hls = hlsModule.default
+    } catch (error) {
+      if (requestId === streamAttachmentRequestId) ctx.handleStreamError?.(error)
+      return
+    }
+    if (
+      requestId !== streamAttachmentRequestId
+      || video !== ctx.videoEl.value
+      || manifestUrl !== ctx.videoManifestUrl.value
+      || !shouldAttachStream()
+    ) return
+
     if (Hls.isSupported()) {
-      attachHlsJs(video, manifestUrl)
+      attachHlsJs(Hls, video, manifestUrl)
       return
     }
     if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -335,7 +358,7 @@ export function useViewerStreamEngine(ctx) {
       () => ctx.isViewingVideo.value,
       () => ctx.mediaUnavailable?.value,
     ],
-    syncStreamAttachment,
+    () => { void syncStreamAttachment() },
     { immediate: true },
   )
 

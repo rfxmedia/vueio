@@ -3,8 +3,8 @@
     <template #header>
       <VModalHeader
         eyebrow="Project storage"
-        :title="isMigration ? 'Set project folder' : 'Relocate project'"
-        :subtitle="isMigration ? 'Merge Vue-owned files into your working project folder.' : 'Tell Vue where the project folder lives now.'"
+        :title="modalTitle"
+        :subtitle="modalSubtitle"
         @close="close"
       />
     </template>
@@ -12,9 +12,11 @@
     <div class="v-modal-stack project-storage-modal__body">
       <section v-if="stage === 'choose'" class="v-modal-section">
         <div class="v-modal-section-head">
-          <h3 class="v-modal-section-title">Choose the project folder</h3>
+          <h3 class="v-modal-section-title">{{ isMissingMediaRelink ? 'Choose where to search' : 'Choose the project folder' }}</h3>
           <p class="v-modal-section-copy">
-            {{ isMigration
+            {{ isMissingMediaRelink
+              ? 'Vue will search this folder and its subfolders for exact matches. Your working project folder will not change.'
+              : isMigration
               ? 'Choose the existing working folder. Vue will copy only its internal files, without overwriting anything.'
               : 'Choose the folder after moving it yourself. Vue will only verify files and update its location.' }}
           </p>
@@ -24,6 +26,7 @@
           :model-root="selectedRoot"
           :model-path="selectedPath"
           :allow-create="isMigration"
+          :base-path="isMissingMediaRelink ? projectBasePath : ''"
           @update:model-root="selectedRoot = $event"
           @update:model-path="selectedPath = $event"
         />
@@ -42,11 +45,11 @@
 
         <div class="storage-plan-grid">
           <div class="storage-plan-stat">
-            <span class="v-eyebrow">{{ isMigration ? 'Copy' : 'Matched' }}</span>
+            <span class="v-eyebrow">{{ isMigration ? 'Copy' : isMissingMediaRelink ? 'Found' : 'Matched' }}</span>
             <strong>{{ isMigration ? plan.copy_count : plan.matched_count }}</strong>
           </div>
           <div class="storage-plan-stat">
-            <span class="v-eyebrow">{{ isMigration ? 'Already there' : 'Missing' }}</span>
+            <span class="v-eyebrow">{{ isMigration ? 'Already there' : isMissingMediaRelink ? 'Still missing' : 'Missing' }}</span>
             <strong>{{ isMigration ? plan.adopted_count : plan.missing_count }}</strong>
           </div>
           <div v-if="isMigration" class="storage-plan-stat" :class="{ 'is-danger': plan.conflict_count }">
@@ -65,7 +68,7 @@
 
         <div v-if="plan.conflicts?.length || plan.missing?.length" class="storage-plan-issues v-modal-card-soft">
           <div class="storage-plan-issues__head">
-            <strong>{{ isMigration ? 'Resolve before continuing' : 'Files that will remain offline' }}</strong>
+            <strong>{{ isMigration ? 'Resolve before continuing' : isMissingMediaRelink ? 'Media still offline' : 'Files that will remain offline' }}</strong>
             <span>{{ (plan.conflicts || plan.missing || []).length }}</span>
           </div>
           <div class="storage-plan-issues__list">
@@ -77,7 +80,7 @@
         </div>
 
         <VCheckbox
-          v-if="!isMigration && !relinkBlocked"
+          v-if="isRelocation && !relinkBlocked"
           v-model="revokeShares"
           label="Deactivate all existing share links"
           hint="Optional cleanup when wrapping a project. Existing links stop working; you can still create new share links afterwards."
@@ -105,7 +108,7 @@
         :disabled="!selectedRoot || !selectedPath || busy"
         @click="runDryRun"
       >
-        {{ busy ? 'Checking…' : 'Verify location' }}
+        {{ busy ? (isMissingMediaRelink ? 'Searching…' : 'Checking…') : (isMissingMediaRelink ? 'Search folder' : 'Verify location') }}
       </button>
       <button
         v-else-if="!result && !relinkBlocked"
@@ -113,7 +116,7 @@
         :disabled="busy || (isMigration && plan.conflict_count > 0)"
         @click="commit"
       >
-        {{ busy ? (isMigration ? 'Copying & verifying…' : 'Relinking…') : (isMigration ? 'Migrate project' : 'Relink project') }}
+        {{ commitLabel }}
       </button>
     </template>
   </VModal>
@@ -144,7 +147,29 @@ const busy = ref(false)
 const error = ref('')
 
 const isMigration = computed(() => props.mode === 'migrate')
-const availableRoots = computed(() => props.roots)
+const isMissingMediaRelink = computed(() => props.mode === 'relink-media')
+const isRelocation = computed(() => !isMigration.value && !isMissingMediaRelink.value)
+const projectBasePath = computed(() => String(props.project?.storage_path || props.project?.id || '').replace(/^\/+|\/+$/g, ''))
+const availableRoots = computed(() => {
+  if (!isMissingMediaRelink.value) return props.roots
+  const currentRoot = props.project?.storage_root || 'data'
+  const configured = props.roots.find(root => root.id === currentRoot)
+  if (configured) return [configured]
+  if (currentRoot === 'data') {
+    return [{ id: 'data', label: 'Vue internal storage', available: true, read_only: false }]
+  }
+  return []
+})
+const modalTitle = computed(() => {
+  if (isMissingMediaRelink.value) return 'Find missing media'
+  return isMigration.value ? 'Set project folder' : 'Relocate project'
+})
+const modalSubtitle = computed(() => {
+  if (isMissingMediaRelink.value) return 'Reconnect offline files without changing the working folder.'
+  return isMigration.value
+    ? 'Merge Vue-owned files into your working project folder.'
+    : 'Tell Vue where the project folder lives now.'
+})
 const relinkBlocked = computed(() => !isMigration.value && (
   plan.value.can_commit === false ||
   Number(plan.value.total_count || 0) === 0 ||
@@ -157,15 +182,36 @@ const migrationPercent = computed(() => {
   return Math.min(100, Math.round((Number(migrationProgress.value?.completed_files || 0) / total) * 100))
 })
 const planTitle = computed(() => {
-  if (result.value) return isMigration.value ? 'Project folder is ready' : 'Project relinked'
+  if (result.value) {
+    if (isMissingMediaRelink.value) return 'Missing media relinked'
+    return isMigration.value ? 'Project folder is ready' : 'Project relinked'
+  }
   if (isMigration.value) return plan.value.conflict_count ? 'Conflicts need attention' : 'Safe to migrate'
+  if (isMissingMediaRelink.value) {
+    if (!Number(plan.value.total_count || 0)) return 'No offline media to search for'
+    if (!Number(plan.value.matched_count || 0)) return 'No exact matches found'
+    return plan.value.missing_count ? 'Some media found' : 'All missing media found'
+  }
   if (!Number(plan.value.total_count || 0)) return 'No tracked files to verify'
   if (!Number(plan.value.matched_count || 0)) return 'No matching files found'
   return plan.value.missing_count ? 'Location found with missing files' : 'All project files found'
 })
 const planSummary = computed(() => {
-  if (result.value) return isMigration.value ? 'Vue is now using the selected working folder.' : 'Vue is now reading this project from the selected folder.'
+  if (result.value) {
+    if (isMissingMediaRelink.value) {
+      const count = Number(plan.value.relinked_count || plan.value.matched_count || 0)
+      return `${count} file${count === 1 ? '' : 's'} reconnected. The working project folder was not changed.`
+    }
+    return isMigration.value ? 'Vue is now using the selected working folder.' : 'Vue is now reading this project from the selected folder.'
+  }
   if (isMigration.value) return `${plan.value.copy_count || 0} files will be copied and ${plan.value.adopted_count || 0} identical files will be kept in place.`
+  if (isMissingMediaRelink.value) {
+    if (!Number(plan.value.total_count || 0)) return 'This project no longer has any offline media.'
+    if (!Number(plan.value.matched_count || 0)) return `None of the ${plan.value.total_count} missing files could be verified in this folder. Nothing will be changed.`
+    const count = Number(plan.value.matched_count || 0)
+    const remaining = Number(plan.value.missing_count || 0)
+    return `${count} of ${plan.value.total_count} missing files matched by exact media identity.${remaining ? ` ${remaining} will remain offline.` : ''}`
+  }
   if (!Number(plan.value.total_count || 0)) return 'Vue did not find any tracked project files it can safely verify. Nothing will be changed.'
   if (!Number(plan.value.matched_count || 0)) return `None of the ${plan.value.total_count} tracked files matched this folder by path and size.`
   const summary = `${plan.value.matched_count || 0} of ${plan.value.total_count || 0} tracked files matched by relative path and size.`
@@ -184,7 +230,7 @@ function reset() {
   const roots = availableRoots.value
   const currentRoot = props.project?.storage_root
   selectedRoot.value = roots.some(root => root.id === currentRoot) ? currentRoot : (roots[0]?.id || '')
-  selectedPath.value = null
+  selectedPath.value = isMissingMediaRelink.value ? projectBasePath.value : null
 }
 
 function resetToPicker() {
@@ -198,11 +244,12 @@ function close() {
 }
 
 function endpoint() {
+  if (isMissingMediaRelink.value) return `/api/projects/${props.project.id}/relink-media`
   return `/api/projects/${props.project.id}/${isMigration.value ? 'migrate-storage' : 'relocate'}`
 }
 
 function payload(dryRun) {
-  if (isMigration.value) return { root: selectedRoot.value, path: selectedPath.value, dry_run: dryRun }
+  if (isMigration.value || isMissingMediaRelink.value) return { root: selectedRoot.value, path: selectedPath.value, dry_run: dryRun }
   return { root: selectedRoot.value, path: selectedPath.value, dry_run: dryRun, revoke_shares: revokeShares.value }
 }
 
@@ -214,7 +261,7 @@ async function runDryRun() {
     plan.value = data
     stage.value = 'review'
   } catch (requestError) {
-    error.value = getApiErrorMessage(requestError, 'Unable to verify this project folder.')
+    error.value = getApiErrorMessage(requestError, isMissingMediaRelink.value ? 'Unable to search for missing media.' : 'Unable to verify this project folder.')
   } finally {
     busy.value = false
   }
@@ -249,7 +296,7 @@ async function commit() {
     }
   } catch (requestError) {
     const detail = getApiErrorDetail(requestError)
-    error.value = typeof detail === 'string' ? detail : detail?.message || 'Project storage could not be updated.'
+    error.value = typeof detail === 'string' ? detail : detail?.message || (isMissingMediaRelink.value ? 'Missing media could not be relinked.' : 'Project storage could not be updated.')
     if (detail?.plan) plan.value = detail.plan
   } finally {
     busy.value = false
@@ -257,8 +304,27 @@ async function commit() {
 }
 
 function formatReason(reason) {
-  return ({ not_found: 'Not found', size_mismatch: 'Size differs', different_file: 'Different file exists', invalid_path: 'Invalid path' })[reason] || 'Needs attention'
+  return ({
+    not_found: 'Not found',
+    size_mismatch: 'Size differs',
+    different_file: 'Different file exists',
+    invalid_path: 'Invalid path',
+    ambiguous_match: 'Multiple exact copies',
+    identity_unavailable: 'No identity on record',
+    generated_media: 'Regenerated automatically',
+    destination_already_matched: 'Match is not unique',
+    destination_already_registered: 'Already linked elsewhere',
+  })[reason] || 'Needs attention'
 }
+
+const commitLabel = computed(() => {
+  if (busy.value) {
+    if (isMigration.value) return 'Copying & verifying…'
+    return isMissingMediaRelink.value ? 'Relinking media…' : 'Relinking…'
+  }
+  if (isMigration.value) return 'Migrate project'
+  return isMissingMediaRelink.value ? 'Relink found media' : 'Relink project'
+})
 
 watch(() => [props.show, props.mode, props.project?.id, props.roots.length], ([show]) => {
   if (show) reset()

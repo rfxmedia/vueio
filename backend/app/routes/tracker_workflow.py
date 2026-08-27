@@ -42,6 +42,7 @@ from app.services.horizons_fresh import (
 from app.services.horizons.version_publication import (
     VERSION_SHARE_STATE_INTERNAL,
     VERSION_SHARE_STATE_PUBLISHED,
+    move_latest_published_version_to_review,
     set_version_share_state,
     version_share_state,
     version_media_is_publishable,
@@ -57,6 +58,7 @@ from app.services.trackers import queue_thumbnail_warmup_for_paths
 from app.services.tracker_downloads import build_tracker_latest_versions_zip, start_tracker_latest_versions_zip_job
 from app.services.zip_utils import get_zip_package_job, get_zip_package_job_download, get_zip_package_job_record
 from app.services.tracker_events import build_tracker_event_actor, create_tracker_event
+from app.services.tracker_history import prepare_tracker_history_mutation
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=['tracker-workflow'])
@@ -114,6 +116,11 @@ class BulkShotDeleteRequest(BaseModel):
     shot_ids: List[str]
 
 
+class BulkShotArchiveRequest(BaseModel):
+    shot_ids: List[str]
+    reason: Optional[str] = None
+
+
 class ShotArchiveRequest(BaseModel):
     reason: Optional[str] = None
 
@@ -155,6 +162,7 @@ class ShotUpdate(BaseModel):
     assignee_user_ids: Optional[List[str]] = None
     nodePosition: Optional[dict] = None
     brief_refs: Optional[List[dict]] = None
+    expected_values: Optional[dict] = None
 
 
 def _shot_tag_value(data) -> Optional[str]:
@@ -165,10 +173,40 @@ def _shot_tag_value(data) -> Optional[str]:
 
 def _shot_update_fields(data) -> set[str]:
     fields = set(getattr(data, 'model_fields_set', set()))
+    fields.discard('expected_values')
     if 'tag' in fields:
         fields.add('category')
         fields.discard('tag')
     return fields
+
+
+def _require_expected_shot_values(shot: HorizonShot, expected: dict | None, assignee_ids: list[str]) -> None:
+    if not isinstance(expected, dict):
+        return
+    current = {
+        'shot_code': shot.shot_code,
+        'description': shot.description or '',
+        'status': shot.status,
+        'category': shot.category or None,
+        'assignee_user_ids': assignee_ids,
+    }
+    for field, expected_value in expected.items():
+        if field not in current:
+            continue
+        if field == 'assignee_user_ids':
+            normalized = list(dict.fromkeys(str(value) for value in (expected_value or []) if value))
+            matches = normalized == current[field]
+        elif field == 'description':
+            matches = (expected_value or '') == current[field]
+        elif field == 'category':
+            matches = (expected_value or None) == current[field]
+        else:
+            matches = expected_value == current[field]
+        if not matches:
+            raise HTTPException(
+                status_code=409,
+                detail='This shot changed in another session. Your newer work was kept; refresh and try again.',
+            )
 
 
 def _queue_bulk_hls_packages(file_paths: list[str], project_id: str | None = None):
@@ -423,7 +461,20 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
         _apply_shot_command_result(db, result, project_id=project_id)
         return {'status': 'reordered'}
 
-    shot = require_horizon_shot_view_access(db, project_id, shot_id, tracker_id=tracker.id, user=user, access_role=access_role)
+    # Full History restores and ordinary edits must always lock the tracker
+    # before a shot row. Keeping that order prevents a restore and an edit from
+    # waiting on each other in opposite directions on PostgreSQL.
+    tracker = prepare_tracker_history_mutation(db, project_id=project_id, tracker_id=tracker.id)
+    visible_shot = require_horizon_shot_view_access(db, project_id, shot_id, tracker_id=tracker.id, user=user, access_role=access_role)
+    shot = (
+        db.query(HorizonShot)
+        .filter(HorizonShot.id == visible_shot.id)
+        .filter(HorizonShot.project_id == project_id)
+        .filter(HorizonShot.tracker_id == tracker.id)
+        .populate_existing()
+        .with_for_update()
+        .one()
+    )
 
     old_status = shot.status
     old_shot_code = shot.shot_code
@@ -440,6 +491,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
     assignee_user_id = None
     assignee_user_ids = None
     incoming_fields = _shot_update_fields(data)
+    _require_expected_shot_values(shot, data.expected_values, old_assignee_ids)
 
     ignore_unchanged_artist_assignee = False
     if _is_project_artist(user):
@@ -668,6 +720,87 @@ def bulk_delete_shots_from_tracker(project_id: str, tracker_name: str, data: Bul
     result = ShotCommandService(db).bulk_delete_shots(ctx, data.shot_ids)
     _apply_shot_command_result(db, result, project_id=project_id)
     return {'status': 'deleted', 'deleted': len(result.deleted), 'shots': result.deleted, 'source_files_deleted': False}
+
+
+def _bulk_set_tracker_shots_archived(
+    db: Session,
+    *,
+    project_id: str,
+    tracker_name: str,
+    data: BulkShotArchiveRequest,
+    archived: bool,
+    vueio_session: str | None,
+    x_vueio_agent_key: str | None,
+):
+    user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
+    _project, access_role = require_horizon_project_access(
+        db,
+        project_id,
+        user,
+        auth_mode=auth_mode,
+        required_role='editor',
+    )
+    tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
+    ctx = _shot_command_context(
+        project_id=project_id,
+        tracker=tracker,
+        access_role=access_role,
+        user=user,
+        auth_mode=auth_mode,
+    )
+    result = ShotCommandService(db).bulk_set_archived(
+        ctx,
+        data.shot_ids,
+        archived=archived,
+        reason=data.reason if archived else None,
+    )
+    _apply_shot_command_result(db, result, project_id=project_id)
+    return {
+        'status': result.response_hint['status'],
+        'updated': result.response_hint['updated'],
+        'unchanged': result.response_hint['unchanged'],
+        'shots': [_serialize_horizon_shot(db, shot) for shot in result.shots],
+    }
+
+
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-archive')
+def bulk_archive_tracker_shots(
+    project_id: str,
+    tracker_name: str,
+    data: BulkShotArchiveRequest,
+    vueio_session: str = Cookie(None),
+    x_vueio_agent_key: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    return _bulk_set_tracker_shots_archived(
+        db,
+        project_id=project_id,
+        tracker_name=tracker_name,
+        data=data,
+        archived=True,
+        vueio_session=vueio_session,
+        x_vueio_agent_key=x_vueio_agent_key,
+    )
+
+
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-restore')
+def bulk_restore_tracker_shots(
+    project_id: str,
+    tracker_name: str,
+    data: BulkShotArchiveRequest,
+    vueio_session: str = Cookie(None),
+    x_vueio_agent_key: str | None = Header(None),
+    db: Session = Depends(get_db),
+):
+    return _bulk_set_tracker_shots_archived(
+        db,
+        project_id=project_id,
+        tracker_name=tracker_name,
+        data=data,
+        archived=False,
+        vueio_session=vueio_session,
+        x_vueio_agent_key=x_vueio_agent_key,
+    )
 
 
 
@@ -984,7 +1117,9 @@ def update_version_publication(
     )
     require_horizon_project_writable(db, project_id)
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
+    tracker = prepare_tracker_history_mutation(db, project_id=project_id, tracker_id=tracker.id)
     shot = get_horizon_shot_by_ref(db, project_id, shot_id, tracker_id=tracker.id)
+    shot = db.query(HorizonShot).filter(HorizonShot.id == shot.id).with_for_update().one()
     version = (
         db.query(HorizonShotVersion)
         .filter(HorizonShotVersion.id == version_id)
@@ -1009,6 +1144,19 @@ def update_version_publication(
     previous_state = version_share_state(version)
     now = time.time()
     changed = set_version_share_state(db, version, target_state, now=now)
+    is_latest_version = shot.latest_version_label == version.label
+    previous_shot_status = None
+    if (
+        changed
+        and target_state == VERSION_SHARE_STATE_PUBLISHED
+        and previous_state != VERSION_SHARE_STATE_PUBLISHED
+    ):
+        previous_shot_status = move_latest_published_version_to_review(
+            db,
+            shot,
+            version,
+            now=now,
+        )
     if changed:
         tracker.updated_at = now
         db.add(tracker)
@@ -1037,13 +1185,23 @@ def update_version_publication(
                 'version_label': version.label,
                 'previous_state': previous_state,
                 'share_state': target_state,
+                'is_latest_version': is_latest_version,
+                'shot_status_changed': previous_shot_status is not None,
+                'old_status': previous_shot_status,
+                'new_status': shot.status if previous_shot_status is not None else None,
             },
             created_at=now,
         )
+        if previous_shot_status is not None:
+            refresh_horizon_tracker_stats_cache(db, tracker, commit=False)
         db.commit()
 
     return {
         'status': 'updated' if changed else 'unchanged',
+        'is_latest_version': is_latest_version,
+        'shot_status_changed': previous_shot_status is not None,
+        'previous_shot_status': previous_shot_status,
+        'shot_status': shot.status,
         'versions': [
             {
                 'id': item.id,

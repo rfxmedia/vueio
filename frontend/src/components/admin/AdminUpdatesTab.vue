@@ -8,7 +8,7 @@
     >
       <button class="v-btn v-btn-secondary v-btn-sm" type="button" :disabled="loading" @click="check({ refresh: true })">
         <svg class="icon" :class="{ spinning: loading }"><use href="#icon-refresh" /></svg>
-        {{ loading ? 'Checking' : 'Check Again' }}
+        {{ loading ? 'Checking' : 'Check again' }}
       </button>
     </AdminSettingsHeader>
 
@@ -18,7 +18,10 @@
           <svg class="icon"><use :href="statusIcon" /></svg>
         </div>
         <div class="updates-status-copy">
-          <p class="settings-eyebrow">{{ statusEyebrow }}</p>
+          <div class="updates-status-kicker">
+            <p class="settings-eyebrow">{{ statusEyebrow }}</p>
+            <span class="updates-channel-badge">{{ channelLabel }}</span>
+          </div>
           <h3>{{ statusTitle }}</h3>
           <p>{{ statusDescription }}</p>
         </div>
@@ -29,7 +32,7 @@
           target="_blank"
           rel="noreferrer"
         >
-          Release Notes
+          Release notes
           <svg class="icon"><use href="#icon-external-link" /></svg>
         </a>
       </section>
@@ -41,11 +44,26 @@
           <span>The version currently running on this server.</span>
         </section>
         <section class="updates-fact">
-          <span class="settings-eyebrow">Latest Release</span>
+          <span class="settings-eyebrow">Latest release</span>
           <strong>{{ status?.latest_version || latestLabel }}</strong>
           <span>{{ latestHint }}</span>
         </section>
       </div>
+
+      <section v-if="releaseNotes.length" class="updates-notes-card" aria-labelledby="updates-notes-title">
+        <div class="updates-notes-heading">
+          <p class="settings-eyebrow">Release history</p>
+          <h3 id="updates-notes-title">What’s new</h3>
+        </div>
+        <article v-for="release in releaseNotes" :key="release.version" class="updates-release-note">
+          <header>
+            <strong>{{ release.version }}</strong>
+            <span v-if="release.nightly" class="updates-nightly-badge">Nightly</span>
+            <time v-if="release.published_at" :datetime="release.published_at">{{ formatReleaseDate(release.published_at) }}</time>
+          </header>
+          <p>{{ release.notes || 'Maintenance and reliability improvements.' }}</p>
+        </article>
+      </section>
 
       <section v-if="status?.update_command" class="updates-command-card">
         <div>
@@ -64,9 +82,16 @@
         </div>
       </section>
 
-      <p class="updates-safety-note">
-        Updates are started on the machine running Vue.io. The web app checks for releases, but it never receives control of your host or Docker.
-      </p>
+      <section class="updates-safety-panel">
+        <div class="updates-safety-icon" aria-hidden="true">
+          <svg class="icon"><use href="#icon-lock" /></svg>
+        </div>
+        <div>
+          <strong>Safe by design</strong>
+          <p>The updater automatically backs up your database first. Project files and media are never touched.</p>
+          <p>Updates run on the Vue.io host, never from the web app. To undo an update, run <code>sudo vueioctl rollback</code>.</p>
+        </div>
+      </section>
     </div>
   </section>
 </template>
@@ -80,6 +105,8 @@ import { notify } from '../../utils/toasts'
 const { status, loading, check } = useUpdateStatusStore()
 
 const state = computed(() => status.value?.status || (loading.value ? 'checking' : 'unavailable'))
+const channelLabel = computed(() => status.value?.channel === 'nightly' ? 'Nightly' : 'Stable')
+const releaseNotes = computed(() => Array.isArray(status.value?.releases_between) ? status.value.releases_between : [])
 const statusIcon = computed(() => ({
   available: '#icon-download',
   current: '#icon-check',
@@ -109,6 +136,10 @@ const latestHint = computed(() => status.value?.published_at
   ? `Published ${new Date(status.value.published_at).toLocaleDateString()}`
   : 'The newest immutable alpha published for self-hosting.')
 
+function formatReleaseDate(value) {
+  return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 async function copyCommand() {
   try {
     await navigator.clipboard.writeText(status.value.update_command)
@@ -128,11 +159,12 @@ onMounted(() => check())
 
 .updates-body {
   display: grid;
-  gap: 14px;
-  padding: 18px;
+  gap: var(--v-space-3);
+  padding-top: var(--v-space-4);
 }
 
 .updates-status-card {
+  --updates-status-color: var(--v-text-secondary);
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
@@ -141,12 +173,32 @@ onMounted(() => check())
   padding: 16px;
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-inline);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .updates-status-card.is-available {
-  border-color: color-mix(in srgb, var(--v-accent) 28%, var(--v-surface-border-soft));
-  background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface-inline));
+  --updates-status-color: var(--v-info);
+}
+
+.updates-status-card.is-current {
+  --updates-status-color: var(--v-accent);
+}
+
+.updates-status-card.is-development {
+  --updates-status-color: var(--v-warning);
+}
+
+.updates-status-card.is-error {
+  --updates-status-color: var(--v-danger);
+}
+
+.updates-status-card.is-available,
+.updates-status-card.is-current,
+.updates-status-card.is-development,
+.updates-status-card.is-error {
+  border-color: color-mix(in srgb, var(--updates-status-color) 28%, var(--v-surface-border-soft));
+  background: color-mix(in srgb, var(--updates-status-color) 7%, var(--v-surface-inline));
 }
 
 .updates-status-mark {
@@ -160,10 +212,12 @@ onMounted(() => check())
   box-shadow: inset 0 0 0 1px var(--v-surface-border-soft);
 }
 
-.is-available .updates-status-mark,
-.is-current .updates-status-mark {
-  color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 10%, var(--v-surface-raised));
+.updates-status-card.is-available .updates-status-mark,
+.updates-status-card.is-current .updates-status-mark,
+.updates-status-card.is-development .updates-status-mark,
+.updates-status-card.is-error .updates-status-mark {
+  color: var(--updates-status-color);
+  background: color-mix(in srgb, var(--updates-status-color) 10%, var(--v-surface-raised));
 }
 
 .updates-status-mark .icon {
@@ -173,6 +227,33 @@ onMounted(() => check())
 
 .updates-status-copy {
   min-width: 0;
+}
+
+.updates-status-kicker,
+.updates-release-note header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.updates-status-kicker .settings-eyebrow {
+  margin: 0;
+}
+
+.updates-channel-badge,
+.updates-nightly-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 1px 7px;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: 999px;
+  color: var(--v-text-secondary);
+  background: var(--v-surface-raised);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
 .updates-status-copy h3,
@@ -216,7 +297,8 @@ onMounted(() => check())
   padding: 14px 16px;
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-inline);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .updates-fact strong {
@@ -235,7 +317,60 @@ onMounted(() => check())
   padding: 16px;
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-inline);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
+}
+
+.updates-notes-card {
+  overflow: hidden;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
+}
+
+.updates-notes-heading {
+  padding: 15px 16px 12px;
+  border-bottom: 1px solid var(--v-surface-border-soft);
+}
+
+.updates-notes-heading h3 {
+  margin: 2px 0 0;
+  color: var(--v-text);
+  font-size: var(--v-text-lg);
+}
+
+.updates-release-note {
+  padding: 14px 16px;
+}
+
+.updates-release-note + .updates-release-note {
+  border-top: 1px solid var(--v-surface-border-soft);
+}
+
+.updates-release-note header strong {
+  color: var(--v-text);
+  font-size: var(--v-text-sm);
+}
+
+.updates-release-note time {
+  margin-left: auto;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+}
+
+.updates-release-note p {
+  margin: 8px 0 0;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.updates-nightly-badge {
+  color: var(--v-accent);
+  border-color: color-mix(in srgb, var(--v-accent) 25%, var(--v-surface-border-soft));
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-raised));
 }
 
 .updates-command-row {
@@ -259,14 +394,52 @@ onMounted(() => check())
   white-space: nowrap;
 }
 
-.updates-safety-note {
-  padding: 0 2px;
+.updates-safety-panel {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--v-space-3);
+  padding: 14px 16px;
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-well);
+  box-shadow: var(--v-surface-well-ring);
+}
+
+.updates-safety-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--v-radius-md);
+  color: var(--v-accent);
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-inline));
+}
+
+.updates-safety-icon .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.updates-safety-panel strong {
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-base);
+}
+
+.updates-safety-panel p {
+  margin: 4px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+.updates-safety-panel code {
+  color: var(--v-text-secondary);
 }
 
 @media (max-width: 768px) {
   .updates-body {
     gap: 10px;
-    padding: 12px;
+    padding-top: var(--v-space-3);
   }
 
   .updates-status-card {

@@ -12,6 +12,7 @@
         :class="panelClasses"
         :style="panelStyle"
         :role="panelRole"
+        :aria-label="panelLabel || undefined"
         @click.stop="handlePanelClick"
       >
         <slot />
@@ -27,6 +28,7 @@
           :class="panelClasses"
           :style="[panelStyle, floatingPanelStyle]"
           :role="panelRole"
+          :aria-label="panelLabel || undefined"
           @click.stop="handlePanelClick"
         >
           <slot />
@@ -50,6 +52,7 @@ const props = defineProps({
   teleportTo: { type: String, default: 'body' },
   offset: { type: Number, default: 6 },
   panelRole: { type: String, default: 'menu' },
+  panelLabel: { type: String, default: '' },
   closeOnSelect: { type: Boolean, default: true },
 })
 
@@ -181,8 +184,36 @@ function handleDocumentKeydown(event) {
   event.preventDefault()
 }
 
+// Global listeners are attached only while the menu is open. Menus are
+// instantiated per row in large lists, so mount-time registration would pile
+// hundreds of window-level handlers onto every scroll/keystroke/click.
+let globalListenersActive = false
+
+function attachGlobalListeners() {
+  if (globalListenersActive || typeof window === 'undefined') return
+  globalListenersActive = true
+  window.addEventListener('resize', updateFloatingPosition, { passive: true })
+  window.addEventListener('scroll', updateFloatingPosition, { capture: true, passive: true })
+  document.addEventListener('pointerdown', handleDocumentPointerDown, true)
+  document.addEventListener('keydown', handleDocumentKeydown)
+}
+
+function detachGlobalListeners() {
+  if (!globalListenersActive) return
+  globalListenersActive = false
+  window.removeEventListener('resize', updateFloatingPosition, { capture: false })
+  window.removeEventListener('scroll', updateFloatingPosition, { capture: true })
+  document.removeEventListener('pointerdown', handleDocumentPointerDown, true)
+  document.removeEventListener('keydown', handleDocumentKeydown)
+}
+
 watch(() => props.open, async (isOpen) => {
-  if (!isOpen || !props.teleport) return
+  if (!isOpen) {
+    detachGlobalListeners()
+    return
+  }
+  attachGlobalListeners()
+  if (!props.teleport) return
   await nextTick()
   updateFloatingPosition()
   await nextTick()
@@ -192,18 +223,10 @@ watch(() => props.open, async (isOpen) => {
 watch(() => [props.align, props.minWidth, props.offset], () => updateFloatingPosition())
 
 onMounted(() => {
-  if (typeof window === 'undefined') return
-  window.addEventListener('resize', updateFloatingPosition)
-  window.addEventListener('scroll', updateFloatingPosition, true)
-  document.addEventListener('pointerdown', handleDocumentPointerDown, true)
-  document.addEventListener('keydown', handleDocumentKeydown)
+  if (props.open) attachGlobalListeners()
 })
 
 onBeforeUnmount(() => {
-  if (typeof window === 'undefined') return
-  window.removeEventListener('resize', updateFloatingPosition)
-  window.removeEventListener('scroll', updateFloatingPosition, true)
-  document.removeEventListener('pointerdown', handleDocumentPointerDown, true)
-  document.removeEventListener('keydown', handleDocumentKeydown)
+  detachGlobalListeners()
 })
 </script>

@@ -14,6 +14,7 @@ from app.services.file_access import check_folder_read_permission
 from app.services.horizon_entity_thumbnails import list_horizon_folder_thumbnail_paths
 from app.services.horizon_pages import build_page_content_item, get_horizon_page_by_ref, list_horizon_pages, page_allows_path
 from app.services.horizons.media import (
+    can_access_horizon_folder_path,
     can_access_horizon_media_asset_id,
     can_access_horizon_shot_version_id,
     get_horizon_media_asset_by_path,
@@ -202,7 +203,7 @@ def _append_workspace_tracker_shortcuts(db: Session, project_id: str, items: lis
             continue
         shot_count = len(list_visible_horizon_shots(db, project_id, tracker_id=tracker.id, user=user, access_role=access_role))
         if shot_count > 0:
-            items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': shot_count, 'source': 'horizons_db', 'is_shortcut': True})
+            items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': shot_count, 'last_activity_at': tracker.last_activity_at, 'source': 'horizons_db', 'is_shortcut': True})
             existing_tracker_names.add(tracker.name)
 
 class HorizonsProjectAuthPolicy:
@@ -220,16 +221,28 @@ class HorizonsProjectAuthPolicy:
         return normalize_virtual_path(raw_path, allow_empty=allow_empty)
 
     def assert_can_list(self, path: str) -> None:
-        if _is_artist_user(self.user) and path and not is_horizon_user_workspace_path(self.user, path):
+        if (
+            _is_artist_user(self.user)
+            and path
+            and not can_access_horizon_folder_path(
+                self.db,
+                self.project_id,
+                path,
+                user=self.user,
+                access_role=self.access_role,
+            )
+        ):
             raise HTTPException(status_code=404, detail='Folder not found')
 
     def assert_can_resolve(self, ref: ContentRef, *, purpose: Literal['metadata', 'stream', 'thumbnail', 'download', 'zip']) -> ContentRef:
         return ref
 
     def assert_can_zip_roots(self, raw_paths: list[str]) -> list[ContentRef]:
+        refs = [ContentRef(namespace='horizons_project', project_id=self.project_id, path=self.normalize_request_path(path, allow_empty=False)) for path in raw_paths]
         if is_restricted_horizon_artist(self.user, self.access_role):
-            raise HTTPException(status_code=403, detail='Horizons folder zip is not available for restricted viewers')
-        return [ContentRef(namespace='horizons_project', project_id=self.project_id, path=self.normalize_request_path(path, allow_empty=False)) for path in raw_paths]
+            for ref in refs:
+                self.assert_can_list(ref.path)
+        return refs
 
     def list_folder(self, path: str, *, include_counts: bool = False) -> ContentListResult:
         normalized_path = self.normalize_request_path(path)
@@ -240,21 +253,56 @@ class HorizonsProjectAuthPolicy:
         folder_thumbnail_paths = list_horizon_folder_thumbnail_paths(self.project_id)
         linked_match = find_link_by_virtual_path(links, normalized_path)
         if _is_artist_user(self.user) and linked_match and (linked_match.get('type') or 'file') == 'folder':
-            workspace_path = self._workspace_path()
-            if not is_horizon_user_workspace_path(self.user, normalized_path) or not _virtual_path_is_inside(linked_virtual_root(linked_match), workspace_path):
+            if not can_access_horizon_folder_path(
+                self.db,
+                self.project_id,
+                normalized_path,
+                user=self.user,
+                access_role=self.access_role,
+            ):
                 raise HTTPException(status_code=403, detail='Access denied to linked horizons folder')
         linked_folder_items = build_linked_folder_items(links, normalized_path, include_counts=include_counts, folder_thumbnail_paths=folder_thumbnail_paths, db=self.db, project_id=self.project_id)
         if linked_folder_items is not None:
             return ContentListResult(normalized_path, linked_folder_items, build_project_breadcrumbs(normalized_path), folder_context={'mode': 'linked', 'is_linked_folder': True, 'can_upload': False, 'upload_disabled_reason': LINKED_FOLDER_UPLOAD_DISABLED_REASON})
         if _is_artist_user(self.user):
-            return self._list_artist_folder(project_dir, links, normalized_path, include_counts, folder_asset_by_path, folder_thumbnail_paths)
+            if not normalized_path or is_horizon_user_workspace_path(self.user, normalized_path):
+                return self._list_artist_folder(project_dir, links, normalized_path, include_counts, folder_asset_by_path, folder_thumbnail_paths)
+            if not can_access_horizon_folder_path(
+                self.db,
+                self.project_id,
+                normalized_path,
+                user=self.user,
+                access_role=self.access_role,
+            ):
+                raise HTTPException(status_code=404, detail='Folder not found')
+            items = self._list_project_fs(
+                project_dir,
+                links,
+                normalized_path,
+                include_counts,
+                folder_asset_by_path,
+                folder_thumbnail_paths,
+                allowed_virtual_root=normalized_path,
+            )
+            items.sort(key=lambda item: ({'folder': 0, 'file': 1}.get(item.get('type'), 99), item.get('name', '').lower()))
+            return ContentListResult(
+                normalized_path,
+                items,
+                build_project_breadcrumbs(normalized_path),
+                folder_context={
+                    'mode': 'project',
+                    'is_linked_folder': False,
+                    'can_upload': False,
+                    'upload_disabled_reason': 'Referenced folders are view-only. Upload files inside your workspace.',
+                },
+            )
         items = self._list_project_fs(project_dir, links, normalized_path, include_counts, folder_asset_by_path, folder_thumbnail_paths)
         if not normalized_path:
             items.extend(build_page_content_item(page) for page in list_horizon_pages(self.db, self.project_id))
             existing_tracker_names = {item.get('name') for item in items if item.get('type') == 'tracker'}
             for tracker in list_horizon_trackers(self.db, self.project_id):
                 if tracker.name not in existing_tracker_names:
-                    items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': len(list_visible_horizon_shots(self.db, self.project_id, tracker_id=tracker.id, user=self.user, access_role=self.access_role)), 'source': 'horizons_db'})
+                    items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': len(list_visible_horizon_shots(self.db, self.project_id, tracker_id=tracker.id, user=self.user, access_role=self.access_role)), 'last_activity_at': tracker.last_activity_at, 'source': 'horizons_db'})
         append_horizon_asset_virtual_items(items, self.db, self.project_id, folder_visible_assets, normalized_path, include_counts=include_counts, folder_thumbnail_paths=folder_thumbnail_paths)
         items.sort(key=lambda item: ({'page': 0, 'folder': 1, 'tracker': 2, 'file': 3}.get(item.get('type'), 99), item.get('name', '').lower()))
         read_only = project_storage_is_read_only(self.project)
@@ -497,6 +545,9 @@ def _resolve_horizons_object(db: Session, project_id: str, ref: ContentRef, *, d
     if asset is None:
         raise HTTPException(status_code=404, detail=detail)
     payload = build_project_file_info_payload(project_id, canonical_path, full_path, db=db, storage_scope=storage_scope, asset=asset, exists=bool(full_path and full_path.exists()))
+    if ref.shot_version_id is None:
+        payload.pop('version_id', None)
+        payload.pop('horizons_shot_version_id', None)
     payload = attach_canonical_media_identity(payload, media_asset_id=resolved_asset_id, shot_version_id=ref.shot_version_id)
     return ResolvedContent(ref, full_path, bool(full_path and full_path.exists()), cache_key, storage_scope, media_asset_id=resolved_asset_id, shot_version_id=ref.shot_version_id, canonical_path=canonical_path, physical_root=resolve_project_root(get_horizon_project(db, project_id)), payload=payload)
 
@@ -508,6 +559,9 @@ def resolve_horizons_object_share(share, db: Session, *, asset_id: str | None = 
     full_path, cache_key, storage_scope, resolved_asset_id, canonical_path = resolve_shared_horizons_object_target(share, db, horizons_media_asset_id=asset_id, horizons_shot_version_id=version_id)
     asset = db.query(MediaAsset).filter(MediaAsset.id == resolved_asset_id).first() if resolved_asset_id else None
     payload = build_project_file_info_payload(share.project_id, canonical_path, full_path, db=db, storage_scope=storage_scope, asset=asset, exists=bool(full_path and full_path.exists()))
+    if version_id is None:
+        payload.pop('version_id', None)
+        payload.pop('horizons_shot_version_id', None)
     payload = attach_canonical_media_identity(payload, media_asset_id=resolved_asset_id, shot_version_id=version_id)
     ref = ContentRef(namespace='horizons_shot_version' if version_id else 'horizons_media_asset', project_id=share.project_id, share_id=share.id, media_asset_id=asset_id, shot_version_id=version_id)
     return ResolvedContent(ref, full_path, bool(full_path and full_path.exists()), cache_key, storage_scope, media_asset_id=resolved_asset_id, shot_version_id=version_id, canonical_path=canonical_path, physical_root=resolve_project_root(get_horizon_project(db, share.project_id)), payload=payload)

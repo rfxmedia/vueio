@@ -1,4 +1,4 @@
-FROM python:3.11-slim-trixie@sha256:db3ff2e1800a8581e2c48a27c3995339d47bdf046da21c7627accd3d51053a93
+FROM python:3.11-slim-trixie@sha256:1042b61448fef4ba92d16a8c7eb4996d027568ce64792a7877fd88511e0af7c6
 
 LABEL org.opencontainers.image.title="Vue.io Engine" \
       org.opencontainers.image.licenses="PolyForm-Perimeter-1.0.1" \
@@ -6,6 +6,7 @@ LABEL org.opencontainers.image.title="Vue.io Engine" \
 
 # Install only the runtime media stack.
 RUN apt-get update && \
+    apt-get upgrade -y && \
     apt-get install -y --no-install-recommends ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 

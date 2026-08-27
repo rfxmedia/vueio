@@ -1,4 +1,5 @@
 <template>
+  <div class="project-folder-surface" @contextmenu="openProjectCreateContextMenu">
         <div v-if="projectContentsLoading" class="project-folder-loading" role="status" aria-live="polite">
           <span class="project-folder-loading-spinner" aria-hidden="true"></span>
           <span>Opening folder…</span>
@@ -41,6 +42,7 @@
                     :item="item"
                     kind="tracker"
                     :meta="`${item.shot_count} shot${item.shot_count === 1 ? '' : 's'}`"
+                    :activity-at="item.last_activity_at"
                     @activate="openTracker(item.slug || item.id || item.path || item.name)"
                   />
                 </div>
@@ -81,12 +83,28 @@
                   :key="item.path"
                   :item="item"
                   :count-label="formatCountLabel(item.item_count)"
+                  :class="{ 'has-open-menu': contentMenuOpen === item.path }"
                   @activate="navigateProjectFolder(item.path)"
                   @dragenter.prevent.stop="handleProjectExternalDragEnter($event, item.path)"
                   @dragover.prevent.stop="handleProjectExternalDragOver($event, item.path)"
                   @dragleave.stop="handleProjectExternalDragLeave"
                   @drop.prevent.stop="handleProjectExternalDrop($event, item.path)"
-                />
+                >
+                  <template #actions>
+                    <VMenu
+                      v-if="canShowProjectFolderMenu(item)"
+                      :open="contentMenuOpen === item.path"
+                      align="end"
+                      class="file-menu v-card-overflow"
+                      @update:open="open => !open && closeContentMenu()"
+                    >
+                      <template #trigger="{ triggerProps }">
+                        <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
+                      </template>
+                      <VMenuActionList :actions="folderMenuActions(item)" />
+                    </VMenu>
+                  </template>
+                </VFileBrowserItem>
                 <div v-if="canLoadMoreProjectFolders" class="v-load-more">
                   <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
                     Load More Folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
@@ -106,8 +124,23 @@
                   :key="item.path"
                   :item="item"
                   :thumbnail-url="getProjectFileThumbnailUrl(item)"
+                  :class="{ 'has-open-menu': contentMenuOpen === item.path }"
                   @activate="openFileFromProject"
-                />
+                >
+                  <template #actions>
+                    <VMenu
+                      :open="contentMenuOpen === item.path"
+                      align="end"
+                      class="file-menu v-card-overflow"
+                      @update:open="open => !open && closeContentMenu()"
+                    >
+                      <template #trigger="{ triggerProps }">
+                        <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
+                      </template>
+                      <VMenuActionList :actions="fileMenuActions(item)" />
+                    </VMenu>
+                  </template>
+                </VFileBrowserItem>
                 <div v-if="canLoadMoreProjectFiles" class="v-load-more">
                   <button class="v-btn v-btn-secondary" @click="loadMoreProjectFiles">
                     Load More Files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
@@ -132,8 +165,37 @@
                   :thumbnail-url="item.type === 'folder' ? '' : getProjectFileThumbnailUrl(item)"
                   :count-label="item.type === 'folder' ? formatCountLabel(item.item_count) : ''"
                   :show-uploader-column="projectShowUploader"
+                  :class="{ 'has-open-menu': contentMenuOpen === item.path }"
                   @activate="activateProjectBrowserEntry"
-                />
+                >
+                  <template #actions>
+                    <VMenu
+                      v-if="item.type === 'folder' && canShowProjectFolderMenu(item)"
+                      :open="contentMenuOpen === item.path"
+                      align="end"
+                      class="file-menu v-row-overflow"
+                      @update:open="open => !open && closeContentMenu()"
+                    >
+                      <template #trigger="{ triggerProps }">
+                        <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
+                      </template>
+                      <VMenuActionList :actions="folderMenuActions(item)" />
+                    </VMenu>
+
+                    <VMenu
+                      v-else-if="item.type === 'file'"
+                      :open="contentMenuOpen === item.path"
+                      align="end"
+                      class="file-menu v-row-overflow"
+                      @update:open="open => !open && closeContentMenu()"
+                    >
+                      <template #trigger="{ triggerProps }">
+                        <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
+                      </template>
+                      <VMenuActionList :actions="fileMenuActions(item)" />
+                    </VMenu>
+                  </template>
+                </VFileBrowserItem>
               </div>
               <div v-if="canLoadMoreProjectFolders" class="v-load-more is-list-load-more">
                 <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
@@ -218,6 +280,7 @@
                     :item="item"
                     kind="tracker"
                     :meta="`${item.shot_count} shot${item.shot_count === 1 ? '' : 's'}`"
+                    :activity-at="item.last_activity_at"
                     :menu-open="contentMenuOpen === item.path"
                     :class="{ 'dragging': projectDragItem?.path === item.path }"
                     :draggable="canEditProject"
@@ -454,6 +517,24 @@
             </div>
           </div>
         </div>
+
+        <VMenu
+          v-if="canShowProjectCreateMenu"
+          :open="projectCreateContextOpen"
+          :style="projectCreateContextAnchorStyle"
+          :min-width="180"
+          :offset="0"
+          align="start"
+          teleport
+          class="project-create-context-menu"
+          @update:open="setProjectCreateContextOpen"
+        >
+          <template #trigger>
+            <span class="project-create-context-anchor" aria-hidden="true"></span>
+          </template>
+          <VMenuActionList :actions="projectCreateMenuActions" />
+        </VMenu>
+  </div>
 </template>
 
 <script setup>
@@ -462,7 +543,8 @@ import VFileListHeader from '../components/files/VFileListHeader.vue'
 import ProjectFileToolbar from '../components/files/ProjectFileToolbar.vue'
 import ProjectSpecialtyItem from '../components/files/ProjectSpecialtyItem.vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../components/primitives'
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
+import { useProjectCreateMenu } from '../composables/useProjectCreateMenu'
 import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSelection'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useShareAccessContext } from '../ownership/shareAccessContext'
@@ -561,20 +643,69 @@ const {
   startRenameFile,
   deleteProjectFile,
   projectFileItems,
+  closeNewMenu,
 } = useProjectWorkspaceStore()
 
 const canEditProject = computed(() => canEditProjectPermission.value && !currentProject.value?.storage_read_only)
+const {
+  canShowProjectCreateMenu,
+  projectCreateMenuActions,
+} = useProjectCreateMenu()
+const projectCreateContextOpen = ref(false)
+const projectCreateContextX = ref(0)
+const projectCreateContextY = ref(0)
+const projectCreateContextAnchorStyle = computed(() => ({
+  left: `${projectCreateContextX.value}px`,
+  top: `${projectCreateContextY.value}px`,
+}))
+
+const projectCreateContextExclusions = [
+  'button',
+  'a',
+  'input',
+  'select',
+  'textarea',
+  '[contenteditable="true"]',
+  '[role="button"]',
+  '[role="menu"]',
+  '.file-card',
+  '.project-specialty-item',
+  '.project-file-toolbar',
+].join(',')
+
+async function openProjectCreateContextMenu(event) {
+  if (!canShowProjectCreateMenu.value) return
+  if (event.target instanceof Element && event.target.closest(projectCreateContextExclusions)) return
+
+  event.preventDefault()
+  closeContentMenu()
+  closeNewMenu()
+  projectCreateContextOpen.value = false
+  await nextTick()
+  projectCreateContextX.value = event.clientX
+  projectCreateContextY.value = event.clientY
+  projectCreateContextOpen.value = true
+}
+
+function setProjectCreateContextOpen(open) {
+  projectCreateContextOpen.value = open
+}
+
+watch(projectPath, () => {
+  projectCreateContextOpen.value = false
+})
 
 /* Menus as data — each list is rendered by both the grid and list layouts, so
    the two can no longer drift apart the way the file menus had. VMenu closes
    on select, so no action needs to call closeContentMenu itself. */
-const canUnlink = computed(() => canEditProject.value && currentUser.value?.role !== 'artist')
+const canManageProjectItems = computed(() => currentUser.value?.role !== 'artist')
+const canUnlink = computed(() => canManageProjectItems.value && canEditProject.value)
 
 function folderMenuActions(item) {
-  const editable = canEditProject.value && !item.is_workspace
+  const editable = canManageProjectItems.value && canEditProject.value && !item.is_workspace
   return [
     { label: 'Download', icon: '#icon-download', show: canDownloadProjectFolderItem(item), run: () => downloadProjectFolder(item.path, item.name) },
-    { label: 'Share Folder', icon: '#icon-share', show: canShareProject.value && !item.is_linked, run: () => shareProjectContent(item, true) },
+    { label: 'Share Folder', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_workspace && !item.is_linked, run: () => shareProjectContent(item, true) },
     { divider: true },
     { label: 'Rename', icon: '#icon-edit', show: editable && !item.is_linked, run: () => startRenameFolder(item) },
     { label: 'Duplicate', icon: '#icon-copy', show: editable && item.link_kind !== 'folder-child', run: () => duplicateItem(item) },
@@ -585,15 +716,16 @@ function folderMenuActions(item) {
 }
 
 function fileMenuActions(item) {
-  const detachable = canEditProject.value && item.link_kind !== 'folder-child'
+  const editable = canManageProjectItems.value && canEditProject.value
+  const detachable = editable && item.link_kind !== 'folder-child'
   return [
-    { label: 'Share File', icon: '#icon-share', show: canShareProject.value && !item.is_linked, run: () => shareProjectContent(item, false) },
+    { label: 'Share File', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_linked, run: () => shareProjectContent(item, false) },
     { label: 'Download', icon: '#icon-download', show: !shareMode.value || shareAllowDownload.value, run: () => downloadProjectItem(item) },
     { divider: true },
-    { label: 'Rename', icon: '#icon-edit', show: canEditProject.value && !item.is_linked, run: () => startRenameFile(item) },
+    { label: 'Rename', icon: '#icon-edit', show: editable && !item.is_linked, run: () => startRenameFile(item) },
     { label: 'Duplicate', icon: '#icon-copy', show: detachable && !item.is_workspace, run: () => duplicateItem(item) },
     { divider: true },
-    { label: 'Delete', icon: '#icon-trash', danger: true, show: canEditProject.value && !item.is_linked, run: () => deleteProjectFile(item) },
+    { label: 'Delete', icon: '#icon-trash', danger: true, show: editable && !item.is_linked, run: () => deleteProjectFile(item) },
     { label: 'Unlink', icon: '#icon-link', danger: true, show: canUnlink.value && item.is_linked && item.link_kind === 'direct-file', run: () => unlinkProjectItem(item) },
   ]
 }
@@ -651,7 +783,9 @@ function activateProjectBrowserEntry(item) {
 }
 
 function canShowProjectFolderMenu(item) {
-  if (!item || item.is_workspace) return false
+  if (!item) return false
+  if (canDownloadProjectFolderItem(item)) return true
+  if (item.is_workspace) return false
   return (shareMode.value && shareAllowDownload.value) || canShareProject.value || canEditProject.value
 }
 
@@ -665,7 +799,26 @@ function handleProjectListDrop(event, item) {
 </script>
 
 <style>
-.project-contents { min-height: 300px; }
+.project-folder-surface {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.project-contents { flex: 1; min-height: 300px; }
+
+.project-create-context-menu.v-dropdown-wrapper {
+  position: fixed;
+  width: 1px;
+  height: 1px;
+  z-index: var(--v-z-dropdown);
+}
+
+.project-create-context-anchor {
+  display: block;
+  width: 1px;
+  height: 1px;
+}
 
 .project-folder-note { margin-bottom: var(--v-space-3); }
 .project-folder-loading {
@@ -679,12 +832,11 @@ function handleProjectListDrop(event, item) {
   padding: 8px 12px;
   border: 1px solid var(--v-border);
   border-radius: var(--v-radius-full);
-  background: color-mix(in srgb, var(--v-bg-elevated) 92%, transparent);
+  background: color-mix(in srgb, var(--v-bg-elevated) 97%, transparent);
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
   font-weight: 600;
   box-shadow: var(--v-shadow-sm);
-  backdrop-filter: blur(12px);
 }
 .project-folder-loading-spinner {
   width: 14px;
@@ -733,7 +885,6 @@ function handleProjectListDrop(event, item) {
   width: var(--v-overlay-pill-height);
   padding: 0;
   color: var(--v-accent);
-  backdrop-filter: blur(8px);
 }
 .project-contents .thumb .link-badge .icon { color: currentColor; }
 .project-browser .v-drop-overlay { border-radius: var(--v-radius-lg); }

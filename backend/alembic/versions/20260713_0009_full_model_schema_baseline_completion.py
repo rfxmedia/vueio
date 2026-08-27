@@ -33,6 +33,11 @@ KNOWN_LATER_COLUMN_SPECS = {
     'horizons_trackers': {'settings_json': ('text', True)},
     'media_assets': {'artifact_identity': ('string', True)},
     'shares': {'request_files': ('boolean', False)},
+    'tracker_events': {
+        'undo_of_event_id': ('integer', True),
+        'state_snapshot': ('largebinary', True),
+        'state_hash': ('string', True),
+    },
     'transcodes': {'last_accessed': ('float', True)},
     'upload_sessions': {'owner_user_id': ('string', True)},
 }
@@ -104,7 +109,15 @@ STALE_SHARE_AUDIT_SPEC = (
     (('ix_stale_share_field_retirement_share_id', ('share_id',), False),),
 )
 AUDIT_SPECS = (AUDIT_SPEC, STALE_SHARE_AUDIT_SPEC)
-TYPE_MAP = {'bigint': sa.BigInteger, 'boolean': sa.Boolean, 'float': sa.Float, 'integer': sa.Integer, 'string': sa.String, 'text': sa.Text}
+TYPE_MAP = {
+    'bigint': sa.BigInteger,
+    'boolean': sa.Boolean,
+    'float': sa.Float,
+    'integer': sa.Integer,
+    'largebinary': sa.LargeBinary,
+    'string': sa.String,
+    'text': sa.Text,
+}
 HISTORICAL_FINAL_ORDERS = {
     'comments': (
         (

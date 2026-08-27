@@ -10,8 +10,6 @@
         aria-label="Video timeline"
         aria-valuemin="0"
         :aria-valuemax="Math.max(0, duration)"
-        :aria-valuenow="Math.max(0, Math.min(currentTime, duration || currentTime))"
-        :aria-valuetext="formatTimecode(currentTime)"
         @keydown="handleTimelineKeydown"
         @pointerdown.stop.prevent="handleStartTimelinePointer"
         @pointerup.stop.prevent="handleFinishTimelinePointer"
@@ -21,8 +19,10 @@
         @mouseleave="handleTimelineLeave"
       >
         <div class="timeline-bg"></div>
-        <div class="timeline-progress" :style="`width: ${progress}%`"></div>
-        <div class="timeline-handle" :style="`left: ${progress}%`"></div>
+        <!-- Width/left are written imperatively by the playback clock so a
+             frame tick never re-renders the component tree. -->
+        <div ref="progressBarEl" class="timeline-progress"></div>
+        <div ref="progressHandleEl" class="timeline-handle"></div>
         <div
           class="scrub-preview-popover"
           :class="{ 'is-visible': showScrubPreview, 'is-ready': scrubPreviewReady, 'is-loading': !scrubPreviewReady, 'has-comment': scrubPreviewComment }"
@@ -132,13 +132,13 @@
         </div>
 
         <div class="controls-zone controls-zone--center">
-          <div class="controls-timecode" :aria-label="`${formatTimecode(currentTime)} elapsed of ${formatTimecode(duration)}`">
-            <span class="time-current">{{ formatTimecode(currentTime) }}</span>
+          <div class="controls-timecode">
+            <span ref="timeCurrentEl" class="time-current"></span>
             <span class="time-sep">/</span>
             <span class="time-duration">{{ formatTimecode(duration) }}</span>
-            <span class="frame-counter" :title="`Frame ${currentFrame}`">
+            <span class="frame-counter" title="Current frame">
               <span class="frame-counter__prefix">F</span>
-              <span class="frame-counter__value">{{ currentFrame }}</span>
+              <span ref="frameValueEl" class="frame-counter__value"></span>
             </span>
           </div>
         </div>
@@ -149,6 +149,7 @@
                 :open="frameCaptureMenuOpen"
                 align="end"
                 min-width="256"
+                :teleport="true"
                 panel-role="dialog"
                 panel-class="viewer-frame-capture-menu"
                 @update:open="(open) => { if (!open) closeFrameCaptureMenu() }"
@@ -175,11 +176,24 @@
                       aria-label="Screenshot options"
                       @click.stop="toggleFrameCaptureMenu"
                     >
+                      <svg class="icon viewer-mobile-capture-icon"><use href="#icon-camera"/></svg>
                       <svg class="icon frame-capture-menu-btn__icon"><use href="#icon-chevron-down"/></svg>
                     </button>
                   </div>
                 </template>
                 <div class="viewer-frame-capture-panel">
+                  <button
+                    type="button"
+                    class="v-dropdown-item viewer-frame-capture-option viewer-mobile-only"
+                    :disabled="!canCopyCurrentFrame || frameCaptureBusy"
+                    @click.stop="copyCurrentFrame"
+                  >
+                    <svg class="icon"><use href="#icon-camera"/></svg>
+                    <span class="viewer-frame-capture-option__copy">
+                      <span class="viewer-frame-capture-option__label">Copy Current Frame</span>
+                      <span class="viewer-frame-capture-option__hint">Copy or share this frame</span>
+                    </span>
+                  </button>
                   <button
                     type="button"
                     class="v-dropdown-item viewer-frame-capture-option"
@@ -233,6 +247,7 @@
               :open="qualityMenuOpen"
               align="end"
               min-width="176"
+              :teleport="true"
               panel-class="viewer-settings-menu"
               @update:open="(open) => { if (!open) closeQualityMenu() }"
             >
@@ -250,6 +265,16 @@
               </template>
               <div class="viewer-settings-panel">
                 <div class="viewer-settings-section">
+                  <div class="viewer-settings-heading v-section-label viewer-mobile-only">Playback</div>
+                  <button
+                    type="button"
+                    class="v-dropdown-item viewer-settings-option viewer-mobile-only"
+                    :class="{ active: loopEnabled }"
+                    @click.stop="toggleLoopFromSettings"
+                  >
+                    <span class="viewer-settings-option__label">Loop playback</span>
+                    <svg v-if="loopEnabled" class="icon viewer-settings-option__check"><use href="#icon-check"/></svg>
+                  </button>
                   <div class="viewer-settings-heading v-section-label">Quality</div>
                   <button
                     v-for="option in qualityOptions"
@@ -283,15 +308,13 @@
 
 <script setup>
 import { computed, onUnmounted, ref, toRefs, watch } from 'vue'
-import Hls from 'hls.js'
 import { VMenu, VSwitch } from '../primitives'
 
 const props = defineProps({
   comments: { type: Array, default: () => [] },
   duration: { type: Number, default: 0 },
-  progress: { type: Number, default: 0 },
-  currentTime: { type: Number, default: 0 },
-  currentFrame: { type: [Number, String], default: 0 },
+  currentTimeRef: { type: Object, default: null },
+  frameRate: { type: Number, default: 24 },
   streamPreparing: { type: Boolean, default: false },
   playerVolume: { type: Number, default: 0 },
   loopEnabled: { type: Boolean, default: false },
@@ -325,9 +348,6 @@ const props = defineProps({
 const {
   comments,
   duration,
-  progress,
-  currentTime,
-  currentFrame,
   playerVolume,
   loopEnabled,
   isPlaying,
@@ -340,6 +360,56 @@ const {
 } = toRefs(props)
 
 const timelineEl = ref(null)
+const progressBarEl = ref(null)
+const progressHandleEl = ref(null)
+const timeCurrentEl = ref(null)
+const frameValueEl = ref(null)
+
+// ── Playback clock ───────────────────────────────────────────────────────────
+// The transport updates `currentTimeRef` 60×/s while playing. Rendering that
+// through the template would re-render this whole component per frame, so the
+// clock-driven spots (progress bar, handle, timecode, frame counter, slider
+// aria) are plain DOM writes instead. Everything else renders normally.
+
+function clockTime() {
+  const value = Number(props.currentTimeRef?.value)
+  return Number.isFinite(value) ? value : 0
+}
+
+let lastAriaSecond = -1
+let lastTimecodeText = ''
+let lastFrameText = ''
+
+function writeClockDom(time) {
+  const pct = props.duration ? Math.max(0, Math.min(100, (time / props.duration) * 100)) : 0
+  if (progressBarEl.value) progressBarEl.value.style.width = `${pct}%`
+  if (progressHandleEl.value) progressHandleEl.value.style.left = `${pct}%`
+
+  const timecode = props.formatTimecode?.(time) ?? ''
+  if (timeCurrentEl.value && timecode !== lastTimecodeText) {
+    lastTimecodeText = timecode
+    timeCurrentEl.value.textContent = timecode
+  }
+
+  const frameText = String(Math.floor(time * (props.frameRate || 24)))
+  if (frameValueEl.value && frameText !== lastFrameText) {
+    lastFrameText = frameText
+    frameValueEl.value.textContent = frameText
+  }
+
+  const second = Math.floor(time)
+  if (timelineEl.value && second !== lastAriaSecond) {
+    lastAriaSecond = second
+    timelineEl.value.setAttribute('aria-valuenow', String(Math.max(0, Math.min(time, props.duration || time))))
+    timelineEl.value.setAttribute('aria-valuetext', timecode)
+  }
+}
+
+watch(
+  [() => props.currentTimeRef?.value, timelineEl, () => props.duration, () => props.frameRate],
+  () => writeClockDom(clockTime()),
+  { immediate: true, flush: 'post' },
+)
 const scrubPreviewVideoEl = ref(null)
 const volumeSliderEl = ref(null)
 const qualityMenuOpen = ref(false)
@@ -421,12 +491,14 @@ const frameCopyTooltipLabel = computed(() => {
 })
 
 let scrubPreviewHls = null
+let scrubPreviewAttachRequestId = 0
 let scrubPreviewHlsStarted = false
 let scrubPreviewSeekFrame = 0
 let scrubPreviewPendingTime = null
 let scrubPreviewLastSeekAt = 0
 let scrubPreviewHideTimer = 0
 let frameCopyFeedbackTimer = 0
+let timelinePointerRect = null
 const SCRUB_PREVIEW_SEEK_INTERVAL_MS = 80
 
 function commentMarkerStyle(comment) {
@@ -448,9 +520,10 @@ function getCommentPreviewTime(comment) {
 function handleTimelineKeydown(event) {
   if (!props.duration) return
   const step = event.shiftKey ? 10 : 1
+  const now = clockTime()
   let target = null
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') target = props.currentTime - step
-  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') target = props.currentTime + step
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') target = now - step
+  if (event.key === 'ArrowRight' || event.key === 'ArrowUp') target = now + step
   if (event.key === 'Home') target = 0
   if (event.key === 'End') target = props.duration
   if (target === null) return
@@ -460,6 +533,7 @@ function handleTimelineKeydown(event) {
 
 function handleStartTimelinePointer(event) {
   clearScrubPreviewHideTimer()
+  cacheTimelinePointerRect()
   updateScrubPreviewFromPoint(event.clientX)
   isTimelineDragging.value = true
   props.onStartTimelinePointer(event, timelineEl.value)
@@ -470,6 +544,7 @@ function finishTimelinePointer(event, cancel = false) {
   const handler = cancel ? props.onCancelTimelinePointer : props.onFinishTimelinePointer
   handler(event, timelineEl.value)
   isTimelineDragging.value = false
+  timelinePointerRect = null
   suspendScrubPreviewLoading()
   hideScrubPreview({ delay: cancel ? 0 : 350 })
 }
@@ -553,6 +628,11 @@ function handleWindowVolumePointerUp(event) {
 
 function toggleLoop() {
   props.onToggleLoop()
+}
+
+function toggleLoopFromSettings() {
+  toggleLoop()
+  closeQualityMenu()
 }
 
 function clearFrameCopyFeedbackTimer() {
@@ -654,6 +734,7 @@ function clearScrubPreviewHideTimer() {
 }
 
 function destroyScrubPreviewEngine() {
+  scrubPreviewAttachRequestId += 1
   if (scrubPreviewSeekFrame) {
     cancelAnimationFrame(scrubPreviewSeekFrame)
     scrubPreviewSeekFrame = 0
@@ -683,17 +764,39 @@ function suspendScrubPreviewLoading() {
   try { scrubPreviewVideoEl.value?.pause() } catch {}
 }
 
-function attachScrubPreviewSource() {
+async function attachScrubPreviewSource() {
   destroyScrubPreviewEngine()
+  const requestId = ++scrubPreviewAttachRequestId
   const video = scrubPreviewVideoEl.value
   const source = props.scrubPreviewSourceUrl
   scrubPreviewSupported.value = true
+  scrubPreviewAttachedSource = source
   if (!video || !source) return
 
   video.muted = true
   video.playsInline = true
 
-  if (isHlsSource(source) && Hls.isSupported()) {
+  if (!isHlsSource(source)) {
+    video.src = source
+    video.load()
+    return
+  }
+
+  let Hls
+  try {
+    const hlsModule = await import('hls.js')
+    Hls = hlsModule.default
+  } catch {
+    if (requestId === scrubPreviewAttachRequestId) scrubPreviewSupported.value = false
+    return
+  }
+  if (
+    requestId !== scrubPreviewAttachRequestId
+    || video !== scrubPreviewVideoEl.value
+    || source !== props.scrubPreviewSourceUrl
+  ) return
+
+  if (Hls.isSupported()) {
     scrubPreviewHls = new Hls({
       enableWorker: true,
       lowLatencyMode: false,
@@ -712,12 +815,6 @@ function attachScrubPreviewSource() {
     scrubPreviewHls.on(Hls.Events.MEDIA_ATTACHED, () => {
       scrubPreviewHls?.loadSource(source)
     })
-    return
-  }
-
-  if (!isHlsSource(source)) {
-    video.src = source
-    video.load()
     return
   }
 
@@ -775,10 +872,26 @@ function scheduleScrubPreviewSeek(time) {
   }
 }
 
+// The preview player is only attached on first timeline hover. Attaching on
+// mount would open a second MediaSource and fetch its playlists at the exact
+// moment the primary player is racing for its first segment.
+let scrubPreviewAttachedSource = null
+
+function ensureScrubPreviewAttached() {
+  const video = scrubPreviewVideoEl.value
+  const source = props.scrubPreviewSourceUrl
+  if (!video || !source) return
+  if (scrubPreviewAttachedSource === source) return
+  void attachScrubPreviewSource()
+}
+
 watch(
   [() => props.scrubPreviewSourceUrl, scrubPreviewVideoEl],
-  attachScrubPreviewSource,
-  { immediate: true },
+  () => {
+    destroyScrubPreviewEngine()
+    scrubPreviewAttachedSource = null
+    scrubPreviewSupported.value = true
+  },
 )
 
 watch(showScrubPreview, (visible) => {
@@ -792,9 +905,15 @@ watch(showScrubPreview, (visible) => {
   suspendScrubPreviewLoading()
 })
 
+function cacheTimelinePointerRect(timelineNode = timelineEl.value) {
+  timelinePointerRect = timelineNode?.getBoundingClientRect?.() || null
+  return timelinePointerRect
+}
+
 function updateScrubPreviewFromPoint(clientX, timelineNode = timelineEl.value) {
   if (!timelineNode || !canUseScrubPreview.value) return
-  const rect = timelineNode.getBoundingClientRect()
+  ensureScrubPreviewAttached()
+  const rect = timelinePointerRect || cacheTimelinePointerRect(timelineNode)
   if (!rect.width) return
   const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   const time = Math.max(0, Math.min(props.duration, ratio * props.duration))
@@ -807,11 +926,12 @@ function updateScrubPreviewFromPoint(clientX, timelineNode = timelineEl.value) {
 function updateScrubPreviewFromComment(comment) {
   const timelineNode = timelineEl.value
   if (!timelineNode || !comment) return
-  const rect = timelineNode.getBoundingClientRect()
+  const rect = timelinePointerRect || cacheTimelinePointerRect(timelineNode)
   if (!rect.width) return
   const time = getCommentPreviewTime(comment)
   const ratio = props.duration > 0 ? Math.max(0, Math.min(1, time / props.duration)) : 0
   clearScrubPreviewHideTimer()
+  if (canUseScrubPreview.value) ensureScrubPreviewAttached()
   scrubPreviewX.value = ratio * rect.width
   scrubPreviewTime.value = time
   scrubPreviewComment.value = comment
@@ -833,6 +953,7 @@ function hideScrubPreview({ delay = 0 } = {}) {
 
 function handleTimelineEnter(event) {
   clearScrubPreviewHideTimer()
+  cacheTimelinePointerRect()
   updateScrubPreviewFromPoint(event.clientX)
 }
 
@@ -854,6 +975,7 @@ function handleCommentMarkerLeave() {
 
 function handleTimelineLeave() {
   if (isTimelineDragging.value) return
+  timelinePointerRect = null
   hideScrubPreview()
 }
 
@@ -875,6 +997,11 @@ onUnmounted(() => {
 </script>
 
 <style>
+.viewer-mobile-only,
+.viewer-mobile-capture-icon {
+  display: none !important;
+}
+
 .media-viewer-toolbar {
   margin: var(--v-viewer-toolbar-margin);
   padding: var(--v-viewer-toolbar-padding);
@@ -1429,8 +1556,8 @@ onUnmounted(() => {
 }
 
 @media (min-width: 769px) {
-  .v-dropdown.viewer-settings-menu,
-  .v-menu-panel.viewer-settings-menu {
+  .v-dropdown.viewer-settings-menu:not(.is-teleported),
+  .v-menu-panel.viewer-settings-menu:not(.is-teleported) {
     top: auto !important;
     right: 0;
     bottom: calc(100% + 8px) !important;
@@ -1441,8 +1568,8 @@ onUnmounted(() => {
   }
 }
 
-.v-dropdown.viewer-frame-capture-menu,
-.v-menu-panel.viewer-frame-capture-menu {
+.v-dropdown.viewer-frame-capture-menu:not(.is-teleported),
+.v-menu-panel.viewer-frame-capture-menu:not(.is-teleported) {
   top: auto !important;
   right: 0;
   bottom: calc(100% + 8px) !important;
@@ -1865,11 +1992,12 @@ onUnmounted(() => {
 
 @media (max-width: 768px) {
   .media-viewer-toolbar {
-    padding: 12px 10px 0;
+    padding: 8px var(--v-viewer-mobile-content-gutter) 8px;
+    background: var(--v-bg-black);
   }
 
   .timeline-row {
-    padding: 2px 0 9px;
+    padding: 0 0 6px;
   }
 
   .timeline {
@@ -1882,10 +2010,10 @@ onUnmounted(() => {
   }
 
   .timeline-handle {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
     opacity: 1;
-    box-shadow: 0 0 0 4px color-mix(in srgb, var(--v-accent) 22%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-accent) 20%, transparent);
   }
 
   .scrub-preview-popover {
@@ -1920,14 +2048,14 @@ onUnmounted(() => {
   }
 
   .controls-bar {
-    --viewer-control-size: 32px;
-    --viewer-control-glyph: 16px;
-    --viewer-control-gap: 2px;
-    --viewer-control-height: 32px;
+    --viewer-control-size: 44px;
+    --viewer-control-glyph: 17px;
+    --viewer-control-gap: 0px;
+    --viewer-control-height: 44px;
     grid-template-columns: auto minmax(0, 1fr) auto;
     height: var(--viewer-control-height);
     min-height: var(--viewer-control-height);
-    gap: 5px;
+    gap: 3px;
     border: 0;
     border-radius: 0;
     background: transparent;
@@ -1942,7 +2070,7 @@ onUnmounted(() => {
   .controls-zone--center {
     min-width: 0;
     justify-content: center;
-    padding: 0 1px;
+    padding: 0;
   }
 
   .controls-zone--right {
@@ -1953,16 +2081,16 @@ onUnmounted(() => {
     min-width: 0;
     height: var(--viewer-control-height);
     min-height: var(--viewer-control-height);
-    gap: 5px;
-    padding: 0 7px;
+    gap: 4px;
+    padding: 0 5px;
     font-size: var(--v-text-sm);
-    border-color: color-mix(in srgb, var(--v-text) 8%, transparent);
-    background: color-mix(in srgb, var(--v-text) 3%, transparent);
-    box-shadow: 0 1px 0 color-mix(in srgb, white 2%, transparent) inset;
+    border-color: transparent;
+    background: transparent;
+    box-shadow: none;
   }
 
   .frame-counter {
-    margin-left: 2px;
+    display: none;
   }
 
   .frame-counter__prefix,
@@ -1975,7 +2103,7 @@ onUnmounted(() => {
     height: var(--viewer-control-size);
     flex: 0 0 var(--viewer-control-size);
     border-radius: var(--v-button-radius);
-    background: transparent;
+    background: var(--v-surface-tint);
     border: 0;
     color: var(--v-text);
   }
@@ -2001,23 +2129,36 @@ onUnmounted(() => {
   }
 
   .frame-capture-split {
+    width: var(--viewer-control-size);
     height: var(--viewer-control-height);
+    border: 0;
     border-radius: var(--v-button-radius);
+    background: transparent;
   }
 
   .frame-capture-split .frame-capture-primary {
-    width: 32px;
-    min-width: 32px;
-    height: 100%;
-    flex: 0 0 32px;
-    padding: 0;
+    display: none;
   }
 
   .frame-capture-split .frame-capture-menu-btn {
-    width: 26px;
-    min-width: 26px;
+    width: var(--viewer-control-size);
+    min-width: var(--viewer-control-size);
     height: 100%;
-    flex: 0 0 26px;
+    flex: 0 0 var(--viewer-control-size);
+    border-left: 0;
+  }
+
+  .frame-capture-menu-btn__icon {
+    display: none;
+  }
+
+  .viewer-mobile-capture-icon,
+  .viewer-mobile-only {
+    display: flex !important;
+  }
+
+  .loop-btn {
+    display: none;
   }
 
   .volume-controls {
@@ -2077,14 +2218,9 @@ onUnmounted(() => {
   }
 
   .controls-timecode {
-    gap: 2px;
-    padding: 0 3px;
+    gap: 3px;
+    padding: 0 2px;
     font-size: var(--v-text-xs);
-  }
-
-  .frame-counter {
-    margin-left: 0;
-    gap: 2px;
   }
 }
 </style>

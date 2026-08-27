@@ -6,17 +6,22 @@ import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import Session
 
 from app.models import (
+    Comment,
+    DownloadEvent,
     HorizonShot,
     HorizonShotAssignee,
     HorizonShotVersion,
     HorizonTracker,
     MediaAsset,
+    NotificationDelivery,
     ShareLink,
     ShotRegistryEntry,
+    TrackerEvent,
+    TrackerViewEvent,
     VersionRegistryEntry,
 )
 from app.services.media import IMAGE_EXTENSIONS, PDF_EXTENSIONS, VIDEO_EXTENSIONS, needs_transcode
@@ -61,11 +66,31 @@ def _serialize_horizon_tracker_tags(
 
 def list_horizon_trackers(db: Session, project_id: str) -> list[HorizonTracker]:
     get_horizon_project(db, project_id)
-    return (
+    trackers = (
         db.query(HorizonTracker)
         .filter(HorizonTracker.project_id == project_id)
-        .order_by(HorizonTracker.created_at.asc())
         .all()
+    )
+    latest_events = dict(
+        db.query(TrackerEvent.tracker_id, func.max(TrackerEvent.created_at))
+        .filter(TrackerEvent.project_id == project_id)
+        .filter(TrackerEvent.event_type != 'tracker_checkpoint')
+        .group_by(TrackerEvent.tracker_id)
+        .all()
+    )
+    for tracker in trackers:
+        tracker.last_activity_at = max(
+            float(tracker.created_at or 0),
+            float(tracker.updated_at or 0),
+            float(latest_events.get(tracker.id) or 0),
+        )
+    return sorted(
+        trackers,
+        key=lambda tracker: (
+            -tracker.last_activity_at,
+            tracker.name.casefold(),
+            tracker.id,
+        ),
     )
 
 
@@ -112,6 +137,7 @@ def serialize_horizon_tracker_summary(db: Session, tracker: HorizonTracker, user
         'shot_count': len(visible_shots),
         'created_at': tracker.created_at,
         'updated_at': tracker.updated_at,
+        'last_activity_at': getattr(tracker, 'last_activity_at', tracker.updated_at or tracker.created_at),
         'source': 'horizons_db',
     }
 
@@ -575,8 +601,12 @@ def update_horizon_tracker(
     tags: list | None = None,
     settings: dict | None = None,
     fields_set: set[str] | None = None,
+    commit: bool = True,
 ) -> HorizonTracker:
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
+    from app.services.tracker_history import prepare_tracker_history_mutation
+
+    tracker = prepare_tracker_history_mutation(db, project_id=project_id, tracker_id=tracker.id)
     project = get_horizon_project(db, project_id)
     fields = set(fields_set or set())
 
@@ -636,16 +666,72 @@ def update_horizon_tracker(
     project.updated_at = now
     db.add(tracker)
     db.add(project)
-    db.commit()
-    db.refresh(tracker)
+    if commit:
+        db.commit()
+        db.refresh(tracker)
+    else:
+        db.flush()
     return tracker
 
 
 def delete_horizon_tracker(db: Session, project_id: str, tracker_ref: str) -> tuple[str, str]:
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
+    from app.services.tracker_history import lock_tracker_for_history
+
+    tracker = lock_tracker_for_history(db, project_id=project_id, tracker_id=tracker.id)
     tracker_id = tracker.id
     tracker_name = tracker.name
     delivery_logo = tracker_settings_for(tracker)['delivery']['logo_upload_name']
+
+    version_ids = [
+        version_id
+        for (version_id,) in db.query(HorizonShotVersion.id).filter(
+            HorizonShotVersion.project_id == project_id,
+            HorizonShotVersion.tracker_id == tracker_id,
+        ).all()
+    ]
+    if version_ids:
+        from app.services.comments import delete_comment_attachments
+
+        comments = db.query(Comment).filter(Comment.horizons_shot_version_id.in_(version_ids)).all()
+        for comment in comments:
+            delete_comment_attachments(comment)
+            db.delete(comment)
+
+    event_ids = [
+        event_id
+        for (event_id,) in db.query(TrackerEvent.id).filter(
+            TrackerEvent.project_id == project_id,
+            TrackerEvent.tracker_id == tracker_id,
+        ).all()
+    ]
+    if event_ids:
+        db.query(NotificationDelivery).filter(
+            NotificationDelivery.tracker_event_id.in_(event_ids)
+        ).delete(synchronize_session=False)
+    db.query(TrackerEvent).filter(
+        TrackerEvent.project_id == project_id,
+        TrackerEvent.tracker_id == tracker_id,
+    ).delete(synchronize_session=False)
+    db.query(TrackerViewEvent).filter(
+        TrackerViewEvent.project_id == project_id,
+        TrackerViewEvent.tracker_id == tracker_id,
+    ).delete(synchronize_session=False)
+    db.query(DownloadEvent).filter(
+        DownloadEvent.project_id == project_id,
+        DownloadEvent.tracker_id == tracker_id,
+    ).delete(synchronize_session=False)
+    db.query(ShareLink).filter(
+        ShareLink.project_id == project_id,
+        or_(
+            ShareLink.tracker_id == tracker_id,
+            and_(
+                ShareLink.tracker_id.is_(None),
+                ShareLink.share_type == 'tracker',
+                ShareLink.tracker_name == tracker_name,
+            ),
+        ),
+    ).delete(synchronize_session=False)
 
     db.query(HorizonShotAssignee).filter(HorizonShotAssignee.tracker_id == tracker_id).delete(synchronize_session=False)
     db.query(HorizonShotVersion).filter(HorizonShotVersion.tracker_id == tracker_id).delete(synchronize_session=False)

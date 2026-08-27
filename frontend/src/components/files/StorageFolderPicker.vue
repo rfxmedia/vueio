@@ -20,7 +20,7 @@
         <button
           type="button"
           class="v-icon-btn v-icon-btn-sm"
-          :disabled="!modelPath || loading"
+          :disabled="!canGoUp || loading"
           aria-label="Go to parent folder"
           @click="goUp"
         >
@@ -35,6 +35,8 @@
           class="v-btn v-btn-secondary v-btn-sm storage-picker__select-current"
           :class="{ 'is-selected': modelPath === browsePath }"
           :aria-pressed="modelPath === browsePath"
+          :disabled="!canSelectCurrentFolder"
+          :title="canSelectCurrentFolder ? 'Use this folder' : 'Choose or create a folder first'"
           @click="selectFolder(browsePath)"
         >
           <svg class="icon"><use href="#icon-check" /></svg>
@@ -107,6 +109,8 @@ const props = defineProps({
   modelRoot: { type: String, default: '' },
   modelPath: { type: String, default: null },
   allowCreate: { type: Boolean, default: false },
+  allowRootSelection: { type: Boolean, default: true },
+  basePath: { type: String, default: '' },
 })
 
 const emit = defineEmits(['update:modelRoot', 'update:modelPath'])
@@ -116,10 +120,21 @@ const error = ref('')
 const creating = ref(false)
 const creatingFolder = ref(false)
 const newFolderName = ref('')
-const browsePath = ref(String(props.modelPath || ''))
+
+function normalizePath(path) {
+  return String(path || '').split('/').filter(Boolean).join('/')
+}
+
+const browsePath = ref(normalizePath(props.modelPath ?? props.basePath))
+const normalizedBasePath = computed(() => normalizePath(props.basePath))
 
 const activeRoot = computed(() => props.roots.find(root => root.id === props.modelRoot) || props.roots[0] || null)
 const canCreate = computed(() => props.allowCreate && activeRoot.value?.available !== false && !activeRoot.value?.read_only)
+const canSelectCurrentFolder = computed(() => props.allowRootSelection || Boolean(browsePath.value))
+const canGoUp = computed(() => {
+  const base = normalizedBasePath.value
+  return Boolean(browsePath.value && browsePath.value !== base)
+})
 
 async function loadFolders() {
   if (!props.modelRoot) {
@@ -140,7 +155,7 @@ async function loadFolders() {
 }
 
 function chooseRoot(root) {
-  browsePath.value = ''
+  browsePath.value = normalizedBasePath.value
   emit('update:modelRoot', root)
   emit('update:modelPath', null)
 }
@@ -150,11 +165,15 @@ function openFolder(path) {
 }
 
 function selectFolder(path) {
-  emit('update:modelPath', path)
+  const normalized = normalizePath(path)
+  if (!props.allowRootSelection && !normalized) return
+  emit('update:modelPath', normalized)
 }
 
 function goUp() {
   const parts = browsePath.value.split('/').filter(Boolean)
+  const baseParts = normalizedBasePath.value.split('/').filter(Boolean)
+  if (parts.length <= baseParts.length) return
   parts.pop()
   browsePath.value = parts.join('/')
 }
@@ -182,7 +201,11 @@ async function createFolder() {
 
 watch(() => [props.modelRoot, browsePath.value], loadFolders, { immediate: true })
 watch(() => props.modelPath, (path, previousPath) => {
-  if (path === null && previousPath !== null) browsePath.value = ''
+  if (path === null && previousPath !== null) browsePath.value = normalizedBasePath.value
+})
+watch(normalizedBasePath, (path) => {
+  const withinBase = !path || browsePath.value === path || browsePath.value.startsWith(`${path}/`)
+  if (!withinBase) browsePath.value = path
 })
 </script>
 

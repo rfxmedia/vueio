@@ -1,7 +1,8 @@
 <template>
-  <div class="tracker-toolbar">
+  <div class="tracker-toolbar" role="toolbar" aria-label="Tracker controls">
     <div class="tracker-toolbar-leading">
-      <VMenu
+      <div class="tracker-toolbar-organize" role="group" aria-label="Filter and sort shots">
+        <VMenu
         :open="showFilterDropdown && !isMobile"
         align="start"
         class="tracker-toolbar-group tracker-toolbar-group-filter"
@@ -79,22 +80,23 @@
                 </div>
           </section>
         </div>
-      </VMenu>
+        </VMenu>
 
-      <VMenu
+        <VMenu
         :open="showSortDropdown && !isMobile"
         align="end"
         class="tracker-sort-mobile"
         panel-class="tracker-sort-dropdown"
+        :close-on-select="false"
         @update:open="open => !open && setSortOpen(false)"
       >
         <template #trigger="{ triggerProps }">
           <button
             class="tracker-toolbar-action v-btn v-btn-secondary v-btn-sm sort-mobile-btn"
-            :class="{ 'v-btn-active': !!trackerSortKey || showSortDropdown }"
+            :class="{ 'v-btn-active': !!trackerSortKey || !!trackerGroupKey || showSortDropdown }"
             type="button"
-            :aria-label="trackerSortKey ? `Sort: ${currentSortLabel}` : 'Sort'"
-            :title="trackerSortKey ? `Sort: ${currentSortLabel}` : 'Sort'"
+            :aria-label="organizeButtonLabel"
+            :title="organizeButtonLabel"
             v-bind="triggerProps"
             @click.stop="toggleSortMenu"
           >
@@ -105,6 +107,7 @@
             </svg>
           </button>
         </template>
+        <div class="tracker-organize-menu-label">Sort shots</div>
         <button
           v-for="option in sortOptions"
           :key="option.key"
@@ -117,7 +120,23 @@
             <use :href="trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
           </svg>
         </button>
-      </VMenu>
+        <div class="v-dropdown-divider"></div>
+        <div class="tracker-organize-menu-label">Group shots</div>
+        <button
+          v-for="option in groupOptions"
+          :key="option.key"
+          type="button"
+          class="tracker-group-option v-dropdown-item"
+          :aria-pressed="trackerGroupKey === option.key ? 'true' : 'false'"
+          @click="toggleGroup(option.key)"
+        >
+          <span class="tracker-group-option-check" :class="{ 'is-checked': trackerGroupKey === option.key }">
+            <svg v-if="trackerGroupKey === option.key" class="icon"><use href="#icon-check" /></svg>
+          </span>
+          <span>{{ option.label }}</span>
+        </button>
+        </VMenu>
+      </div>
 
       <span v-if="!isMobile" class="tracker-toolbar-divider" aria-hidden="true"></span>
 
@@ -154,6 +173,7 @@
       :can-bulk-update-assignee="canBulkUpdateAssignee"
       :can-download="bulkCanDownload"
       :can-download-selected="canDownloadSelectedTrackerLatest"
+      :can-archive="bulkCanArchive"
       :can-delete="bulkCanDelete"
       :can-restore="bulkCanRestore"
       :bulk-status-options="bulkStatusOptions"
@@ -167,11 +187,12 @@
       :bulk-update-status="bulkUpdateStatus"
       :bulk-update-category="bulkUpdateCategory"
       :bulk-update-assignee="bulkUpdateAssignee"
+      :archive-selected="bulkArchiveShots"
       :delete-selected="bulkDeleteShots"
       :restore-selected="bulkRestoreArchivedShots"
     />
 
-    <div class="tracker-toolbar-actions">
+    <div class="tracker-toolbar-actions" role="group" aria-label="Tracker actions">
       <button
         v-if="canDownloadTrackerLatest && !isMobile"
         type="button"
@@ -191,7 +212,7 @@
       <button
         v-if="canAddShots || canAddVersions"
         type="button"
-        class="tracker-toolbar-action v-btn v-btn-secondary v-btn-sm tracker-toolbar-quick-action tracker-toolbar-primary-action"
+        class="tracker-toolbar-action v-btn v-btn-primary v-btn-sm tracker-toolbar-quick-action tracker-toolbar-primary-action"
         aria-label="Import shots"
         title="Import shots"
         @click="openShotImportPicker"
@@ -295,26 +316,45 @@
       <template #header>
         <VModalHeader @close="setSortOpen(false)">
           <div class="v-modal-header-copy">
-            <h2 class="v-modal-header-title">Sort</h2>
-            <p class="v-modal-header-subtitle">Choose how shots are ordered.</p>
+            <h2 class="v-modal-header-title">Sort and group</h2>
+            <p class="v-modal-header-subtitle">Choose how shots are ordered and organized.</p>
           </div>
         </VModalHeader>
       </template>
 
       <div class="tracker-sort-sheet-body">
-        <button
-          v-for="option in sortOptions"
-          :key="option.key"
-          type="button"
-          class="tracker-sort-option v-dropdown-item"
-          :class="{ active: trackerSortKey === option.key }"
-          @click="selectSort(option.key)"
-        >
-          <span>{{ option.label }}</span>
-          <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-chevron">
-            <use :href="trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
-          </svg>
-        </button>
+        <section class="tracker-sort-sheet-section">
+          <p class="tracker-organize-menu-label">Sort shots</p>
+          <button
+            v-for="option in sortOptions"
+            :key="option.key"
+            type="button"
+            class="tracker-sort-option v-dropdown-item"
+            :class="{ active: trackerSortKey === option.key }"
+            @click="selectSort(option.key)"
+          >
+            <span>{{ option.label }}</span>
+            <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-chevron">
+              <use :href="trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
+            </svg>
+          </button>
+        </section>
+        <section class="tracker-sort-sheet-section">
+          <p class="tracker-organize-menu-label">Group shots</p>
+          <button
+            v-for="option in groupOptions"
+            :key="option.key"
+            type="button"
+            class="tracker-group-option v-dropdown-item"
+            :aria-pressed="trackerGroupKey === option.key ? 'true' : 'false'"
+            @click="toggleGroup(option.key)"
+          >
+            <span class="tracker-group-option-check" :class="{ 'is-checked': trackerGroupKey === option.key }">
+              <svg v-if="trackerGroupKey === option.key" class="icon"><use href="#icon-check" /></svg>
+            </span>
+            <span>{{ option.label }}</span>
+          </button>
+        </section>
       </div>
     </VModal>
 
@@ -339,6 +379,12 @@ const sortOptions = [
   { key: 'assignee', label: 'Assignee' },
 ]
 
+const groupOptions = [
+  { key: 'status', label: 'Group by status' },
+  { key: 'assignee', label: 'Group by assignee' },
+  { key: 'category', label: 'Group by tag' },
+]
+
 const props = defineProps({
   canAddShots: { type: Boolean, default: false },
   canAddVersions: { type: Boolean, default: false },
@@ -354,12 +400,15 @@ const props = defineProps({
   showTrackerDetails: { type: Boolean, default: false },
   trackerSortDir: { type: String, default: 'asc' },
   trackerSortKey: { type: String, default: null },
+  trackerGroupKey: { type: String, default: null },
   toggleTrackerDetails: { type: Function, required: true },
+  toggleTrackerGroup: { type: Function, required: true },
   toggleTrackerSort: { type: Function, required: true },
   selectionEnabled: { type: Boolean, default: false },
   canBulkUpdateStatus: { type: Boolean, default: false },
   canBulkUpdateCategory: { type: Boolean, default: false },
   canBulkUpdateAssignee: { type: Boolean, default: false },
+  canArchiveShots: { type: Boolean, default: false },
   canDeleteShots: { type: Boolean, default: false },
   canDownloadTrackerLatest: { type: Boolean, default: false },
   canDownloadSelectedTrackerLatest: { type: Boolean, default: false },
@@ -383,6 +432,7 @@ const props = defineProps({
   bulkUpdateArchivedShotStatus: { type: Function, default: async () => {} },
   bulkUpdateArchivedShotCategory: { type: Function, default: async () => {} },
   bulkUpdateArchivedShotAssignee: { type: Function, default: async () => {} },
+  bulkArchiveShots: { type: Function, default: async () => {} },
   bulkRestoreArchivedShots: { type: Function, default: async () => {} },
   bulkDeleteShots: { type: Function, default: async () => {} },
 })
@@ -393,6 +443,14 @@ const showSortDropdown = ref(false)
 const currentSortLabel = computed(
   () => sortOptions.find(option => option.key === props.trackerSortKey)?.label ?? '',
 )
+
+const organizeButtonLabel = computed(() => {
+  const actions = []
+  if (props.trackerSortKey) actions.push(`sorted by ${currentSortLabel.value}`)
+  const groupLabel = groupOptions.find(option => option.key === props.trackerGroupKey)?.label
+  if (groupLabel) actions.push(groupLabel.toLowerCase())
+  return actions.length ? `Sort and group shots: ${actions.join(', ')}` : 'Sort and group shots'
+})
 
 const trackerDownloadPercent = computed(() => {
   const raw = Number(props.trackerDownloadProgress?.progress || 0)
@@ -421,8 +479,11 @@ const bulkAriaLabel = computed(() => (
 const bulkCanDownload = computed(() => (
   !hasArchivedBulkSelection.value && props.canDownloadTrackerLatest
 ))
+const bulkCanArchive = computed(() => (
+  !hasArchivedBulkSelection.value && props.canArchiveShots
+))
 const bulkCanDelete = computed(() => (
-  !hasArchivedBulkSelection.value && props.canDeleteShots
+  hasArchivedBulkSelection.value && props.canDeleteShots
 ))
 const bulkCanRestore = computed(() => hasArchivedBulkSelection.value)
 const bulkClearSelection = computed(() => (
@@ -473,6 +534,10 @@ function selectSort(key) {
   showSortDropdown.value = false
 }
 
+function toggleGroup(key) {
+  props.toggleTrackerGroup(key)
+}
+
 </script>
 
 <style>
@@ -481,17 +546,18 @@ function selectSort(key) {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  min-height: var(--tracker-toolbar-height, 56px);
-  padding: 10px var(--tracker-page-gutter, 18px);
-  border-bottom: 1px solid transparent;
-  background: color-mix(in srgb, var(--v-bg-base) 88%, var(--v-surface-panel));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
+  min-height: var(--tracker-toolbar-height, 53px);
+  padding: 8px var(--tracker-page-gutter, 18px);
+  border-bottom: 1px solid var(--v-tracker-masthead-divider, var(--v-divider));
+  background: var(
+    --v-tracker-masthead-bg,
+    color-mix(in srgb, var(--v-surface-panel) 36%, var(--v-shell-topbar-bg))
+  );
+  box-shadow: none;
   position: sticky;
   top: 0;
   /* Above cards, below any open row menu (see --v-z-dropdown offsets in the row card). */
   z-index: 30;
-  backdrop-filter: blur(14px) saturate(1.1);
-  -webkit-backdrop-filter: blur(14px) saturate(1.1);
 }
 
 /* The rule only appears once the list scrolls beneath the toolbar. */
@@ -500,13 +566,7 @@ function selectSort(key) {
   position: absolute;
   inset: auto 0 -1px;
   height: 1px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--v-surface-panel) 82%, white) 12%,
-    color-mix(in srgb, var(--v-surface-panel) 82%, white) 88%,
-    transparent
-  );
+  background: var(--v-surface-border-strong);
   opacity: 0;
   transition: opacity var(--v-transition-fast);
   pointer-events: none;
@@ -520,30 +580,37 @@ function selectSort(key) {
 .tracker-toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tracker-toolbar-organize {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   min-width: 0;
 }
 
 .tracker-toolbar-divider {
   width: 1px;
-  height: 18px;
-  margin: 0 4px;
+  height: 24px;
+  margin: 0 2px;
   flex: 0 0 auto;
   border-radius: var(--v-radius-full);
-  background: color-mix(in srgb, var(--v-surface-panel) 86%, white);
+  background: var(--v-divider);
 }
 
 /* ─── Segmented list / grid switch ───────────────────────── */
 .tracker-view-switch {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex: 0 0 auto;
   padding: 2px;
   border: 1px solid var(--v-control-border);
-  border-radius: calc(var(--v-button-radius) + 2px);
-  background: color-mix(in srgb, var(--v-surface-inset) 84%, var(--v-surface-panel));
-  box-shadow: var(--v-surface-shadow-inset);
+  border-radius: var(--v-button-radius);
+  background: var(--v-surface-inset);
+  box-shadow: none;
 }
 
 .tracker-view-switch__btn {
@@ -551,10 +618,10 @@ function selectSort(key) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 26px;
-  padding: 0 9px;
+  height: 30px;
+  padding: 0 10px;
   border: 0;
-  border-radius: var(--v-radius-sm);
+  border-radius: calc(var(--v-button-radius) - 3px);
   background: transparent;
   color: var(--v-text-muted);
   font-family: var(--v-font);
@@ -581,11 +648,9 @@ function selectSort(key) {
 }
 
 .tracker-view-switch__btn.is-active {
-  color: var(--v-text);
-  background: var(--v-surface-raised-strong);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 1px 6px rgba(0, 0, 0, 0.22);
+  color: var(--v-accent);
+  background: var(--v-control-bg-active);
+  box-shadow: none;
 }
 
 .tracker-view-switch__btn:focus-visible {
@@ -605,15 +670,15 @@ function selectSort(key) {
 }
 
 .tracker-toolbar-action.v-btn {
-  min-height: 32px;
+  min-height: var(--v-btn-height);
   gap: 6px;
   font-size: var(--v-text-sm);
   font-weight: 650;
   letter-spacing: 0;
   color: var(--v-text-secondary);
-  background: color-mix(in srgb, var(--v-surface-inset) 84%, var(--v-surface-panel));
-  border: 1px solid var(--v-control-border);
-  box-shadow: var(--v-surface-shadow-inset);
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
   transition:
     background var(--v-transition-fast),
     border-color var(--v-transition-fast),
@@ -623,32 +688,38 @@ function selectSort(key) {
 
 .tracker-toolbar-action.v-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  background: var(--v-control-bg-hover);
-  border-color: var(--v-control-border-hover);
+  background: var(--v-surface-inline);
+  border-color: var(--v-control-border);
   color: var(--v-text);
 }
 
+.tracker-toolbar-action.v-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
 .tracker-toolbar-action.v-btn-active {
-  background: color-mix(in srgb, var(--v-accent) 10%, var(--v-surface-inline));
+  background: var(--v-control-bg-active);
   border-color: color-mix(in srgb, var(--v-accent) 34%, var(--v-control-border));
-  color: var(--v-text);
+  color: var(--v-accent);
 }
 
 /* Import is the one thing this toolbar wants you to do first. */
 .tracker-toolbar-primary-action.v-btn {
-  color: var(--v-text);
-  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-inset));
-  border-color: color-mix(in srgb, var(--v-accent) 26%, var(--v-control-border));
+  padding-inline: 13px;
+  color: var(--v-on-accent);
+  background: var(--v-accent);
+  border-color: color-mix(in srgb, var(--v-accent) 82%, white);
 }
 
 .tracker-toolbar-primary-action.v-btn .icon {
-  color: var(--v-accent);
+  color: currentColor;
   opacity: 1;
 }
 
 .tracker-toolbar-primary-action.v-btn:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--v-accent) 15%, var(--v-surface-inset));
-  border-color: color-mix(in srgb, var(--v-accent) 40%, var(--v-control-border));
+  color: var(--v-on-accent);
+  background: var(--v-accent-hover);
+  border-color: var(--v-accent-hover);
 }
 
 .tracker-filter-btn,
@@ -706,11 +777,22 @@ function selectSort(key) {
 
 .tracker-sort-dropdown {
   right: 0;
-  min-width: 172px;
+  min-width: 220px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
+}
+
+.tracker-organize-menu-label {
+  margin: 0;
+  padding: 6px 8px 5px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .tracker-filter-dropdown-header {
@@ -763,12 +845,40 @@ function selectSort(key) {
 }
 
 .tracker-filter-option,
-.tracker-sort-option {
+.tracker-sort-option,
+.tracker-group-option {
   justify-content: space-between;
   gap: 10px;
   font-size: var(--v-text-base);
   font-weight: 500;
   border-radius: var(--v-button-radius);
+}
+
+.tracker-group-option {
+  justify-content: flex-start;
+}
+
+.tracker-group-option-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  border: 1px solid var(--v-control-border);
+  border-radius: var(--v-radius-sm);
+  background: var(--v-bg-field);
+  color: var(--v-accent);
+}
+
+.tracker-group-option-check.is-checked {
+  border-color: color-mix(in srgb, var(--v-accent) 48%, var(--v-control-border));
+  background: color-mix(in srgb, var(--v-accent) 10%, transparent);
+}
+
+.tracker-group-option-check .icon {
+  width: 12px;
+  height: 12px;
 }
 
 .tracker-filter-option.active,
@@ -855,7 +965,8 @@ function selectSort(key) {
 }
 
 .tracker-filter-sheet-body .tracker-filter-option,
-.tracker-sort-sheet-body .tracker-sort-option {
+.tracker-sort-sheet-body .tracker-sort-option,
+.tracker-sort-sheet-body .tracker-group-option {
   min-height: 44px;
   font-size: var(--v-text-md);
   padding: 0 12px;
@@ -870,8 +981,23 @@ function selectSort(key) {
 .tracker-sort-sheet-body {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-1);
+  gap: var(--v-space-5);
   padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+}
+
+.tracker-sort-sheet-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--v-space-1);
+}
+
+.tracker-sort-sheet-section + .tracker-sort-sheet-section {
+  padding-top: var(--v-space-4);
+  border-top: 1px solid var(--v-divider-subtle);
+}
+
+.tracker-sort-sheet-section .tracker-organize-menu-label {
+  padding-inline: 2px;
 }
 
 @media (max-width: 900px) {
@@ -916,19 +1042,22 @@ function selectSort(key) {
     align-items: center;
     padding-block: 5px;
     gap: 6px;
-    border-bottom: 1px solid var(--v-divider-subtle);
-    background: color-mix(in srgb, var(--v-bg-base) 90%, var(--v-surface-panel));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.018);
+    border-bottom: 1px solid var(--v-tracker-masthead-divider, var(--v-divider));
+    background: var(
+      --v-tracker-masthead-bg,
+      color-mix(in srgb, var(--v-surface-panel) 36%, var(--v-shell-topbar-bg))
+    );
+    box-shadow: none;
   }
 
   .tracker-toolbar-action.v-btn {
-    height: var(--v-icon-btn-size);
-    min-height: var(--v-icon-btn-size);
+    height: var(--v-btn-height-lg);
+    min-height: var(--v-btn-height-lg);
     padding: 0 9px;
-    border: 1px solid var(--v-control-border);
+    border: 1px solid transparent;
     border-radius: var(--v-button-radius);
-    background: color-mix(in srgb, var(--v-surface-inset) 84%, var(--v-surface-panel));
-    box-shadow: var(--v-surface-shadow-inset);
+    background: transparent;
+    box-shadow: none;
     transform: none;
   }
 
@@ -942,7 +1071,14 @@ function selectSort(key) {
     border-color: color-mix(in srgb, var(--v-accent) 34%, var(--v-control-border));
     background: color-mix(in srgb, var(--v-accent) 12%, var(--v-surface-inline));
     color: var(--v-text);
-    box-shadow: var(--v-surface-shadow-inset);
+    box-shadow: none;
+  }
+
+  .tracker-toolbar-primary-action.v-btn,
+  .tracker-toolbar-primary-action.v-btn:hover:not(:disabled) {
+    color: var(--v-on-accent);
+    background: var(--v-accent);
+    border-color: var(--v-accent);
   }
 
   .tracker-toolbar-leading {
@@ -955,6 +1091,10 @@ function selectSort(key) {
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+  }
+
+  .tracker-toolbar-organize {
+    gap: 1px;
   }
 
   .tracker-toolbar-actions {
@@ -972,8 +1112,8 @@ function selectSort(key) {
 
   .tracker-filter-btn,
   .sort-mobile-btn {
-    width: var(--v-icon-btn-size);
-    min-width: var(--v-icon-btn-size);
+    width: var(--v-btn-height-lg);
+    min-width: var(--v-btn-height-lg);
     padding: 0;
     justify-content: center;
   }
@@ -1051,6 +1191,10 @@ function selectSort(key) {
     display: contents;
   }
 
+  .tracker-toolbar-organize {
+    display: contents;
+  }
+
   .tracker-toolbar-group-filter,
   .tracker-sort-mobile {
     width: 100%;
@@ -1069,20 +1213,26 @@ function selectSort(key) {
   }
 
   .tracker-filter-btn .tracker-toolbar-action-label,
-  .tracker-filter-btn .tracker-toolbar-action-count,
-  .tracker-toolbar-action-chevron-desktop,
   .sort-mobile-label,
+  .tracker-toolbar-quick-action .tracker-toolbar-action-label {
+    display: inline;
+    font-size: var(--v-text-xs);
+  }
+
+  .tracker-toolbar-action-chevron-desktop,
   .sort-mobile-chevron {
     display: none;
+  }
+
+  .tracker-filter-btn .tracker-toolbar-action-count {
+    display: inline-flex;
+    margin-left: 0;
   }
 
   .tracker-toolbar-quick-action.tracker-toolbar-action.v-btn {
     padding: 0;
   }
 
-  .tracker-toolbar-quick-action .tracker-toolbar-action-label {
-    display: none;
-  }
 }
 .tracker-download-progress {
   display: block;

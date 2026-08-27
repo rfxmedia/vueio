@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.services.auth import require_admin
 from app.services.horizons.projects import get_horizon_project, serialize_horizon_project
+from app.services.missing_media_relink import commit_missing_media_relink, plan_missing_media_relink
 from app.services.project_relocation import (
     commit_project_relocation,
     get_project_migration_job,
@@ -42,6 +43,12 @@ class ProjectRelocateRequest(BaseModel):
 
 class ProjectMigrateStorageRequest(BaseModel):
     root: str = 'projects'
+    path: str
+    dry_run: bool = True
+
+
+class MissingMediaRelinkRequest(BaseModel):
+    root: str
     path: str
     dry_run: bool = True
 
@@ -124,6 +131,21 @@ def relocate_project(project_id: str, data: ProjectRelocateRequest, vueio_sessio
         root,
         normalized,
         revoke_shares=data.revoke_shares,
+    )
+    return {**result, 'project': serialize_horizon_project(db, project, user=user)}
+
+
+@router.post('/api/projects/{project_id}/relink-media')
+def relink_missing_project_media(project_id: str, data: MissingMediaRelinkRequest, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    user = require_admin(vueio_session)
+    project = get_horizon_project(db, project_id)
+    root = data.root.strip().lower()
+    normalized = normalize_project_storage_path(data.path)
+    result = plan_missing_media_relink(db, project, root, normalized) if data.dry_run else commit_missing_media_relink(
+        db,
+        project,
+        root,
+        normalized,
     )
     return {**result, 'project': serialize_horizon_project(db, project, user=user)}
 

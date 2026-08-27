@@ -15,7 +15,7 @@
         <button class="v-btn v-btn-secondary v-btn-sm" :disabled="loading || saving" @click="loadTheme">Reload</button>
         <button class="v-btn v-btn-secondary v-btn-sm" :disabled="saving" @click="resetTheme">Reset</button>
         <button class="v-btn v-btn-primary v-btn-sm" :disabled="saving || !hasUnsavedChanges" @click="saveTheme">
-          {{ saving ? 'Saving' : 'Save Theme' }}
+          {{ saving ? 'Saving' : 'Save theme' }}
         </button>
       </div>
     </AdminSettingsHeader>
@@ -90,7 +90,7 @@
               <span>Team</span>
               <span>All</span>
             </div>
-            <button type="button">Save Changes</button>
+            <button type="button">Save changes</button>
           </section>
         </div>
       </div>
@@ -298,10 +298,10 @@ onMounted(loadTheme)
 
 .admin-theme-workspace {
   display: grid;
-  grid-template-columns: minmax(440px, 1fr) minmax(440px, 0.92fr);
+  grid-template-columns: minmax(400px, 0.86fr) minmax(440px, 1.14fr);
   align-items: start;
-  gap: 14px;
-  padding: 14px;
+  gap: var(--v-space-4);
+  padding-top: var(--v-space-4);
 }
 
 .admin-theme-control-list {
@@ -323,6 +323,9 @@ onMounted(loadTheme)
   gap: 14px;
   padding: var(--v-space-4);
   overflow: visible;
+  border: 1px solid var(--v-surface-border-soft);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .admin-theme-preview {
@@ -488,7 +491,7 @@ onMounted(loadTheme)
 
 .theme-sample-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(180px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--v-space-3);
 }
 
@@ -788,7 +791,7 @@ onMounted(loadTheme)
 
   .admin-theme-workspace {
     gap: 10px;
-    padding: 10px;
+    padding-top: var(--v-space-3);
   }
 
   .admin-theme-preview,

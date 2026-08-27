@@ -107,7 +107,7 @@ def get_media_cache_identity(
         except OSError:
             generation = None
         if generation:
-            return f'asset:{asset_id}:source:{generation}'
+            return media_source_cache_identity(generation)
         return f'asset:{asset_id}'
     if resolved_job_key:
         try:
@@ -151,7 +151,11 @@ def resolve_media_asset_path(asset, project_id: Optional[str] = None, *, db=None
             return None, f'asset:{asset.id}', storage_scope
     elif getattr(asset, 'unavailable_at', None) is not None:
         return None, f'asset:{asset.id}', storage_scope
-    cache_identity = str(getattr(asset, 'artifact_identity', '') or '').strip() or get_media_cache_identity(
+    cache_identity = str(getattr(asset, 'artifact_identity', '') or '').strip()
+    source_generation = str(getattr(asset, 'source_signature', '') or '').strip()
+    if source_generation and (not cache_identity or cache_identity.startswith('asset:')):
+        cache_identity = media_source_cache_identity(source_generation)
+    cache_identity = cache_identity or get_media_cache_identity(
         project_id or getattr(asset, 'project_id', None),
         getattr(asset, 'file_path', ''),
         full_path,
@@ -222,11 +226,34 @@ def stored_media_asset_cache_identity(asset) -> str:
         return persisted
     asset_id = str(getattr(asset, 'id', '') or '').strip()
     signature = str(getattr(asset, 'source_signature', '') or '').strip()
-    if normalize_storage_scope(getattr(asset, 'storage_scope', None)) in MEDIA_ROOT_SCOPES and signature:
+    if signature:
         return media_source_cache_identity(signature)
-    if asset_id and signature:
-        return f'asset:{asset_id}:source:{signature}'
     return f'asset:{asset_id}'
+
+
+def legacy_media_source_identities(db, full_path: Path, canonical_identity: str) -> list[str]:
+    """Return prior per-asset identities for this exact physical source."""
+    try:
+        generation = source_signature(full_path)
+    except OSError:
+        return []
+
+    from app.models import MediaAsset
+
+    assets = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.source_signature == generation)
+        .filter(MediaAsset.unavailable_at.is_(None))
+        .all()
+    )
+    aliases: list[str] = []
+    for asset in assets:
+        aliases.extend((
+            str(getattr(asset, 'artifact_identity', '') or '').strip(),
+            f'asset:{asset.id}',
+            f'asset:{asset.id}:source:{generation}',
+        ))
+    return list(dict.fromkeys(alias for alias in aliases if alias and alias != canonical_identity))
 
 
 def source_signature(path: Path) -> str:

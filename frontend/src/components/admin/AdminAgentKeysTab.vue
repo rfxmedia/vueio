@@ -2,17 +2,17 @@
   <section class="admin-section agent-key-section">
     <AdminSettingsHeader
       eyebrow="Automation"
-      title="Agent Keys"
+      title="Agent keys"
       description="Give an agent revocable access that always follows the permissions of its Vueio owner."
       icon="#icon-zap"
     >
       <button class="v-btn v-btn-secondary v-btn-sm" :disabled="personalKeySaving" @click="$emit('create-personal-agent-key')">
         <svg class="icon"><use href="#icon-plus" /></svg>
-        {{ isAdmin ? 'New Personal Key' : 'New Key' }}
+        {{ isAdmin ? 'New personal key' : 'New key' }}
       </button>
       <button v-if="isAdmin" class="v-btn v-btn-primary v-btn-sm" @click="$emit('open-create-key-modal')">
         <svg class="icon"><use href="#icon-plus" /></svg>
-        New Managed Key
+        New managed key
       </button>
     </AdminSettingsHeader>
 
@@ -73,7 +73,7 @@
             <div class="agent-key-actions">
               <button class="v-btn v-btn-secondary v-btn-sm" @click="$emit('reissue-agent-key-skill', entry)">
                 <svg class="icon"><use href="#icon-copy" /></svg>
-                Reissue + Copy Skill
+                Reissue and copy skill
               </button>
               <button class="v-btn v-btn-ghost v-btn-sm" @click="$emit('reissue-unified-agent-key', entry)">Reissue</button>
               <VMenu
@@ -151,6 +151,11 @@ function entryMenuActions(entry) {
 
 .agent-key-toolbar {
   align-items: center;
+  margin-top: var(--v-space-4);
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .agent-key-toolbar .admin-toolbar-actions {
@@ -173,14 +178,15 @@ function entryMenuActions(entry) {
   display: flex;
   flex-direction: column;
   gap: var(--v-space-3);
-  padding: 14px 16px 16px;
+  padding-top: var(--v-space-4);
 }
 
 .agent-key-owner-group {
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--v-border) 70%, transparent);
+  border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-surface-inline) 44%, var(--v-bg-raised));
+  background: var(--v-surface-canvas);
+  box-shadow: var(--v-surface-shadow-raised);
 }
 
 .agent-key-owner-header {
@@ -351,7 +357,7 @@ function entryMenuActions(entry) {
   }
 
   .agent-key-owner-list {
-    padding: 10px;
+    padding-top: var(--v-space-3);
     gap: 10px;
   }
 

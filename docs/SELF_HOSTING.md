@@ -39,9 +39,10 @@ The practical starting point for the alpha is:
 - separate capacity for source media.
 
 Larger or high-resolution media libraries may need considerably more CPU,
-memory, and local space for generated previews and transcodes. Install Docker
-Engine and the Docker Compose v2 plugin using your Linux distribution's
-supported instructions before installing Vueio. Confirm both are available:
+memory, and local space for generated previews and transcodes. The installer
+checks Docker Engine and Docker Compose v2 before changing the server. If
+either is missing, it stops with a direct explanation and can be run again
+after Docker is installed. You can confirm both yourself with:
 
 ```bash
 docker --version
@@ -54,23 +55,24 @@ Each tagged GitHub release contains `install.sh`, `vueioctl`, and
 `compose.release.yml`. To install from downloaded release assets:
 
 ```bash
-sudo VUEIO_VERSION=v0.1.0-alpha.1 sh ./install.sh
+sudo sh ./install.sh
 ```
 
 The one-line form runs the same installer:
 
 ```bash
 curl -fsSL https://github.com/rfxmedia/vueio/releases/download/v0.1.0-alpha.1/install.sh \
-  | sudo VUEIO_VERSION=v0.1.0-alpha.1 sh
+  | sudo sh
 ```
 
 The installer:
 
-1. verifies Docker and Docker Compose;
-2. creates random database, session, and first-setup secrets;
-3. asks for an existing project-storage folder;
-4. gives only that folder to the media engine;
-5. starts the versioned Vueio containers; and
+1. verifies Linux, Docker, Docker Compose, disk space, and the web port;
+2. offers a dedicated local project folder or accepts an existing mounted
+   folder;
+3. creates random database, session, and first-setup secrets;
+4. gives only the selected folder to the media engine;
+5. starts the versioned Vueio containers and runs safety checks; and
 6. prints the local URL and one-time setup token.
 
 It never mounts the Docker socket, the host root, or an unselected drive.
@@ -214,13 +216,19 @@ sudo vueioctl status
 sudo vueioctl version
 sudo vueioctl logs
 sudo vueioctl doctor
+sudo vueioctl doctor --fix
 ```
 
 `version` prints the selected release and both application image names.
-`doctor` also prints the release and configured browser origin, then checks the
-Compose configuration, application data, every storage mount's identity and
-permissions, PostgreSQL, UI, API, and exposure mode. Local HTTP produces a
-warning even when every required check passes.
+`doctor` also prints the release, update channel, and configured browser
+origin. It checks the Compose configuration, versioned image pins, update
+state, backup and log locations, free space, application data, every storage
+mount's identity and permissions, PostgreSQL, UI, API, and exposure mode.
+`doctor --fix` performs only safe repairs: it clears known stale staging
+folders when no update is active, reconciles image pins to the installed
+version, and restarts unhealthy services. It never changes project storage or
+restores a backup. Local HTTP produces a warning even when every required
+check passes.
 
 ## Backups and restores
 
@@ -228,6 +236,7 @@ Create an application-state backup:
 
 ```bash
 sudo vueioctl backup
+sudo vueioctl backups
 ```
 
 The archive contains:
@@ -280,6 +289,10 @@ projects, and playback.
 Test both backup and restore on a disposable installation before relying on
 them for production.
 
+Vueio keeps the five newest controller-managed backups by default and always
+protects the newest pre-update backup. Set `VUEIO_BACKUP_KEEP` when invoking
+the controller to choose a different positive retention count.
+
 ## Upload safety limits
 
 Vueio limits resumable chunks to 8 MiB, reserves 20 GiB of free space by
@@ -298,33 +311,62 @@ reverse proxy's abuse controls. They can be changed through the corresponding
 
 ## Updates
 
-Updates are explicit during the alpha:
+Updates are explicit during the alpha. The Updates screen gives the owner the
+exact command for the newest release in the selected channel:
 
 ```bash
 sudo vueioctl update v0.1.1-alpha.1
 ```
 
-The command creates a backup, downloads and checksum-verifies the release's
-Compose/controller files, selects the versioned images, starts the release,
-and runs `doctor`.
+The command checks the current installation, available space, Docker, release
+metadata, and target images before changing anything. It downloads and
+checksum-verifies the release files, pulls the versioned images before the
+short restart window, creates a validated pre-update backup, starts the new
+release, and requires `doctor` to pass. Progress is written to
+`/opt/vueio/logs/update-<timestamp>.log`; the newest ten update logs are kept.
+
+If an update fails after the safety backup is complete, Vueio automatically
+restores the prior application version and data. An interrupted command is
+also detected on the next run and recovered before the update is retried.
+Running the same update command against an already healthy version is a safe
+no-op.
 
 Administrators can see the installed version and check for a newer release in
 **Settings → Updates**. When a release is available, Vueio also shows a small
 update indicator at the bottom of the sidebar. The web app provides the exact
 host command to run; it never receives Docker or host-control access.
 
-Every published version comes from its immutable `vX.Y.Z-alpha.N` release tag.
-That one tag is automatically carried into the engine, UI images, installer,
+Stable is the default channel. Stable releases use immutable
+`vX.Y.Z-alpha.N` tags and are not GitHub prereleases. Nightly releases are test
+builds, use `vX.Y.Z-alpha.N.dev.M` tags, and are marked prerelease. Select a
+channel with:
+
+```bash
+sudo vueioctl channel stable
+sudo vueioctl channel nightly
+```
+
+Nightly sees both stable and nightly releases; stable sees stable releases
+only. Switching from nightly to stable does not downgrade the running app. It
+waits for a stable release newer than the installed nightly because database
+migrations are one-way.
+
+The immutable release tag is carried into the engine, UI images, installer,
 and update screen, so version numbers do not need to be edited in several
 places.
 
-An update may run a database migration before a health failure becomes
-visible. For that reason, Vueio deliberately does **not** automatically start
-the previous application image after an unsuccessful update. Inspect
-`vueioctl logs`, follow the release notes, and prefer a fixed forward release.
-Use `vueioctl restore` only with a backup and application version that the
-release notes declare compatible. Never assume an older image can safely read
-a newer database.
+To undo an update that completed successfully, use:
+
+```bash
+sudo vueioctl rollback
+```
+
+Rollback is not an in-place downgrade. It restores the newest pre-update
+backup and repins the matching application images. The command prints the
+version and backup time and requires typing `RESTORE`. **Anything created or
+changed in Vueio after that backup is discarded.** Source project files and
+media are not changed. Database migrations are one-way, so never run an older
+image against a newer database without restoring its matching backup.
 
 Every release must be tested in two paths:
 

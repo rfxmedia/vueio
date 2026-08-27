@@ -1,5 +1,6 @@
 import { computed, reactive, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
+import { invalidateTrackerPayloads } from '../lib/workspacePayloadCache'
 import { notify } from '../utils/toasts'
 
 const CATEGORY_COLORS = [
@@ -124,11 +125,17 @@ export function useTrackerListController(ctx) {
   const trackerFilters = ref(createEmptyTrackerFilters())
   const trackerSortKey = ref(null)
   const trackerSortDir = ref('asc')
+  const trackerGroupKey = ref(null)
   const draggedShotIndex = ref(null)
   const dragOverIndex = ref(null)
   const currentTrackerRef = () => (
     ctx.currentTracker.value?.id || ctx.currentTracker.value?.slug || ctx.currentTracker.value?.name || ''
   )
+  const invalidateCurrentTrackerPayloads = () => {
+    const projectId = ctx.currentProject.value?.id
+    if (!projectId) return
+    invalidateTrackerPayloads(ctx.currentUser?.value?.id || 'session', projectId)
+  }
 
   const showCategoryPicker = ref(null)
   const categorySearchFilter = ref('')
@@ -338,6 +345,7 @@ export function useTrackerListController(ctx) {
           { tag: shot.category, category: shot.category },
         )
       }
+      invalidateCurrentTrackerPayloads()
     } catch (error) {
       console.error('Tracker save failed')
 
@@ -525,6 +533,11 @@ export function useTrackerListController(ctx) {
     }
   }
 
+  function toggleTrackerGroup(key) {
+    if (!['status', 'assignee', 'category'].includes(key)) return
+    trackerGroupKey.value = trackerGroupKey.value === key ? null : key
+  }
+
   const shotIdCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
   const statusRank = status => {
     const index = ctx.statusOrder.indexOf(status || '')
@@ -540,7 +553,8 @@ export function useTrackerListController(ctx) {
     ctx.currentUser.value?.role !== 'artist' &&
     !ctx.currentProject.value?.storage_read_only &&
     !hasTrackerFilters.value &&
-    !trackerSortKey.value
+    !trackerSortKey.value &&
+    !trackerGroupKey.value
   ))
 
   const trackerShotsForDisplay = computed(() => {
@@ -753,6 +767,7 @@ export function useTrackerListController(ctx) {
           `/api/projects/${ctx.currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/${encodeURIComponent(anchor)}`,
           { shot_order: ids },
         )
+        invalidateCurrentTrackerPayloads()
         await ctx.loadTrackerActivity(currentTrackerRef())
       }
     } catch (error) {
@@ -820,6 +835,7 @@ export function useTrackerListController(ctx) {
     trackerFilters,
     trackerSortKey,
     trackerSortDir,
+    trackerGroupKey,
     dragOverIndex,
     trackerSaving,
     hasPendingChanges,
@@ -884,6 +900,7 @@ export function useTrackerListController(ctx) {
     toggleTrackerFilterValue,
     clearTrackerFilters,
     toggleTrackerSort,
+    toggleTrackerGroup,
     onDragStart,
     onDragOver,
     onDragLeave,

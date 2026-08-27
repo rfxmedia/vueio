@@ -4,7 +4,7 @@
       <div class="home-heading">
         <p class="v-eyebrow home-date">{{ todayLabel }}</p>
         <h1 class="v-page-title">Good {{ daypart }}, {{ firstName }}.</h1>
-        <p class="home-intro">{{ introCopy }}</p>
+        <p class="home-intro">{{ homeIntro }}</p>
       </div>
 
       <div v-if="isAdmin" class="v-page-actions">
@@ -16,118 +16,185 @@
     </header>
 
     <main class="home-content">
-      <section class="home-stage" aria-labelledby="home-focus-title">
-        <div class="home-stage-heading">
-          <p class="v-eyebrow">Your workspace</p>
-          <h2 id="home-focus-title">Continue where you left off</h2>
-        </div>
-
-        <div v-if="recentLoading" class="v-surface-panel home-stage-loading">
-          <svg class="icon spinning" aria-hidden="true"><use href="#icon-loader" /></svg>
-          Finding your place
-        </div>
-
-        <div v-else-if="featuredItem" class="v-surface-panel home-stage-surface">
-          <button
-            type="button"
-            class="home-feature"
-            :aria-label="`Continue ${featuredItem.title}`"
-            @click="openContinueItem(featuredItem)"
-          >
-            <span class="home-feature-media" aria-hidden="true">
-              <span class="home-feature-fallback">{{ projectInitials(featuredProject) }}</span>
-              <img
-                v-if="featuredProject?.thumbnail_path"
-                :src="getProjectThumbnailUrl(featuredProject.id, featuredProject.thumbnail_path)"
-                alt=""
-                @error="hideBrokenImage"
-              >
-              <span class="home-feature-media-tag">
-                <svg class="icon"><use :href="featuredItem.type === 'tracker' ? '#icon-project' : '#icon-folder'" /></svg>
-                {{ featuredItem.type === 'tracker' ? 'Tracker' : 'Project' }}
-              </span>
+      <section class="home-section home-attention" aria-labelledby="home-attention-title">
+        <header class="home-section-header home-attention-header">
+          <div class="home-title-cluster">
+            <span class="home-attention-icon" aria-hidden="true">
+              <svg class="icon"><use href="#icon-edit" /></svg>
             </span>
-
-            <span class="home-feature-copy">
-              <span class="v-eyebrow home-feature-kicker">{{ featuredKicker }}</span>
-              <strong class="home-feature-title">{{ featuredItem.title }}</strong>
-              <span class="home-feature-context">{{ featuredContext }}</span>
-              <span class="home-feature-description">{{ featuredDescription }}</span>
-
-              <span class="home-feature-meta">
-                <span v-if="featuredProject" class="v-status" :class="statusClass(featuredProject.status)">
-                  {{ formatStatus(featuredProject.status || 'not_started') }}
-                </span>
-                <span v-if="featuredProject">{{ featuredProject.shot_count }} shot{{ featuredProject.shot_count === 1 ? '' : 's' }}</span>
-                <span v-if="featuredProject?.due_date">Due {{ formatProjectDate(featuredProject.due_date) }}</span>
-              </span>
-
-              <span class="home-feature-action">
-                Open {{ featuredItem.type === 'tracker' ? 'tracker' : 'project' }}
-                <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
-              </span>
-            </span>
-          </button>
-
-          <aside class="home-recents" aria-label="Other recent work">
-            <div class="v-section-label home-recents-head">
-              <span>Recent</span>
-              <span class="v-section-count">{{ secondaryContinueItems.length }}</span>
+            <div>
+              <h2 id="home-attention-title">Edits requested</h2>
+              <p>Assigned to you and ready for another pass.</p>
             </div>
+          </div>
+          <span v-if="assignedEditTotal" class="home-section-summary">
+            <strong>{{ assignedEditTotal }}</strong>
+            shot{{ assignedEditTotal === 1 ? '' : 's' }} across
+            {{ assignedEditProjectCount }} project{{ assignedEditProjectCount === 1 ? '' : 's' }}
+          </span>
+        </header>
+
+        <div v-if="assignedEditsLoading" class="home-edit-skeleton" aria-label="Loading assigned edit requests">
+          <div v-for="index in 2" :key="index" class="v-surface-panel home-edit-skeleton-group">
+            <span class="home-skeleton-thumb"></span>
+            <span class="home-skeleton-bar is-title"></span>
+            <span class="home-skeleton-bar is-meta"></span>
+            <span class="home-skeleton-row"></span>
+            <span class="home-skeleton-row is-short"></span>
+          </div>
+        </div>
+
+        <div v-else-if="assignedEditsError" class="v-surface-panel home-attention-state is-error" role="status">
+          <span class="home-state-icon" aria-hidden="true">
+            <svg class="icon"><use href="#icon-alert" /></svg>
+          </span>
+          <div>
+            <strong>Assigned edits could not be loaded</strong>
+            <span>Your projects and activity are still available below.</span>
+          </div>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="loadAssignedEdits">
+            Try again
+          </button>
+        </div>
+
+        <div v-else-if="assignedEditProjects.length" class="home-edit-groups">
+          <article
+            v-for="project in assignedEditProjects"
+            :key="project.id"
+            class="v-surface-panel home-edit-project"
+          >
             <button
-              v-for="item in secondaryContinueItems"
-              :key="`${item.type}-${item.projectId || ''}-${item.id}`"
               type="button"
-              class="home-recent-row"
-              :aria-label="`Open ${item.title}`"
-              @click="openContinueItem(item)"
+              class="home-edit-project-header"
+              :aria-label="`Open project ${project.title}`"
+              @click="openProject(project.id)"
             >
-              <span class="home-recent-icon" aria-hidden="true">
-                <svg class="icon"><use :href="item.type === 'tracker' ? '#icon-project' : '#icon-folder'" /></svg>
+              <span class="home-edit-project-thumb" aria-hidden="true">
+                <svg class="icon"><use href="#icon-project" /></svg>
+                <img
+                  :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  @load="showLoadedImage"
+                  @error="hideBrokenImage"
+                >
               </span>
-              <span class="home-recent-copy">
-                <strong>{{ item.title }}</strong>
-                <span>{{ continueSubtitle(item) }}</span>
+              <span class="home-edit-project-copy">
+                <strong>{{ project.title }}</strong>
+                <span>
+                  {{ project.shots.length }} edit request{{ project.shots.length === 1 ? '' : 's' }}
+                  <template v-if="project.due_date"> due {{ formatProjectDate(project.due_date) }}</template>
+                </span>
               </span>
+              <span class="home-open-label">Open project</span>
               <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
             </button>
-            <div v-if="!secondaryContinueItems.length" class="home-recents-empty">
-              More recently opened work will appear here.
+
+            <div class="home-edit-shot-list">
+              <button
+                v-for="shot in project.shots"
+                :key="shot.id"
+                type="button"
+                class="home-edit-shot"
+                :aria-label="`Open edit request ${shot.shot_id}`"
+                @click="openAssignedEdit(project, shot)"
+              >
+                <span class="home-edit-shot-copy">
+                  <strong>{{ shot.shot_id }}</strong>
+                  <span>{{ shot.description || 'No shot description' }}</span>
+                </span>
+                <span class="home-edit-shot-meta">
+                  <span>{{ shot.tracker_name }}</span>
+                  <span v-if="shot.latest_version_label">{{ formatVersionLabel(shot.latest_version_label) }}</span>
+                  <time v-if="shot.updated_at" :datetime="editDateTime(shot.updated_at)">
+                    Updated {{ formatActivityRelativeTimestamp(shot.updated_at) }}
+                  </time>
+                </span>
+                <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+              </button>
             </div>
-          </aside>
+          </article>
         </div>
 
-        <div v-else class="v-surface-panel v-empty-state home-stage-empty">
-          <svg class="icon v-empty-state-icon" aria-hidden="true"><use href="#icon-play" /></svg>
-          <div class="v-empty-state-title">Your next session starts here</div>
-          <div class="v-empty-state-copy">Open a project or tracker and Vue will keep your place.</div>
-          <button v-if="isAdmin" type="button" class="v-btn v-btn-primary" @click="goToProjects">
+        <div v-else class="v-surface-panel home-attention-state is-clear">
+          <span class="home-state-icon" aria-hidden="true">
+            <svg class="icon"><use href="#icon-check" /></svg>
+          </span>
+          <div>
+            <strong>No edits requested</strong>
+            <span>You’re clear for now. New edit requests assigned to you will appear here.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="home-snapshot" aria-label="Workspace overview">
+        <div class="home-snapshot-item is-active">
+          <strong>{{ activeProjects.length }}</strong>
+          <span>Active project{{ activeProjects.length === 1 ? '' : 's' }}</span>
+        </div>
+        <div class="home-snapshot-item is-due" :class="{ 'has-value': dueSoonCount > 0 }">
+          <strong>{{ dueSoonCount }}</strong>
+          <span>Due this week</span>
+        </div>
+        <button type="button" class="home-snapshot-item is-unread" :class="{ 'has-value': globalActivityUnreadCount > 0 }" @click="toggleGlobalActivityTray">
+          <strong>{{ globalActivityUnreadCount }}</strong>
+          <span>Unread update{{ globalActivityUnreadCount === 1 ? '' : 's' }}</span>
+          <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+        </button>
+      </section>
+
+      <section class="home-section" aria-labelledby="home-recent-title">
+        <header class="home-section-header">
+          <div>
+            <h2 id="home-recent-title">Continue working</h2>
+            <p>Your most recently opened projects and trackers.</p>
+          </div>
+        </header>
+
+        <div v-if="recentLoading" class="v-surface-panel home-recent-skeleton" aria-label="Loading recent work">
+          <span v-for="index in 3" :key="index" class="home-skeleton-row"></span>
+        </div>
+
+        <div v-else-if="continueItems.length" class="v-surface-panel home-recent-list">
+          <button
+            v-for="item in continueItems"
+            :key="`${item.type}-${item.projectId || ''}-${item.id}`"
+            type="button"
+            class="home-recent-row"
+            :aria-label="`Open ${item.title}`"
+            @click="openContinueItem(item)"
+          >
+            <span
+              class="home-recent-icon"
+              :style="identityColorStyle(item.projectId || item.id, '--home-signal-color')"
+              aria-hidden="true"
+            >
+              <svg class="icon"><use :href="item.type === 'tracker' ? '#icon-project' : '#icon-folder'" /></svg>
+            </span>
+            <span class="home-recent-copy">
+              <strong>{{ item.title }}</strong>
+              <span>{{ continueSubtitle(item) }}</span>
+            </span>
+            <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+          </button>
+        </div>
+
+        <div v-else class="v-surface-panel home-compact-empty">
+          <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
+          <span>Open a project or tracker and Vue will keep your place here.</span>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="goToProjects">
             Browse projects
           </button>
         </div>
       </section>
 
-      <section class="home-pulse" aria-label="Workspace pulse">
-        <div class="home-pulse-label">
-          <span class="home-live-dot" aria-hidden="true"></span>
-          Workspace pulse
-        </div>
-        <div class="home-pulse-metrics">
-          <span><strong>{{ activeProjects.length }}</strong> active project{{ activeProjects.length === 1 ? '' : 's' }}</span>
-          <span><strong>{{ dueSoonCount }}</strong> due this week</span>
-          <button type="button" @click="toggleGlobalActivityTray">
-            <strong>{{ globalActivityUnreadCount }}</strong> unread update{{ globalActivityUnreadCount === 1 ? '' : 's' }}
-            <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
-          </button>
-        </div>
-      </section>
-
       <div class="home-lower">
-        <section class="home-section">
+        <section class="home-section" aria-labelledby="home-projects-title">
           <header class="home-section-header">
             <div>
-              <p class="v-eyebrow">In production</p>
-              <h2>Active projects</h2>
+              <h2 id="home-projects-title">Active projects</h2>
+              <p>The work currently moving through production.</p>
             </div>
             <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="goToProjects">
               View all
@@ -144,22 +211,26 @@
               :aria-label="`Open project ${project.title}`"
               @click="openProject(project.id)"
             >
-              <span class="home-project-thumbnail" aria-hidden="true">
+              <span
+                class="home-project-thumbnail"
+                :style="identityColorStyle(project.id, '--home-signal-color')"
+                aria-hidden="true"
+              >
                 <svg class="icon"><use href="#icon-project" /></svg>
                 <img
-                  v-if="project.thumbnail_path"
                   :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
                   alt=""
                   loading="lazy"
                   decoding="async"
+                  @load="showLoadedImage"
                   @error="hideBrokenImage"
                 >
               </span>
               <span class="home-project-copy">
                 <strong>{{ project.title }}</strong>
-                <span>
-                  {{ project.shot_count }} shot{{ project.shot_count === 1 ? '' : 's' }}
-                  <template v-if="project.due_date"> · Due {{ formatProjectDate(project.due_date) }}</template>
+                <span class="home-project-meta">
+                  <span>{{ project.shot_count }} shot{{ project.shot_count === 1 ? '' : 's' }}</span>
+                  <span v-if="project.due_date" :class="`is-${projectDueState(project)}`">Due {{ formatProjectDate(project.due_date) }}</span>
                 </span>
               </span>
               <span class="v-status" :class="statusClass(project.status)">
@@ -179,8 +250,8 @@
         <aside class="home-section" aria-labelledby="home-activity-title">
           <header class="home-section-header">
             <div>
-              <p class="v-eyebrow">Across your work</p>
               <h2 id="home-activity-title">Latest activity</h2>
+              <p>Recent changes across the work you can access.</p>
             </div>
             <button
               type="button"
@@ -193,9 +264,8 @@
             </button>
           </header>
 
-          <div v-if="activityLoading && !activityItems.length" class="v-surface-panel home-list-loading">
-            <svg class="icon spinning" aria-hidden="true"><use href="#icon-loader" /></svg>
-            Loading activity
+          <div v-if="activityLoading && !activityItems.length" class="v-surface-panel home-activity-skeleton" aria-label="Loading activity">
+            <span v-for="index in 4" :key="index" class="home-skeleton-row"></span>
           </div>
 
           <div v-else-if="activityItems.length" class="v-surface-panel home-activity-list">
@@ -208,7 +278,11 @@
               :disabled="!canOpenActivity(item)"
               @click="openActivity(item)"
             >
-              <span class="home-activity-icon" aria-hidden="true">
+              <span
+                class="home-activity-icon"
+                :style="{ '--home-signal-color': getTrackerEventColor(item.event_type) }"
+                aria-hidden="true"
+              >
                 <svg class="icon"><use :href="getTrackerEventIcon(item.event_type)" /></svg>
               </span>
               <span class="home-activity-copy">
@@ -237,7 +311,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import api from '../lib/api'
-import { getTrackerEventIcon, getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
+import { getTrackerEventColor, getTrackerEventIcon, getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
 import { useActivityStore } from '../ownership/activity'
 import { useAppChromeStore } from '../ownership/appChrome'
 import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
@@ -245,6 +319,7 @@ import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useTrackerStore } from '../ownership/tracker'
 import { useViewerStore } from '../ownership/viewer'
 import { formatActivityRelativeTimestamp, formatLocaleDate } from '../utils/formatters'
+import { identityColorStyle } from '../utils/semanticColors'
 
 const { currentUser, isAdmin } = useSessionAuthStore()
 const { projects, openProject, openCreateProjectModal } = useProjectWorkspaceStore()
@@ -257,6 +332,9 @@ const {
 } = useActivityStore()
 const { getProjectThumbnailUrl } = useViewerStore().media.core
 
+const assignedEditProjects = ref([])
+const assignedEditsLoading = ref(true)
+const assignedEditsError = ref(false)
 const recentItems = ref([])
 const recentLoading = ref(true)
 const activityItems = ref([])
@@ -280,11 +358,22 @@ const todayLabel = computed(() => now.toLocaleDateString(undefined, {
   day: 'numeric',
 }))
 
-const introCopy = computed(() => (
-  isAdmin.value
-    ? 'A clear view of the work moving across your studio.'
-    : 'A clear view of the work shared with you.'
+const assignedEditTotal = computed(() => assignedEditProjects.value.reduce(
+  (total, project) => total + (project.shots?.length || 0),
+  0,
 ))
+const assignedEditProjectCount = computed(() => assignedEditProjects.value.length)
+const homeIntro = computed(() => {
+  if (assignedEditsLoading.value) {
+    return 'Your assigned work, active projects, and latest updates in one clear view.'
+  }
+  if (assignedEditTotal.value) {
+    const shotLabel = assignedEditTotal.value === 1 ? 'edit needs' : 'edits need'
+    const projectLabel = assignedEditProjectCount.value === 1 ? 'project' : 'projects'
+    return `${assignedEditTotal.value} assigned ${shotLabel} attention across ${assignedEditProjectCount.value} ${projectLabel}.`
+  }
+  return 'No assigned edits are waiting. Your active projects and latest updates are below.'
+})
 
 const visibleProjectIds = computed(() => new Set(projects.value.map(project => String(project.id))))
 const visibleRecentItems = computed(() => recentItems.value.filter((item) => {
@@ -310,29 +399,6 @@ const continueItems = computed(() => (
     ? visibleRecentItems.value.slice(0, 4)
     : fallbackRecentProjects.value
 ))
-const featuredItem = computed(() => continueItems.value[0] || null)
-const secondaryContinueItems = computed(() => continueItems.value.slice(1, 4))
-const featuredProject = computed(() => {
-  const projectId = featuredItem.value?.projectId || (
-    featuredItem.value?.type === 'project' ? featuredItem.value.id : null
-  )
-  return projects.value.find(project => String(project.id) === String(projectId)) || null
-})
-const featuredKicker = computed(() => (
-  featuredItem.value?.type === 'tracker' ? 'Resume review' : 'Return to project'
-))
-const featuredContext = computed(() => {
-  if (!featuredItem.value) return ''
-  const context = continueSubtitle(featuredItem.value)
-  const viewedAt = featuredItem.value.viewedAt
-    ? formatActivityRelativeTimestamp(featuredItem.value.viewedAt)
-    : ''
-  return [context, viewedAt].filter(Boolean).join(' · ')
-})
-const featuredDescription = computed(() => (
-  featuredProject.value?.description
-  || 'Pick up the review, files, and conversation exactly where you left them.'
-))
 
 const activeProjects = computed(() => (
   projects.value
@@ -352,6 +418,17 @@ const dueSoonCount = computed(() => {
   }).length
 })
 
+function projectDueState(project) {
+  if (!project?.due_date || project.status === 'done') return 'upcoming'
+  const due = new Date(`${project.due_date}T23:59:59`)
+  if (Number.isNaN(due.getTime())) return 'upcoming'
+  const current = new Date()
+  if (due < current) return 'overdue'
+  const cutoff = new Date(current)
+  cutoff.setDate(cutoff.getDate() + 7)
+  return due <= cutoff ? 'due-soon' : 'upcoming'
+}
+
 const emptyProjectsCopy = computed(() => (
   isAdmin.value
     ? 'Start a project when the next job is ready to move.'
@@ -362,6 +439,12 @@ function formatProjectDate(value) {
   return formatLocaleDate(value, { options: { month: 'short', day: 'numeric' } }) || value
 }
 
+function formatVersionLabel(value) {
+  const label = String(value || '').trim()
+  if (!label) return ''
+  return /^v/i.test(label) ? label : `V${label}`
+}
+
 function continueSubtitle(item) {
   const subtitle = String(item?.subtitle || '').trim()
   if (!subtitle || subtitle.toLowerCase() === item.type) {
@@ -369,14 +452,6 @@ function continueSubtitle(item) {
     return project?.title || 'Recently viewed'
   }
   return subtitle
-}
-
-function projectInitials(project) {
-  const words = String(project?.title || featuredItem.value?.title || 'Vue')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-  return words.slice(0, 2).map(word => word[0]).join('').toUpperCase() || 'V'
 }
 
 function statusClass(status) {
@@ -391,10 +466,32 @@ function hideBrokenImage(event) {
   event.target.style.display = 'none'
 }
 
+function showLoadedImage(event) {
+  event.target.style.removeProperty('display')
+}
+
+function editDateTime(value) {
+  const timestamp = Number(value)
+  if (!Number.isFinite(timestamp)) return ''
+  return new Date(timestamp * 1000).toISOString()
+}
+
 function activityDateTime(item) {
-  const value = Number(item?.created_at)
-  if (!Number.isFinite(value)) return ''
-  return new Date(value * 1000).toISOString()
+  return editDateTime(item?.created_at)
+}
+
+async function loadAssignedEdits() {
+  assignedEditsLoading.value = true
+  assignedEditsError.value = false
+  try {
+    const { data } = await api.get('/api/home/assigned-edits')
+    assignedEditProjects.value = Array.isArray(data?.projects) ? data.projects : []
+  } catch {
+    assignedEditProjects.value = []
+    assignedEditsError.value = true
+  } finally {
+    assignedEditsLoading.value = false
+  }
 }
 
 async function loadRecentItems() {
@@ -421,6 +518,23 @@ async function loadActivity() {
   } finally {
     activityLoading.value = false
   }
+}
+
+async function openAssignedEdit(project, shot) {
+  await openGlobalActivityTarget({
+    project_id: project.id,
+    tracker_id: shot.tracker_id,
+    payload: { shot_code: shot.shot_id },
+    target: {
+      type: 'shot',
+      project_id: project.id,
+      tracker_id: shot.tracker_id,
+      shot_id: shot.id,
+      shot_code: shot.shot_id,
+      shot_version_id: shot.latest_version_id || undefined,
+      mode: 'latest',
+    },
+  })
 }
 
 async function openContinueItem(item) {
@@ -454,7 +568,7 @@ function activityContext(item) {
 }
 
 onMounted(() => {
-  void Promise.all([loadRecentItems(), loadActivity()])
+  void Promise.all([loadAssignedEdits(), loadRecentItems(), loadActivity()])
 })
 </script>
 
@@ -468,7 +582,7 @@ onMounted(() => {
 .home-header,
 .home-content {
   width: 100%;
-  max-width: 1420px;
+  max-width: 1380px;
   margin-inline: auto;
 }
 
@@ -499,7 +613,6 @@ onMounted(() => {
   padding: 0 var(--v-space-6);
 }
 
-.home-stage,
 .home-section {
   display: flex;
   flex-direction: column;
@@ -507,7 +620,14 @@ onMounted(() => {
   gap: var(--v-space-3);
 }
 
-.home-stage-heading h2,
+.home-section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--v-space-4);
+  min-height: 42px;
+}
+
 .home-section-header h2 {
   margin: 0;
   color: var(--v-text);
@@ -515,228 +635,147 @@ onMounted(() => {
   line-height: 1.2;
 }
 
-.home-stage-surface {
+.home-section-header p {
+  margin: 4px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+.home-attention-header {
+  align-items: center;
+}
+
+.home-title-cluster {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--v-space-3);
+}
+
+.home-attention-icon,
+.home-state-icon,
+.home-recent-icon,
+.home-activity-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  border-radius: var(--v-radius-md);
+}
+
+.home-attention-icon {
+  width: 38px;
+  height: 38px;
+  background: var(--v-danger-bg);
+  color: var(--v-status-hold-text);
+}
+
+.home-attention-icon .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.home-section-summary {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  white-space: nowrap;
+}
+
+.home-section-summary strong {
+  color: var(--v-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.home-edit-groups,
+.home-edit-skeleton {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(250px, 0.82fr);
-  min-height: 290px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--v-space-4);
+}
+
+.home-edit-project,
+.home-edit-skeleton-group,
+.home-project-list,
+.home-activity-list,
+.home-recent-list,
+.home-recent-skeleton,
+.home-activity-skeleton {
   overflow: hidden;
   border-radius: var(--v-radius-lg);
 }
 
-.home-feature {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.95fr) minmax(300px, 1.05fr);
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.home-feature-media {
+.home-edit-project {
   position: relative;
-  display: flex;
-  min-width: 0;
-  min-height: 290px;
-  overflow: hidden;
-  background: var(--v-surface-panel);
 }
 
-.home-feature-media::after {
+.home-edit-project::before {
   content: "";
   position: absolute;
-  inset: auto 0 0;
-  height: 2px;
-  background: var(--v-accent);
+  inset: 0 auto 0 0;
+  z-index: 1;
+  width: 2px;
+  background: var(--v-status-hold);
   opacity: 0.72;
+  pointer-events: none;
 }
 
-.home-feature-fallback {
-  margin: auto;
-  color: var(--v-text-muted);
-  font-size: clamp(38px, 5vw, 68px);
-  font-weight: 650;
-  letter-spacing: -0.04em;
-}
-
-.home-feature-media img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  transition: transform var(--v-duration-slow) var(--v-ease-emphasized);
-}
-
-.home-feature:hover .home-feature-media img {
-  transform: scale(1.02);
-}
-
-.home-feature:focus-visible,
-.home-recent-row:focus-visible,
-.home-pulse-metrics > button:focus-visible,
-.home-project-row:focus-visible,
-.home-activity-row:focus-visible,
-.home-list-footer:focus-visible {
-  position: relative;
-  z-index: 1;
-  outline: 2px solid var(--v-border-focus);
-  outline-offset: -3px;
-}
-
-.home-feature-media-tag {
-  position: absolute;
-  top: var(--v-space-3);
-  left: var(--v-space-3);
-  z-index: 1;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 26px;
-  padding: 0 9px;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-full);
-  background: var(--v-overlay-pill-bg);
-  color: var(--v-overlay-pill-text);
-  font-size: var(--v-text-xs);
-  font-weight: 650;
-}
-
-.home-feature-media-tag .icon {
-  width: 13px;
-  height: 13px;
-  color: var(--v-accent);
-}
-
-.home-feature-copy {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  min-width: 0;
-  padding: var(--v-space-8);
-}
-
-/* The one eyebrow that carries accent colour: it marks the featured project. */
-.home-feature-kicker {
-  margin-bottom: var(--v-space-2);
-  color: var(--v-accent);
-}
-
-.home-feature-title {
-  max-width: 18ch;
-  color: var(--v-text);
-  font-size: clamp(24px, 3vw, 36px);
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.08;
-}
-
-.home-feature-context {
-  margin-top: var(--v-space-2);
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-sm);
-}
-
-.home-feature-description {
-  display: -webkit-box;
-  max-width: 52ch;
-  margin-top: var(--v-space-5);
-  overflow: hidden;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-base);
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.home-feature-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--v-space-3);
-  margin-top: auto;
-  padding-top: var(--v-space-5);
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-}
-
-.home-feature-meta .v-status {
-  border-radius: var(--v-radius-full);
-}
-
-.home-feature-action {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--v-space-2);
-  margin-top: var(--v-space-4);
-  color: var(--v-text);
-  font-size: var(--v-text-base);
-  font-weight: 700;
-}
-
-.home-feature-action .icon,
-.home-chevron {
-  width: 13px;
-  height: 13px;
-  color: var(--v-text-muted);
-}
-
-.home-recents {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  border-left: 1px solid var(--v-divider-subtle);
-  background: color-mix(in srgb, var(--v-surface-inset) 42%, transparent);
-}
-
-.home-recents-head {
-  justify-content: space-between;
-  min-height: 48px;
-  padding: 0 var(--v-space-4);
-  border-bottom: 1px solid var(--v-divider-subtle);
-}
-
-.home-recent-row {
+.home-edit-project-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--v-space-3);
-  min-height: 74px;
+  width: 100%;
+  min-height: 66px;
   padding: var(--v-space-3) var(--v-space-4);
   border: 0;
   border-bottom: 1px solid var(--v-divider-subtle);
-  background: transparent;
+  background: color-mix(in srgb, var(--v-surface-inline) 28%, transparent);
   color: inherit;
   text-align: left;
   cursor: pointer;
   transition: background var(--v-transition-fast);
 }
 
-.home-recent-row:hover {
-  background: var(--v-surface-inline);
+.home-edit-project-header:hover {
+  background: var(--v-surface-tint-hover);
 }
 
-.home-recent-icon,
-.home-activity-icon {
+.home-edit-project-thumb,
+.home-project-thumbnail {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
+  overflow: hidden;
+  border-radius: var(--v-radius-sm);
+  background: var(--v-surface-inset);
+  color: var(--v-text-muted);
+}
+
+.home-edit-project-thumb {
+  width: 50px;
   height: 34px;
-  flex: 0 0 auto;
-  border-radius: var(--v-radius-md);
-  background: var(--v-accent-subtle);
-  color: var(--v-accent);
 }
 
-.home-recent-icon .icon,
-.home-activity-icon .icon {
-  width: 15px;
-  height: 15px;
+.home-edit-project-thumb .icon,
+.home-project-thumbnail .icon {
+  width: 16px;
+  height: 16px;
 }
 
+.home-edit-project-thumb img,
+.home-project-thumbnail img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.home-edit-project-copy,
+.home-edit-shot-copy,
 .home-recent-copy,
 .home-project-copy,
 .home-activity-copy {
@@ -746,6 +785,8 @@ onMounted(() => {
   gap: 3px;
 }
 
+.home-edit-project-copy strong,
+.home-edit-shot-copy strong,
 .home-recent-copy strong,
 .home-project-copy strong,
 .home-activity-copy strong {
@@ -757,8 +798,10 @@ onMounted(() => {
   white-space: nowrap;
 }
 
+.home-edit-project-copy span,
+.home-edit-shot-copy span,
 .home-recent-copy span,
-.home-project-copy span,
+.home-project-copy > span,
 .home-activity-copy span {
   overflow: hidden;
   color: var(--v-text-muted);
@@ -767,128 +810,308 @@ onMounted(() => {
   white-space: nowrap;
 }
 
-.home-recents-empty {
-  margin: auto;
-  padding: var(--v-space-5);
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.5;
-  text-align: center;
-}
-
-.home-stage-loading,
-.home-list-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--v-space-2);
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-}
-
-.home-stage-loading {
-  min-height: 290px;
-}
-
-.home-stage-loading .icon,
-.home-list-loading .icon {
-  width: 16px;
-  height: 16px;
-}
-
-.home-stage-empty {
-  min-height: 290px;
-}
-
-.home-pulse {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-5);
-  padding: var(--v-space-3) 0;
-  border-block: 1px solid var(--v-divider-subtle);
-}
-
-.home-pulse-label,
-.home-pulse-metrics,
-.home-pulse-metrics > span,
-.home-pulse-metrics > button {
-  display: inline-flex;
-  align-items: center;
-}
-
-.home-pulse-label {
-  gap: var(--v-space-2);
+.home-open-label {
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
   font-weight: 650;
 }
 
-.home-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-accent);
-  box-shadow: 0 0 0 3px var(--v-accent-subtle);
+.home-chevron {
+  width: 13px;
+  height: 13px;
+  color: var(--v-text-muted);
 }
 
-.home-pulse-metrics {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0;
+.home-edit-shot-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.home-edit-shot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  width: 100%;
+  min-height: 70px;
+  padding: var(--v-space-3) var(--v-space-4);
+  border: 0;
+  border-bottom: 1px solid var(--v-divider-subtle);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--v-transition-fast);
+}
+
+.home-edit-shot:last-child {
+  border-bottom: 0;
+}
+
+.home-edit-shot:hover {
+  background: var(--v-surface-inline-strong);
+}
+
+.home-edit-shot-meta {
+  display: grid;
+  grid-auto-flow: column;
+  align-items: center;
+  justify-content: end;
+  gap: var(--v-space-3);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  white-space: nowrap;
+}
+
+.home-edit-shot-meta > * + * {
+  padding-left: var(--v-space-3);
+  border-left: 1px solid var(--v-divider-subtle);
+}
+
+.home-attention-state {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  min-height: 86px;
+  padding: var(--v-space-4);
+  border-radius: var(--v-radius-lg);
+}
+
+.home-attention-state > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.home-attention-state strong {
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+}
+
+.home-attention-state span {
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
 }
 
-.home-pulse-metrics > span,
-.home-pulse-metrics > button {
-  min-height: 28px;
-  gap: 5px;
-  padding-inline: var(--v-space-4);
+.home-state-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--v-accent-subtle);
+  color: var(--v-accent);
+}
+
+.home-attention-state.is-error .home-state-icon {
+  background: var(--v-warning-bg);
+  color: var(--v-warning);
+}
+
+.home-state-icon .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.home-edit-skeleton-group {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px var(--v-space-3);
+  min-height: 204px;
+  padding: var(--v-space-4);
+}
+
+.home-skeleton-thumb,
+.home-skeleton-bar,
+.home-skeleton-row {
+  display: block;
+  border-radius: var(--v-radius-sm);
+  background: var(--v-surface-inline);
+  opacity: 0.74;
+}
+
+.home-skeleton-thumb {
+  grid-row: span 2;
+  width: 50px;
+  height: 34px;
+}
+
+.home-skeleton-bar {
+  height: 9px;
+  align-self: center;
+}
+
+.home-skeleton-bar.is-title {
+  width: min(190px, 70%);
+}
+
+.home-skeleton-bar.is-meta {
+  width: min(130px, 52%);
+}
+
+.home-skeleton-row {
+  grid-column: 1 / -1;
+  height: 54px;
+  margin-top: var(--v-space-3);
+}
+
+.home-skeleton-row.is-short {
+  margin-top: 0;
+}
+
+.home-snapshot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid var(--v-divider-subtle);
+}
+
+.home-snapshot-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--v-space-2);
+  min-height: 58px;
+  padding: var(--v-space-3) var(--v-space-4);
   border: 0;
-  border-left: 1px solid var(--v-divider-subtle);
+  border-right: 1px solid var(--v-divider-subtle);
   background: transparent;
   color: inherit;
+  text-align: left;
 }
 
-.home-pulse-metrics > button {
-  min-height: 36px;
+button.home-snapshot-item {
   cursor: pointer;
+  transition: background var(--v-transition-fast);
 }
 
-.home-pulse-metrics > button:hover {
-  color: var(--v-text);
+button.home-snapshot-item:hover {
+  background: var(--v-surface-tint);
 }
 
-.home-pulse-metrics strong {
+.home-snapshot-item:last-child {
+  border-right: 0;
+}
+
+.home-snapshot-item strong {
   color: var(--v-text);
+  font-size: var(--v-text-xl);
   font-variant-numeric: tabular-nums;
 }
 
-.home-pulse-metrics .icon {
+.home-snapshot-item.is-active strong {
+  color: var(--v-status-active-text);
+}
+
+.home-snapshot-item.is-due.has-value strong {
+  color: var(--v-status-review-text);
+}
+
+.home-snapshot-item.is-unread.has-value strong,
+.home-snapshot-item.is-unread.has-value .icon {
+  color: var(--v-info);
+}
+
+.home-snapshot-item span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+}
+
+.home-snapshot-item .icon {
   width: 12px;
   height: 12px;
+  color: var(--v-text-muted);
+}
+
+.home-recent-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.home-recent-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  min-height: 70px;
+  padding: var(--v-space-3) var(--v-space-4);
+  border: 0;
+  border-right: 1px solid var(--v-divider-subtle);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--v-transition-fast);
+}
+
+.home-recent-row:last-child {
+  border-right: 0;
+}
+
+.home-recent-row:hover,
+.home-project-row:hover,
+.home-activity-row:hover,
+.home-list-footer:hover {
+  background: var(--v-surface-inline-strong);
+}
+
+.home-recent-icon,
+.home-activity-icon {
+  --home-signal-color: var(--v-accent);
+  width: 34px;
+  height: 34px;
+  background: color-mix(in srgb, var(--home-signal-color) 10%, transparent);
+  color: var(--home-signal-color);
+}
+
+.home-recent-icon .icon,
+.home-activity-icon .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.home-recent-skeleton,
+.home-activity-skeleton {
+  display: grid;
+  gap: 1px;
+  padding: var(--v-space-3);
+}
+
+.home-recent-skeleton {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.home-recent-skeleton .home-skeleton-row,
+.home-activity-skeleton .home-skeleton-row {
+  height: 46px;
+  margin: 0;
+}
+
+.home-compact-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--v-space-3);
+  min-height: 70px;
+  padding: var(--v-space-3) var(--v-space-4);
+  border-radius: var(--v-radius-lg);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+}
+
+.home-compact-empty > .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--v-accent);
+}
+
+.home-compact-empty > span {
+  min-width: 0;
+  flex: 1;
 }
 
 .home-lower {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.85fr);
   align-items: start;
   gap: var(--v-space-6);
-}
-
-.home-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-3);
-  min-height: 38px;
-}
-
-.home-project-list,
-.home-activity-list {
-  overflow: hidden;
-  border-radius: var(--v-radius-lg);
 }
 
 .home-project-row {
@@ -912,36 +1135,32 @@ onMounted(() => {
   border-bottom: 0;
 }
 
-.home-project-row:hover,
-.home-activity-row:hover,
-.home-list-footer:hover {
-  background: var(--v-surface-inline-strong);
-}
-
 .home-project-thumbnail {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  --home-signal-color: var(--v-accent);
   width: 62px;
   height: 40px;
-  overflow: hidden;
-  border-radius: var(--v-radius-sm);
-  background: var(--v-surface-inset);
-  color: var(--v-text-muted);
+  background: color-mix(in srgb, var(--home-signal-color) 9%, var(--v-surface-inset));
+  color: color-mix(in srgb, var(--home-signal-color) 72%, var(--v-text-muted));
 }
 
-.home-project-thumbnail .icon {
-  width: 16px;
-  height: 16px;
+.home-project-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--v-space-3);
 }
 
-.home-project-thumbnail img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.home-project-meta > span + span {
+  padding-left: var(--v-space-3);
+  border-left: 1px solid var(--v-divider-subtle);
+}
+
+.home-project-meta .is-due-soon {
+  color: var(--v-status-review-text);
+}
+
+.home-project-meta .is-overdue {
+  color: var(--v-danger-text);
+  font-weight: 600;
 }
 
 .home-project-row .v-status {
@@ -1005,29 +1224,35 @@ onMounted(() => {
   min-height: 210px;
 }
 
+.home-edit-project-header:focus-visible,
+.home-edit-shot:focus-visible,
+.home-snapshot-item:focus-visible,
+.home-recent-row:focus-visible,
+.home-project-row:focus-visible,
+.home-activity-row:focus-visible,
+.home-list-footer:focus-visible {
+  position: relative;
+  z-index: 2;
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -3px;
+}
+
 @media (max-width: 1120px) {
-  .home-stage-surface {
+  .home-edit-groups,
+  .home-edit-skeleton {
     grid-template-columns: 1fr;
   }
 
-  .home-recents {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    border-top: 1px solid var(--v-divider-subtle);
-    border-left: 0;
+  .home-recent-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .home-recents-head {
-    display: none;
-  }
-
-  .home-recent-row {
-    border-right: 1px solid var(--v-divider-subtle);
-    border-bottom: 0;
-  }
-
-  .home-recent-row:last-of-type {
+  .home-recent-row:nth-child(2n) {
     border-right: 0;
+  }
+
+  .home-recent-row:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--v-divider-subtle);
   }
 }
 
@@ -1052,53 +1277,117 @@ onMounted(() => {
     padding: 0 var(--v-space-4);
   }
 
-  .home-feature {
-    grid-template-columns: 1fr;
-  }
-
-  .home-feature-media {
-    min-height: auto;
-    aspect-ratio: 16 / 8;
-  }
-
-  .home-feature-copy {
-    min-height: 250px;
-    padding: var(--v-space-5);
-  }
-
-  .home-feature-title {
-    font-size: clamp(24px, 8vw, 32px);
-  }
-
-  .home-recents {
-    grid-template-columns: 1fr;
-  }
-
-  .home-recent-row {
-    min-height: 66px;
-    border-right: 0;
-    border-bottom: 1px solid var(--v-divider-subtle);
-  }
-
-  .home-pulse {
+  .home-attention-header {
     align-items: flex-start;
     flex-direction: column;
-    gap: var(--v-space-2);
   }
 
-  .home-pulse-metrics {
-    justify-content: flex-start;
-    width: 100%;
+  .home-section-summary {
+    padding-left: 50px;
+    white-space: normal;
   }
 
-  .home-pulse-metrics > span,
-  .home-pulse-metrics > button {
-    padding-inline: 0 var(--v-space-4);
-    border-left: 0;
+  .home-edit-shot {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .home-edit-shot-meta {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-content: start;
+  }
+
+  .home-edit-shot > .home-chevron {
+    grid-column: 2;
+    grid-row: 1;
   }
 
   .home-project-row .v-status {
     display: none;
+  }
+}
+
+@media (max-width: 548px) {
+  .home-section-header {
+    align-items: flex-start;
+  }
+
+  .home-snapshot {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-snapshot-item {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto auto;
+    align-content: center;
+    gap: 2px var(--v-space-1);
+    min-height: 64px;
+    padding-inline: var(--v-space-3);
+    border-right: 1px solid var(--v-divider-subtle);
+    border-bottom: 0;
+  }
+
+  .home-snapshot-item:last-child {
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .home-snapshot-item strong,
+  .home-snapshot-item span {
+    grid-column: 1;
+  }
+
+  .home-snapshot-item .icon {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    align-self: center;
+  }
+
+  .home-recent-list {
+    grid-template-columns: 1fr;
+  }
+
+  .home-recent-row,
+  .home-recent-row:nth-child(2n),
+  .home-recent-row:nth-child(-n + 2) {
+    border-right: 0;
+    border-bottom: 1px solid var(--v-divider-subtle);
+  }
+
+  .home-recent-row:last-child {
+    border-bottom: 0;
+  }
+
+  .home-edit-project-header {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .home-open-label {
+    display: none;
+  }
+
+  .home-edit-shot-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--v-space-2);
+    white-space: normal;
+  }
+
+  .home-edit-shot-meta > * + * {
+    padding-left: var(--v-space-2);
+  }
+
+  .home-compact-empty {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .home-compact-empty > span {
+    flex-basis: calc(100% - 32px);
+  }
+
+  .home-compact-empty .v-btn {
+    width: 100%;
   }
 }
 
@@ -1109,24 +1398,42 @@ onMounted(() => {
 
   .home-header .v-page-actions,
   .home-header .v-btn {
+    width: auto;
+  }
+
+  .home-title-cluster {
+    align-items: flex-start;
+  }
+
+  .home-attention-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .home-section-summary {
+    padding-left: 48px;
+  }
+
+  .home-attention-state {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .home-attention-state .v-btn {
+    grid-column: 1 / -1;
     width: 100%;
   }
 
-  .home-pulse-metrics {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: var(--v-space-1);
+  .home-edit-project-header {
+    padding: var(--v-space-3);
   }
 
-  .home-pulse-metrics > span,
-  .home-pulse-metrics > button {
-    justify-content: flex-start;
-    min-height: 24px;
-    padding: 0;
+  .home-edit-project-thumb {
+    width: 44px;
+    height: 32px;
   }
 
-  .home-pulse-metrics > button {
-    min-height: 36px;
+  .home-edit-shot {
+    padding-inline: var(--v-space-3);
   }
 
   .home-project-row {
@@ -1144,12 +1451,6 @@ onMounted(() => {
 
   .home-activity-row time {
     grid-column: 2;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .home-feature-media img {
-    transition: none;
   }
 }
 </style>

@@ -7,11 +7,17 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY index.html vite.config.js ./
+COPY scripts/generate-third-party-notices.mjs ./scripts/generate-third-party-notices.mjs
 COPY src ./src
 COPY nginx.conf nginx-api-proxy.conf ./
-RUN chmod 0444 nginx.conf nginx-api-proxy.conf && npm run build
+RUN mkdir -p public && \
+    node ./scripts/generate-third-party-notices.mjs ./public/THIRD_PARTY_NOTICES.txt && \
+    chmod 0444 nginx.conf nginx-api-proxy.conf && \
+    npm run build
 
-FROM nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:59ccf0943b0b8e8d9e6ea9039a39555730f544701a655c596f7df7d096c593f5
+FROM nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:f972e5322b9797dc2a6b830030094426437b1ae7032e4644496395336ac6fdac
+USER root
+RUN apk upgrade --no-cache
 LABEL org.opencontainers.image.title="Vue.io UI" \
       org.opencontainers.image.licenses="PolyForm-Perimeter-1.0.1" \
       org.opencontainers.image.url="https://polyformproject.org/licenses/perimeter/1.0.1"

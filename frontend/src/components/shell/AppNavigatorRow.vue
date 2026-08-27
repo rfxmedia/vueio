@@ -1,10 +1,11 @@
 <template>
   <div
     class="nav-row"
-    :class="[`is-tone-${tone}`, { 'is-active': active, 'is-open': expanded }]"
+    :class="[
+      `is-tone-${tone}`,
+      { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging },
+    ]"
   >
-    <span class="nav-row-marker" aria-hidden="true"></span>
-
     <button
       v-if="expandable"
       class="nav-row-twisty"
@@ -12,6 +13,7 @@
       type="button"
       :aria-label="expanded ? `Collapse ${label}` : `Expand ${label}`"
       :aria-expanded="expanded ? 'true' : 'false'"
+      :aria-busy="loading ? 'true' : undefined"
       @click.stop="$emit('toggle')"
     >
       <svg class="icon"><use href="#icon-chevron-right"/></svg>
@@ -21,8 +23,11 @@
     <button
       class="nav-row-main"
       type="button"
+      :draggable="draggable"
       :aria-current="active ? 'page' : undefined"
-      @click="$emit('select')"
+      @click="$emit('select', $event)"
+      @dragstart="$emit('dragstart', $event)"
+      @dragend="$emit('dragend', $event)"
     >
       <span v-if="dot" class="nav-row-dot" :class="`is-${dot}`" aria-hidden="true"></span>
       <svg v-else class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
@@ -47,9 +52,12 @@ defineProps({
   expandable: { type: Boolean, default: false },
   expanded: { type: Boolean, default: false },
   loading: { type: Boolean, default: false },
+  selected: { type: Boolean, default: false },
+  draggable: { type: Boolean, default: false },
+  dragging: { type: Boolean, default: false },
 })
 
-defineEmits(['select', 'toggle'])
+defineEmits(['select', 'toggle', 'dragstart', 'dragend'])
 </script>
 
 <style scoped>
@@ -58,14 +66,33 @@ defineEmits(['select', 'toggle'])
   --nav-row-marker: var(--v-accent);
   position: relative;
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr);
+  grid-template-columns: var(--navigator-disclosure-width, 22px) minmax(0, 1fr);
   align-items: center;
   min-width: 0;
+  min-height: var(--navigator-row-height, 30px);
+  border: 1px solid transparent;
   border-radius: var(--v-radius-sm);
   color: var(--v-text-secondary);
   transition:
     background var(--v-duration-fast) var(--v-ease-soft),
+    border-color var(--v-duration-fast) var(--v-ease-soft),
     color var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.nav-row::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: 7px;
+  bottom: 7px;
+  width: 2px;
+  border-radius: var(--v-radius-full);
+  background: var(--nav-row-marker);
+  opacity: 0;
+  transform: scaleY(0.45);
+  transition:
+    opacity var(--v-duration-fast) linear,
+    transform var(--v-duration-normal) var(--v-ease-emphasized);
 }
 
 .nav-row.is-tone-accent {
@@ -84,26 +111,23 @@ defineEmits(['select', 'toggle'])
 
 .nav-row.is-active {
   color: var(--v-text);
-  background: color-mix(in srgb, var(--nav-row-marker) 11%, transparent);
+  border-color: color-mix(in srgb, var(--nav-row-marker) 12%, transparent);
+  background: color-mix(in srgb, var(--nav-row-marker) 7%, var(--v-surface-inline));
 }
 
-.nav-row-marker {
-  position: absolute;
-  left: -5px;
-  top: 50%;
-  width: 2px;
-  height: 15px;
-  border-radius: var(--v-radius-full);
-  background: var(--nav-row-marker);
-  transform: translateY(-50%) scaleY(0);
-  opacity: 0;
-  transition:
-    transform var(--v-duration-normal) var(--v-ease-emphasized),
-    opacity var(--v-duration-fast) linear;
+.nav-row.is-selected {
+  border-color: color-mix(in srgb, var(--v-accent) 24%, var(--v-control-border));
+  background: var(--v-control-bg-active);
+  box-shadow: var(--v-control-ring-selected);
+  color: var(--v-text);
 }
 
-.nav-row.is-active .nav-row-marker {
-  transform: translateY(-50%) scaleY(1);
+.nav-row.is-dragging {
+  opacity: 0.58;
+}
+
+.nav-row.is-active::before {
+  transform: scaleY(1);
   opacity: 1;
 }
 
@@ -111,8 +135,9 @@ defineEmits(['select', 'toggle'])
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 20px;
+  align-self: stretch;
+  width: 100%;
+  min-height: calc(var(--navigator-row-height, 30px) - 2px);
   padding: 0;
   border: 0;
   border-radius: var(--v-radius-sm);
@@ -126,6 +151,12 @@ defineEmits(['select', 'toggle'])
 }
 
 .nav-row-twisty:hover {
+  color: var(--v-text);
+}
+
+.nav-row-twisty:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
   color: var(--v-text);
 }
 
@@ -149,8 +180,8 @@ defineEmits(['select', 'toggle'])
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 26px;
-  padding: 0 7px 0 3px;
+  height: calc(var(--navigator-row-height, 30px) - 2px);
+  padding: 0 8px 0 2px;
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
@@ -159,6 +190,14 @@ defineEmits(['select', 'toggle'])
   text-align: left;
   cursor: pointer;
   transition: transform var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.nav-row-main[draggable="true"] {
+  cursor: grab;
+}
+
+.nav-row.is-dragging .nav-row-main {
+  cursor: grabbing;
 }
 
 .nav-row-main:active {
@@ -173,7 +212,7 @@ defineEmits(['select', 'toggle'])
 .nav-row-icon {
   width: 14px;
   height: 14px;
-  color: color-mix(in srgb, var(--nav-row-tone) 50%, var(--v-text-dim));
+  color: color-mix(in srgb, var(--nav-row-tone) 58%, var(--v-text-dim));
   transition: color var(--v-duration-fast) var(--v-ease-soft);
 }
 
@@ -198,8 +237,8 @@ defineEmits(['select', 'toggle'])
 .nav-row-dot.is-hold { background: var(--v-status-hold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-hold) 24%, transparent); }
 
 .nav-row-label {
-  font-size: var(--v-text-sm);
-  font-weight: 500;
+  font-size: var(--navigator-row-font-size, var(--v-text-sm));
+  font-weight: 540;
   line-height: 1.2;
   transition: color var(--v-duration-fast) var(--v-ease-soft);
 }
@@ -209,10 +248,10 @@ defineEmits(['select', 'toggle'])
 }
 
 .nav-row-meta {
-  color: var(--v-text-dim);
+  color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
   font-variant-numeric: tabular-nums;
-  opacity: 0.38;
+  opacity: 0.72;
   transition: opacity var(--v-duration-fast) var(--v-ease-soft);
 }
 
@@ -228,14 +267,18 @@ defineEmits(['select', 'toggle'])
 
 @media (prefers-reduced-motion: reduce) {
   .nav-row,
+  .nav-row::before,
   .nav-row-main,
-  .nav-row-marker,
   .nav-row-twisty .icon {
     transition: none;
   }
 
   .nav-row-twisty.is-loading .icon {
     animation: none;
+  }
+
+  .nav-row-main:active {
+    transform: none;
   }
 }
 </style>

@@ -12,30 +12,87 @@ from urllib.parse import quote
 from app.config import get_settings
 
 ALPHA_TAG = re.compile(
-    r'^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-alpha\.(0|[1-9]\d*)$'
+    r'^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-alpha\.(0|[1-9]\d*)'
+    r'(?:\.dev\.(0|[1-9]\d*))?$'
 )
 REPOSITORY = re.compile(
     r'^[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9][A-Za-z0-9._-]*$'
 )
 CHECK_TTL_SECONDS = 15 * 60
 MAX_RESPONSE_BYTES = 1024 * 1024
+MAX_RELEASE_NOTES_BYTES = 20 * 1024
+PLACEHOLDER_OWNER = 'your-' 'owner'
 
 _cache: dict = {}
 _cache_lock = threading.Lock()
 
 
-def parse_alpha_version(tag: str) -> tuple[int, int, int, int] | None:
+def parse_alpha_version(tag: str) -> tuple[int, int, int, int, int] | None:
     match = ALPHA_TAG.fullmatch((tag or '').strip())
-    return tuple(map(int, match.groups())) if match else None
+    if not match:
+        return None
+    major, minor, patch, alpha, nightly = match.groups()
+    return int(major), int(minor), int(patch), int(alpha), int(nightly) if nightly is not None else -1
 
 
-def _base_status(current_version: str, repository: str) -> dict:
+def is_nightly_version(tag: str) -> bool:
+    parsed = parse_alpha_version(tag)
+    return bool(parsed and parsed[-1] >= 0)
+
+
+def _release_matches_channel(release: dict, channel: str) -> bool:
+    tag = str(release.get('tag_name') or '')
+    if parse_alpha_version(tag) is None:
+        return False
+    nightly = is_nightly_version(tag)
+    prerelease = bool(release.get('prerelease'))
+    if nightly != prerelease:
+        return False
+    return channel == 'nightly' or not nightly
+
+
+def _clean_release_notes(value: object) -> str:
+    text = str(value or '').replace('\r\n', '\n').replace('\r', '\n')
+    return ''.join(character for character in text if character in {'\n', '\t'} or ord(character) >= 32).strip()
+
+
+def _truncate_utf8(text: str, limit: int) -> tuple[str, int]:
+    encoded = text.encode('utf-8')
+    if len(encoded) <= limit:
+        return text, len(encoded)
+    if limit <= 3:
+        return '', 0
+    truncated = encoded[:limit - 3].decode('utf-8', errors='ignore').rstrip()
+    result = f'{truncated}…' if truncated else ''
+    return result, len(result.encode('utf-8'))
+
+
+def _releases_between(candidates: list[tuple[tuple[int, ...], dict]], current: tuple[int, ...], latest: tuple[int, ...]) -> list[dict]:
+    remaining = MAX_RELEASE_NOTES_BYTES
+    result = []
+    for parsed, release in sorted(candidates, key=lambda candidate: candidate[0], reverse=True):
+        if not current < parsed <= latest:
+            continue
+        notes, used = _truncate_utf8(_clean_release_notes(release.get('body')), remaining)
+        remaining = max(0, remaining - used)
+        version = str(release.get('tag_name') or '')
+        result.append({
+            'version': version,
+            'published_at': release.get('published_at'),
+            'notes': notes,
+            'nightly': is_nightly_version(version),
+        })
+    return result
+
+
+def _base_status(current_version: str, repository: str, channel: str) -> dict:
     configured = bool(
         REPOSITORY.fullmatch(repository)
-        and not repository.lower().startswith('your-owner/')
+        and not repository.lower().startswith(f'{PLACEHOLDER_OWNER}/')
     )
     return {
         'current_version': current_version,
+        'channel': channel,
         'latest_version': None,
         'update_available': False,
         'configured': configured,
@@ -44,6 +101,7 @@ def _base_status(current_version: str, repository: str) -> dict:
         'update_command': '',
         'published_at': None,
         'checked_at': None,
+        'releases_between': [],
     }
 
 
@@ -74,11 +132,14 @@ def get_update_status(*, force_refresh: bool = False) -> dict:
     current_version = (settings.VUEIO_VERSION or 'development').strip()
     repository = (settings.VUEIO_UPDATE_REPOSITORY or '').strip()
     token = (settings.VUEIO_UPDATE_GITHUB_TOKEN or '').strip()
-    result = _base_status(current_version, repository)
+    channel = (settings.VUEIO_CHANNEL or 'stable').strip().lower()
+    if channel not in {'stable', 'nightly'}:
+        channel = 'stable'
+    result = _base_status(current_version, repository, channel)
     if not result['configured']:
         return result
 
-    cache_key = (repository, current_version, bool(token))
+    cache_key = (repository, current_version, channel, bool(token))
     now = time.monotonic()
     with _cache_lock:
         cached = _cache.get(cache_key)
@@ -90,7 +151,11 @@ def get_update_status(*, force_refresh: bool = False) -> dict:
             candidates = [
                 (parse_alpha_version(str(release.get('tag_name') or '')), release)
                 for release in releases
-                if isinstance(release, dict) and not release.get('draft')
+                if (
+                    isinstance(release, dict)
+                    and not release.get('draft')
+                    and _release_matches_channel(release, channel)
+                )
             ]
             candidates = [candidate for candidate in candidates if candidate[0] is not None]
             checked_at = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -120,6 +185,10 @@ def get_update_status(*, force_refresh: bool = False) -> dict:
                         if update_available else ''
                     ),
                     'published_at': latest_release.get('published_at'),
+                    'releases_between': (
+                        _releases_between(candidates, current_parsed, latest_parsed)
+                        if update_available else []
+                    ),
                 })
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError):
             result['status'] = 'error'

@@ -3,6 +3,12 @@ import { shallowRef, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { recordRecentlyViewed } from '../lib/recentlyViewed'
 import { notify } from '../utils/toasts'
+import {
+  readWorkspacePayload,
+  requestWorkspacePayload,
+  workspaceCacheKey,
+  writeWorkspacePayload,
+} from '../lib/workspacePayloadCache'
 import { useProjectBrowser } from './useProjectBrowser'
 import { useProjectContentInteractions } from './useProjectContentInteractions'
 import { useProjectListState } from './useProjectListState'
@@ -76,6 +82,8 @@ export function useProjectWorkspaceController({
   const projects = shallowRef([])
   const pageSaving = shallowRef(false)
   let projectOpenRequestId = 0
+  let projectOpenController = null
+  let projectOpenPromise = null
 
   const browser = useProjectBrowser({
     currentProject,
@@ -111,12 +119,32 @@ export function useProjectWorkspaceController({
     if (show) prepareProjectStorageSelection()
   })
 
-  async function loadProjects() {
-    try {
-      const { data } = await api.get('/api/projects')
+  async function loadProjects(options = {}) {
+    const scope = getCurrentUser()?.id || 'session'
+    const cacheKey = workspaceCacheKey('projects', scope)
+    const cached = options.force ? undefined : readWorkspacePayload(cacheKey)
+    if (cached) projects.value = cached
+
+    const request = requestWorkspacePayload(cacheKey, async () => {
+      const { data } = await api.get('/api/projects', { signal: options.signal })
+      writeWorkspacePayload(cacheKey, data)
       projects.value = data
+      return data
+    })
+
+    if (cached && !options.awaitFresh) {
+      void request.catch((error) => {
+        if (!isRequestCanceledError?.(error)) console.error('Failed to refresh projects')
+      })
+      return cached
+    }
+
+    try {
+      return await request
     } catch (error) {
+      if (isRequestCanceledError?.(error)) return cached
       console.error('Failed to load projects')
+      return cached
     }
   }
 
@@ -141,7 +169,7 @@ export function useProjectWorkspaceController({
       chrome.newProjectDue.value = ''
       resetProjectStorageSelection()
       chrome.closeCreateProjectModal()
-      loadProjects()
+      loadProjects({ force: true })
     } catch (error) {
       notify(getApiErrorMessage(error, 'Failed to create project'))
     }
@@ -152,55 +180,87 @@ export function useProjectWorkspaceController({
       return {
         skipRouteUpdate: options.skipRouteUpdate === true,
         contentsPath: normalizeProjectFolderPath(options.contentsPath || options.initialPath || ''),
+        signal: options.signal || null,
       }
     }
     return {
       skipRouteUpdate: options === true,
       contentsPath: '',
+      signal: null,
     }
   }
 
-  async function openProject(id, options = false) {
-    if (openingProjectId.value === id) return
-    const { skipRouteUpdate, contentsPath } = normalizeOpenProjectOptions(options)
+  function openProject(id, options = false) {
+    if (openingProjectId.value === id && projectOpenPromise) return projectOpenPromise
+    const { skipRouteUpdate, contentsPath, signal } = normalizeOpenProjectOptions(options)
     const requestId = ++projectOpenRequestId
+    projectOpenController?.abort()
+    const controller = new AbortController()
+    projectOpenController = controller
+    const abortFromCaller = () => controller.abort()
+    signal?.addEventListener('abort', abortFromCaller, { once: true })
+    if (signal?.aborted) controller.abort()
     openingProjectId.value = id
-    try {
-      const [projectResponse, projectSnapshot] = await Promise.all([
-        api.get(`/api/projects/${id}`),
-        browser.loadProjectContents(id, contentsPath, { commit: false }),
-      ])
-      if (requestId !== projectOpenRequestId || !projectSnapshot) return
+    const scope = getCurrentUser()?.id || 'session'
+    const projectCacheKey = workspaceCacheKey('project', scope, id)
 
-      currentProject.value = projectResponse.data
-      currentTracker.value = null
-      currentPage.value = null
-      browser.applyProjectContentsSnapshot(projectSnapshot)
-      closeProjectSettings()
-      closeTrackerSettings()
-      closeDashboardSettings()
-      resetProjectTeamState(id)
-
-      if (!shareMode.value) void loadProjectTeamOptions()
-      if (!shareMode.value) {
-        recordRecentlyViewed({
-          type: 'project',
-          id: projectResponse.data.id,
-          projectId: projectResponse.data.id,
-          title: projectResponse.data.title,
-          subtitle: 'Project',
+    projectOpenPromise = (async () => {
+      try {
+        const cachedProject = !shareMode.value ? readWorkspacePayload(projectCacheKey) : undefined
+        const projectRequest = requestWorkspacePayload(projectCacheKey, async () => {
+          const response = await api.get(`/api/projects/${id}`, { signal: controller.signal })
+          if (!shareMode.value) writeWorkspacePayload(projectCacheKey, response.data)
+          return response.data
         })
+        const projectPayload = cachedProject || await projectRequest
+        if (cachedProject) {
+          void projectRequest.then((freshProject) => {
+            if (requestId === projectOpenRequestId && currentProject.value?.id === id) {
+              currentProject.value = freshProject
+            }
+          }).catch(() => {})
+        }
+        const projectSnapshot = await browser.loadProjectContents(id, contentsPath, {
+          commit: false,
+          revalidateCommit: true,
+          signal: controller.signal,
+        })
+        if (requestId !== projectOpenRequestId || !projectSnapshot || controller.signal.aborted) return
+
+        currentProject.value = projectPayload
+        currentTracker.value = null
+        currentPage.value = null
+        browser.applyProjectContentsSnapshot(projectSnapshot)
+        closeProjectSettings()
+        closeTrackerSettings()
+        closeDashboardSettings()
+        resetProjectTeamState(id)
+
+        if (!shareMode.value) void loadProjectTeamOptions()
+        if (!shareMode.value) {
+          recordRecentlyViewed({
+            type: 'project',
+            id: projectPayload.id,
+            projectId: projectPayload.id,
+            title: projectPayload.title,
+            subtitle: 'Project',
+          })
+        }
+        if (!skipRouteUpdate && !shareMode.value) {
+          router.push({ name: 'project-folder', params: { projectId: id } })
+        }
+      } catch (error) {
+        if (!isRequestCanceledError?.(error)) notify('Failed to load project')
+      } finally {
+        signal?.removeEventListener('abort', abortFromCaller)
+        if (requestId === projectOpenRequestId) {
+          if (openingProjectId.value === id) openingProjectId.value = null
+          if (projectOpenController === controller) projectOpenController = null
+          projectOpenPromise = null
+        }
       }
-      if (!skipRouteUpdate && !shareMode.value) {
-        router.push({ name: 'project-folder', params: { projectId: id } })
-      }
-    } catch {
-      notify('Failed to load project')
-    } finally {
-      if (requestId === projectOpenRequestId && openingProjectId.value === id) {
-        openingProjectId.value = null
-      }
-    }
+    })()
+    return projectOpenPromise
   }
 
   async function navigateProjectFolder(path, options = {}) {
@@ -224,11 +284,14 @@ export function useProjectWorkspaceController({
     }
   }
 
-  async function openPage(pageRef, skipRouteUpdate = false) {
+  async function openPage(pageRef, options = false) {
     if (!currentProject.value || !pageRef) return
+    const skipRouteUpdate = typeof options === 'object' ? options.skipRouteUpdate === true : options === true
+    const signal = typeof options === 'object' ? options.signal : null
     try {
       const { data } = await api.get(
         `/api/projects/${currentProject.value.id}/pages/${encodeURIComponent(pageRef)}`,
+        { signal },
       )
       currentPage.value = data
       currentTracker.value = null
@@ -240,6 +303,7 @@ export function useProjectWorkspaceController({
         })
       }
     } catch (error) {
+      if (isRequestCanceledError?.(error)) return
       console.error('Failed to load page')
       notify('Failed to load page')
     }

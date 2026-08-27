@@ -12,10 +12,6 @@
         <TrackerViewerControls />
       </template>
 
-      <template #nav-right-trailing>
-        <GlobalActivityTray v-if="currentUser && !shareMode" />
-      </template>
-
       <template #search>
         <GlobalSearch
           ref="globalSearchRef"
@@ -23,7 +19,7 @@
       </template>
 
     <!-- ════════════════════════════════════════════════════════════════════ -->
-    <FileBrowserView />
+    <FileBrowserView v-if="filesModuleVisited" />
     <!-- ════════════════════════════════════════════════════════════════════ -->
     <!-- HOME -->
     <!-- ════════════════════════════════════════════════════════════════════ -->
@@ -56,13 +52,13 @@
     <!-- ════════════════════════════════════════════════════════════════════ -->
     <!-- UNIFIED MEDIA VIEWER (Videos & Images) -->
     <!-- ════════════════════════════════════════════════════════════════════ -->
-    <MediaViewerContainer />
+    <MediaViewerContainer v-if="currentMedia" />
 
     <!-- ════════════════════════════════════════════════════════════════════ -->
     <!-- MODALS -->
     <!-- ════════════════════════════════════════════════════════════════════ -->
 
-    <SetupWizardModal />
+    <SetupWizardModal v-if="setupRequired" />
 
     <ShareAuthModalCluster />
 
@@ -72,31 +68,38 @@
 
     <VToastViewport />
 
+    <div
+      v-if="connectionLost"
+      class="connection-recovery"
+      role="status"
+      aria-live="assertive"
+    >
+      <div class="connection-recovery__panel">
+        <span class="connection-recovery__spinner" aria-hidden="true"></span>
+        <div>
+          <strong>Vueio is updating or restarting</strong>
+          <p>This page will reconnect automatically.</p>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, shallowRef, reactive, computed, watch, nextTick } from 'vue'
+import { ref, shallowRef, reactive, computed, defineAsyncComponent, watch, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { getApiErrorMessage } from './lib/api'
+import { useConnectionRecovery } from './lib/connectionRecovery'
 import AppIcons from './components/AppIcons.vue'
 import AppShell from './components/shell/AppShell.vue'
 import VToastViewport from './components/primitives/VToastViewport.vue'
 
-import GlobalActivityTray from './components/shell/GlobalActivityTray.vue'
 import GlobalSearch from './components/shell/GlobalSearch.vue'
 import ShareAuthModalCluster from './components/modals/ShareAuthModalCluster.vue'
-import SetupWizardModal from './components/modals/SetupWizardModal.vue'
-import FileBrowserView from './views/FileBrowserView.vue'
-import HomeView from './views/HomeView.vue'
-import ProjectListView from './views/ProjectListView.vue'
-import ProjectDetailView from './views/ProjectDetailView.vue'
-import AdminView from './views/AdminView.vue'
 import { useProjectWorkspaceController } from './composables/useProjectWorkspaceController'
 import { useMediaViewerController } from './composables/useMediaViewerController'
 import { useBrowserSession } from './composables/useBrowserSession'
-import MediaViewerContainer from './components/media/MediaViewerContainer.vue'
-import TrackerSurface from './components/tracker/TrackerSurface.vue'
 import TrackerViewerControls from './components/tracker/TrackerViewerControls.vue'
 import TrackerViewerStepper from './components/tracker/TrackerViewerStepper.vue'
 import ProjectModalHost from './components/modals/ProjectModalHost.vue'
@@ -126,6 +129,15 @@ import { createShareManagementStore, provideShareManagementStore } from './owner
 import { createActivityStore, provideActivityStore } from './ownership/activity'
 import { createUpdateStatusStore, provideUpdateStatusStore } from './ownership/updateStatus'
 
+const AdminView = defineAsyncComponent(() => import('./views/AdminView.vue'))
+const FileBrowserView = defineAsyncComponent(() => import('./views/FileBrowserView.vue'))
+const HomeView = defineAsyncComponent(() => import('./views/HomeView.vue'))
+const MediaViewerContainer = defineAsyncComponent(() => import('./components/media/MediaViewerContainer.vue'))
+const ProjectDetailView = defineAsyncComponent(() => import('./views/ProjectDetailView.vue'))
+const ProjectListView = defineAsyncComponent(() => import('./views/ProjectListView.vue'))
+const SetupWizardModal = defineAsyncComponent(() => import('./components/modals/SetupWizardModal.vue'))
+const TrackerSurface = defineAsyncComponent(() => import('./components/tracker/TrackerSurface.vue'))
+
 // ══════════════════════════════════════════════════════════════════════════════
 // ROUTER
 // ══════════════════════════════════════════════════════════════════════════════
@@ -138,6 +150,7 @@ const route = useRoute()
 // ══════════════════════════════════════════════════════════════════════════════
 
 const activeModule = ref('home') // 'home', 'files', 'projects', or 'settings'
+const filesModuleVisited = ref(false)
 const loading = ref(true)
 
 function isRequestCanceled(error) {
@@ -170,6 +183,7 @@ let appChromeStore
 const trackerStoreRef = shallowRef(null)
 
 const globalSearchRef = ref(null)
+const { connectionLost } = useConnectionRecovery()
 
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -287,12 +301,59 @@ const viewerController = useMediaViewerController({
     }
     void loadFiles(parentPath)
   },
+  getCommentReferenceOriginContext: () => ({
+    trackerRef: currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || '',
+    pageRef: currentPage.value?.id || currentPage.value?.slug || '',
+    projectPath: projectPath.value || '',
+    routeFullPath: route.fullPath || '',
+  }),
   onOpenProjectReference: async (reference) => {
-    if (reference?.target_type === 'tracker') {
-      await trackerStore?.openTracker(reference.target_id)
+    if (reference?.target_type === 'folder') {
+      const targetPath = String(reference.target_id || '').replace(/^\/+|\/+$/g, '')
+      if (!targetPath) return false
+      await projectWorkspaceController.navigateProjectFolder(targetPath)
+      if (projectPath.value !== targetPath) return false
+      currentTracker.value = null
+      currentPage.value = null
+      activeModule.value = 'projects'
+      return true
+    } else if (reference?.target_type === 'tracker') {
+      return Boolean(await trackerStore?.openTracker(reference.target_id))
+    } else if (reference?.target_type === 'shot' && reference.tracker_id) {
+      const tracker = await trackerStore?.openTracker(reference.tracker_id, { fresh: true })
+      if (!tracker) return false
+      const shot = (tracker.shots || []).find(item => (
+        String(item?.id || item?._originalId || item?.shot_id || '') === String(reference.target_id)
+      ))
+      if (!shot) return false
+      trackerStore?.openShotVideo(shot)
+      return true
     } else if (reference?.target_type === 'page') {
       await projectWorkspaceController.openPage(reference.target_id)
+      return [currentPage.value?.id, currentPage.value?.slug]
+        .some(value => String(value || '') === String(reference.target_id))
     }
+    return false
+  },
+  onRestoreCommentReferenceOrigin: async ({ context } = {}) => {
+    const trackerRef = context?.trackerRef || ''
+    const pageRef = context?.pageRef || ''
+    if (trackerRef) {
+      const activeTrackerRef = currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || ''
+      if (String(activeTrackerRef) === String(trackerRef)) return true
+      return Boolean(await trackerStore?.openTracker(trackerRef))
+    }
+    if (pageRef) {
+      const activePageRef = currentPage.value?.id || currentPage.value?.slug || ''
+      if (String(activePageRef) === String(pageRef)) return true
+      await projectWorkspaceController.openPage(pageRef)
+      return [currentPage.value?.id, currentPage.value?.slug]
+        .some(value => String(value || '') === String(pageRef))
+    }
+    if (currentTracker.value) trackerStore?.closeTracker()
+    if (currentPage.value) closePage()
+    await navigateProjectFolder(context?.projectPath || '', { replaceRoute: true })
+    return true
   },
 })
 
@@ -406,6 +467,7 @@ const {
 
 // Performance: Clean up heavy data when navigating away from views
 watch(activeModule, (newModule, oldModule) => {
+  if (newModule === 'files') filesModuleVisited.value = true
   // Clear tracker data when leaving projects
   if (oldModule === 'projects' && newModule !== 'projects') {
     currentTracker.value = null
@@ -453,6 +515,7 @@ const sessionAuthStore = provideSessionAuthStore(createSessionAuthStore({
 
 const {
   currentUser,
+  setupRequired,
   isAdmin,
   canAccessProjectManager,
   canEditProject,
@@ -558,6 +621,8 @@ provideNavigationStore(createNavigationStore({
   projectPath,
   artistWorkspaceRoot,
   sharedSingleFile,
+  canReturnToCommentOrigin: viewerController.state.canReturnToCommentOrigin,
+  returnToCommentOrigin: viewerController.media.returnToCommentOrigin,
   closeViewer,
   closeTracker: (...args) => trackerStore?.closeTracker(...args),
   closePage,
@@ -691,6 +756,8 @@ trackerControllerContext.workspace = {
   currentProject,
   currentTracker,
   currentPage,
+  currentUser,
+  isAdmin,
   currentTrackerRef,
   shareMode,
   pendingShareId,
@@ -780,7 +847,15 @@ trackerControllerContext.presentation = {
   shareMode,
   showBriefPreview: showTrackerBriefPreview,
   publicationControlsEnabled: computed(() => (
-    versionReviewEnabled.value && canManageVersionPublication.value
+    canManageVersionPublication.value
+    && (
+      versionReviewEnabled.value
+      || (currentTracker.value?.shots || []).some(shot => (
+        (shot?.versions || []).some(version => ['pending', 'internal'].includes(
+          String(version?.share_state || '').trim().toLowerCase(),
+        ))
+      ))
+    )
   )),
   showDeliveryMode: showTrackerDeliveryMode,
   showShotDownloads,
@@ -814,7 +889,9 @@ function handleKeydown(e) {
     return
   }
 
-  viewerController.actions.handleViewerKeydown(e, { disabled: trackerStore.versionCompareActive.value })
+  const comparisonActive = trackerStore.versionCompareActive.value
+  if (trackerStore.handleTrackerViewerKeydown(e, { disabled: comparisonActive })) return
+  viewerController.actions.handleViewerKeydown(e, { disabled: comparisonActive })
 }
 
 const { handleRouteChange } = useAppRouting({
@@ -854,6 +931,7 @@ provideProjectWorkspaceStore(createProjectWorkspaceStore({
   canViewTrackerDetails,
   openProjectSettings: openContextSettings,
   openRelocateProject: () => openProjectStorage(currentProject.value, 'relocate'),
+  openRelinkMedia: () => openProjectStorage(currentProject.value, 'relink-media'),
   openMigrateProject: () => openProjectStorage(currentProject.value, 'migrate'),
   trackerTotalDuration: trackerStore.trackerTotalDuration,
   trackerTotalFrames: trackerStore.trackerTotalFrames,

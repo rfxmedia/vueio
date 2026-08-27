@@ -20,6 +20,7 @@
       :type="interactive ? 'button' : undefined"
       :aria-haspopup="interactive ? 'menu' : undefined"
       :aria-expanded="interactive ? String(open) : undefined"
+      :aria-label="interactive ? triggerAriaLabel : undefined"
       @click.stop="interactive && $emit('trigger', $event)"
       @keydown="handleTriggerKeydown"
     >
@@ -30,7 +31,16 @@
     </component>
 
     <Transition name="v-menu-pop">
-      <div v-if="open" ref="menuRef" class="tracker-inline-select-menu v-menu-panel" :class="{ 'is-flipped': flipUp }" role="menu" @click.stop @keydown="handleMenuKeydown">
+      <div
+        v-if="open"
+        ref="menuRef"
+        class="tracker-inline-select-menu v-menu-panel"
+        :class="{ 'is-flipped': flipUp }"
+        role="menu"
+        :aria-label="menuAriaLabel"
+        @click.stop
+        @keydown="handleMenuKeydown"
+      >
         <slot name="menu" />
       </div>
     </Transition>
@@ -64,6 +74,20 @@ const accentStyle = computed(() => {
     '--tracker-select-accent-text': props.accentText || 'var(--v-text-secondary)',
   }
 })
+
+const fieldLabel = computed(() => ({
+  status: 'Status',
+  category: 'Tag',
+  assignee: 'Assignee',
+})[props.tone] || '')
+
+const triggerAriaLabel = computed(() => {
+  if (!fieldLabel.value) return props.label
+  if (props.label.trim().toLowerCase() === fieldLabel.value.toLowerCase()) return fieldLabel.value
+  return `${fieldLabel.value}: ${props.label}`
+})
+
+const menuAriaLabel = computed(() => `${fieldLabel.value || props.label} options`)
 
 const menuRef = ref(null)
 const triggerRef = ref(null)
@@ -225,7 +249,7 @@ button.tracker-inline-select-trigger:focus-visible {
 .tracker-inline-select-menu {
   position: absolute;
   z-index: var(--v-z-dropdown);
-  top: calc(100% + 6px);
+  top: calc(100% + 8px);
   left: 0;
   min-width: 220px;
   max-width: min(320px, calc(100vw - 32px));
@@ -237,17 +261,17 @@ button.tracker-inline-select-trigger:focus-visible {
 
 .tracker-inline-select-menu.is-flipped {
   top: auto;
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 8px);
 }
 
-.tracker-inline-select:last-child .tracker-inline-select-menu {
+.tracker-inline-select.tracker-assignee-select .tracker-inline-select-menu {
   right: 0;
   left: auto;
 }
 
 @media (max-width: 768px) {
   .tracker-inline-select-menu {
-    min-width: 190px;
+    min-width: min(220px, calc(100vw - 24px));
     max-width: min(280px, calc(100vw - 24px));
   }
 }

@@ -44,6 +44,7 @@ export function useViewerAnnotationOverlay({
   const pdfFocusRequest = ref(null)
 
   let canvasResizeHandler = null
+  let canvasResizeFrame = 0
 
   function setAnnotationPreviewVisible(visible) {
     onAnnotationPreviewVisibilityChange?.(Boolean(visible))
@@ -58,9 +59,12 @@ export function useViewerAnnotationOverlay({
   }
 
   function cleanupCanvasResize() {
-    if (!canvasResizeHandler) return
-    windowTarget?.removeEventListener?.('resize', canvasResizeHandler)
+    if (canvasResizeHandler) windowTarget?.removeEventListener?.('resize', canvasResizeHandler)
     canvasResizeHandler = null
+    if (canvasResizeFrame) {
+      windowTarget?.cancelAnimationFrame?.(canvasResizeFrame)
+      canvasResizeFrame = 0
+    }
   }
 
   function getVideoDisplayRect() {
@@ -104,14 +108,14 @@ export function useViewerAnnotationOverlay({
     return rect?.width && rect?.height ? rect : null
   }
 
-  function syncCanvasSize(canvas, rect) {
+  function syncCanvasSize(canvas, rect, { preserve = true } = {}) {
     if (!canvas || !rect) return
     const width = Math.max(1, Math.round(rect.width))
     const height = Math.max(1, Math.round(rect.height))
     const needsResize = canvas.width !== width || canvas.height !== height
     let snapshot = null
 
-    if (needsResize && canvas.width && canvas.height) {
+    if (preserve && needsResize && canvas.width && canvas.height) {
       snapshot = documentTarget?.createElement?.('canvas') || null
       if (snapshot) {
         snapshot.width = canvas.width
@@ -137,8 +141,21 @@ export function useViewerAnnotationOverlay({
     if (!annotationCanvas.value && !previewCanvas.value) return
     const rect = getOverlayRect()
     if (!rect) return
-    syncCanvasSize(annotationCanvas.value, rect)
+    syncCanvasSize(annotationCanvas.value, rect, { preserve: Boolean(getDrawingBounds()) })
     syncCanvasSize(previewCanvas.value, rect)
+  }
+
+  function scheduleOverlayCanvasResize() {
+    if (canvasResizeFrame) return
+    const requestFrame = windowTarget?.requestAnimationFrame?.bind(windowTarget)
+    if (!requestFrame) {
+      updateOverlayCanvasSizes()
+      return
+    }
+    canvasResizeFrame = requestFrame(() => {
+      canvasResizeFrame = 0
+      updateOverlayCanvasSizes()
+    })
   }
 
   function setupAnnotationCanvas() {
@@ -148,7 +165,7 @@ export function useViewerAnnotationOverlay({
     cleanupCanvasResize()
     if (!readReactiveValue(isViewingPdf)) {
       updateOverlayCanvasSizes()
-      canvasResizeHandler = updateOverlayCanvasSizes
+      canvasResizeHandler = scheduleOverlayCanvasResize
       windowTarget?.addEventListener?.('resize', canvasResizeHandler)
     }
     setDrawingContext(canvas.getContext('2d'))
@@ -209,49 +226,9 @@ export function useViewerAnnotationOverlay({
     return Number.isFinite(fallbackTime) ? fallbackTime : 0
   }
 
-  function getCanvasDrawingBounds(canvas) {
-    if (!canvas || canvas.width === 0 || canvas.height === 0) return null
-    try {
-      const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height)
-      const data = imageData.data
-      let minX = canvas.width
-      let minY = canvas.height
-      let maxX = -1
-      let maxY = -1
-
-      for (let y = 0; y < canvas.height; y += 1) {
-        for (let x = 0; x < canvas.width; x += 1) {
-          if (data[((y * canvas.width + x) * 4) + 3] === 0) continue
-          if (x < minX) minX = x
-          if (x > maxX) maxX = x
-          if (y < minY) minY = y
-          if (y > maxY) maxY = y
-        }
-      }
-
-      if (maxX < minX || maxY < minY) return null
-      const padding = Math.max(10, Math.round(Math.min(canvas.width, canvas.height) * 0.012))
-      const left = Math.max(0, minX - padding)
-      const top = Math.max(0, minY - padding)
-      const right = Math.min(canvas.width, maxX + padding)
-      const bottom = Math.min(canvas.height, maxY + padding)
-      return {
-        x: left / canvas.width,
-        y: top / canvas.height,
-        width: Math.max(1, right - left) / canvas.width,
-        height: Math.max(1, bottom - top) / canvas.height,
-      }
-    } catch (error) {
-      console.error('Canvas check error')
-      return null
-    }
-  }
-
-  function commitCurrentDrawingToPendingAnnotation() {
+  function commitCurrentDrawingToPendingAnnotation(drawingBounds = getDrawingBounds()) {
     const canvas = annotationCanvas.value
-    if (!canvas) return false
-    const drawingBounds = getCanvasDrawingBounds(canvas)
-    if (!drawingBounds) return false
+    if (!canvas || !drawingBounds) return false
 
     pendingAnnotation.value = canvas.toDataURL('image/png')
     pendingAnnotationTimestamp.value = getPendingAnnotationTimestampValue()
@@ -266,6 +243,7 @@ export function useViewerAnnotationOverlay({
 
   const {
     setDrawingContext,
+    getDrawingBounds,
     startPointerDrawing,
     movePointerDrawing,
     finishPointerDrawing,

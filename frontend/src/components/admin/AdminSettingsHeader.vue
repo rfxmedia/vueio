@@ -28,36 +28,36 @@ defineProps({
 <style scoped>
 .settings-view-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: var(--v-space-4);
+  gap: var(--v-space-6);
   min-width: 0;
-  padding: 16px 18px;
+  padding: 0 0 18px;
   border-bottom: 1px solid var(--v-divider-subtle);
 }
 
 .settings-view-heading {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--v-space-3);
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
   min-width: 0;
 }
 
 .settings-view-icon {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   border-radius: var(--v-radius-md);
   color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-inline));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 20%, transparent);
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-tint));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 16%, transparent);
 }
 
 .settings-view-icon .icon {
-  width: 17px;
-  height: 17px;
+  width: 15px;
+  height: 15px;
 }
 
 .settings-view-copy {
@@ -65,21 +65,24 @@ defineProps({
 }
 
 .settings-eyebrow {
-  margin-bottom: 3px;
+  margin-bottom: 4px;
 }
 
 .settings-view-title {
   margin: 0;
   color: var(--v-text);
-  font-size: var(--v-text-xl);
-  line-height: 1.2;
+  font-size: 22px;
+  font-weight: 740;
+  letter-spacing: -0.018em;
+  line-height: 1.15;
 }
 
 .settings-view-description {
-  margin: 4px 0 0;
+  max-width: 680px;
+  margin: 6px 0 0;
   color: var(--v-text-muted);
-  font-size: var(--v-text-base);
-  line-height: 1.4;
+  font-size: var(--v-text-md);
+  line-height: 1.45;
 }
 
 .settings-view-actions {
@@ -89,6 +92,7 @@ defineProps({
   flex-wrap: wrap;
   gap: var(--v-space-2);
   flex: 0 0 auto;
+  padding-top: 3px;
 }
 
 @media (max-width: 768px) {
@@ -96,27 +100,41 @@ defineProps({
     align-items: flex-start;
     flex-direction: column;
     gap: var(--v-space-3);
-    padding: 13px;
+    padding: 0 0 14px;
   }
 
   .settings-view-heading {
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 11px;
   }
 
   .settings-view-icon {
-    width: 34px;
-    height: 34px;
+    width: 30px;
+    height: 30px;
   }
 
   .settings-view-icon .icon {
-    width: 15px;
-    height: 15px;
+    width: 14px;
+    height: 14px;
+  }
+
+  .settings-view-title {
+    font-size: 20px;
+  }
+
+  .settings-view-description {
+    font-size: var(--v-text-base);
   }
 
   .settings-view-actions {
     width: 100%;
     justify-content: flex-start;
+    padding-top: 0;
+  }
+
+  .settings-view-actions :deep(.v-btn) {
+    flex: 1 1 auto;
+    min-height: 40px;
   }
 }
 </style>

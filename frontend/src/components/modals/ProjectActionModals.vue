@@ -33,7 +33,7 @@
       <section class="v-modal-section create-project-storage">
         <div class="v-modal-section-head">
           <h3 class="v-modal-section-title">Working project folder</h3>
-          <p class="v-modal-section-copy">Choose where Vue should create the new project folder.</p>
+          <p class="v-modal-section-copy">Choose the folder Vue should use for this project. Select an existing folder or create a new one.</p>
         </div>
         <StorageFolderPicker
           v-if="props.projectStorageRoots.length"
@@ -41,6 +41,7 @@
           :model-root="props.newProjectStorageRoot"
           :model-path="props.newProjectStoragePath"
           allow-create
+          :allow-root-selection="false"
           @update:model-root="emit('update:newProjectStorageRoot', $event)"
           @update:model-path="emit('update:newProjectStoragePath', $event)"
         />
@@ -277,7 +278,7 @@ const workingProjectStorageIssue = computed(() => {
 const canCreateProject = computed(() => (
   !!props.newProjectTitle?.trim()
   && workingProjectStorageAvailable.value
-  && props.newProjectStoragePath !== null
+  && !!props.newProjectStoragePath?.trim()
 ))
 
 const renameTargetLabel = computed(() => {

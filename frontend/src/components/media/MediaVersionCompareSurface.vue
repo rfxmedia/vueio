@@ -5,7 +5,7 @@
         <span class="media-compare-kicker">Compare</span>
 
         <div v-if="canSelectPair" class="media-compare-pair" aria-label="Compare pair">
-          <label class="media-compare-slot">
+          <label class="media-compare-slot is-primary">
             <span class="media-compare-slot-pill">
               <span class="media-compare-slot-key">A</span>
               <select
@@ -29,7 +29,7 @@
 
           <span class="media-compare-divider" aria-hidden="true">vs</span>
 
-          <label class="media-compare-slot">
+          <label class="media-compare-slot is-secondary">
             <span class="media-compare-slot-pill">
               <span class="media-compare-slot-key">B</span>
               <select
@@ -234,13 +234,14 @@
 
 <script setup>
 import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useDocumentVisible } from '../../composables/useDocumentVisible'
 import api from '../../lib/api'
 import { clamp } from '../../utils/math'
-import Hls from 'hls.js'
 
 const PREFERRED_START_QUALITY_HEIGHT = 1080
 const HAVE_FUTURE_DATA = 3
 const PLAYBACK_READY_TIMEOUT_MS = 8000
+const STREAM_POLL_DELAYS_MS = [1000, 2000, 5000]
 
 const props = defineProps({
   primaryMedia: { type: Object, required: true },
@@ -320,16 +321,29 @@ const timelineDragging = ref(false)
 
 const primaryState = reactive(createPaneState())
 const secondaryState = reactive(createPaneState())
+const documentVisible = useDocumentVisible()
 
 let primaryHls = null
 let secondaryHls = null
+let primaryAttachRequestId = 0
+let secondaryAttachRequestId = 0
 let primaryPoll = null
 let secondaryPoll = null
+const pollAttempts = { primary: 0, secondary: 0 }
 let setupToken = 0
 let draggingWipe = false
 let playbackRequestToken = 0
 let stallRecoveryQueued = false
 let resumeAfterTimelineDrag = false
+let timelineDragRect = null
+let pendingTimelineClientX = null
+let timelineSeekFrame = 0
+let timelineSeekTimer = 0
+let lastTimelineSeekAt = 0
+let wipeDragRect = null
+let pendingWipeClientX = null
+let wipeMoveFrame = 0
+const COMPARE_TIMELINE_SEEK_INTERVAL_MS = 80
 
 const primaryFamily = computed(() => getMediaFamily(props.primaryMedia))
 const secondaryFamily = computed(() => getMediaFamily(props.secondaryMedia))
@@ -363,6 +377,18 @@ watch(() => props.mode, () => {
     attachReadyVideo('primary')
     attachReadyVideo('secondary')
   })
+})
+
+watch(documentVisible, (visible) => {
+  if (!visible) {
+    clearPanePoll('primary', { resetBackoff: false })
+    clearPanePoll('secondary', { resetBackoff: false })
+    return
+  }
+
+  const token = setupToken
+  if (primaryState.loading) void setupPane('primary', props.primaryMedia, primaryState, token)
+  if (secondaryState.loading) void setupPane('secondary', props.secondaryMedia, secondaryState, token)
 })
 
 onMounted(() => {
@@ -444,7 +470,7 @@ async function setupPane(side, media, state, token) {
   try {
     const { data } = await api.get(routes.statusUrl)
     if (token !== setupToken) return
-    handleStatus(side, media, state, routes, data, token)
+    handleStatus(side, media, state, routes, data, token, { resetBackoff: true })
   } catch (error) {
     if (token === setupToken) {
       state.loading = false
@@ -454,9 +480,10 @@ async function setupPane(side, media, state, token) {
   }
 }
 
-function handleStatus(side, media, state, routes, data, token) {
+function handleStatus(side, media, state, routes, data, token, { schedulePoll = true, resetBackoff = false } = {}) {
   const status = String(data?.status || '').toLowerCase()
   if (status === 'complete') {
+    clearPanePoll(side)
     state.loading = false
     state.ready = true
     state.progress = data?.progress || 100
@@ -465,6 +492,7 @@ function handleStatus(side, media, state, routes, data, token) {
   }
 
   if (status === 'error') {
+    clearPanePoll(side)
     state.loading = false
     state.progress = 0
     state.error = 'Encoding failed'
@@ -473,41 +501,53 @@ function handleStatus(side, media, state, routes, data, token) {
 
   state.loading = true
   state.progress = data?.progress || 0
-  startPolling(side, media, state, routes, token)
+  if (schedulePoll) startPolling(side, media, state, routes, token, { resetBackoff })
 }
 
-function startPolling(side, media, state, routes, token) {
-  clearPanePoll(side)
-  const poll = setInterval(async () => {
+function startPolling(side, media, state, routes, token, { resetBackoff = false } = {}) {
+  clearPanePoll(side, { resetBackoff })
+  if (!documentVisible.value) return
+
+  const delay = STREAM_POLL_DELAYS_MS[pollAttempts[side]]
+  const poll = setTimeout(async () => {
     try {
       const { data } = await api.get(routes.statusUrl)
       if (token !== setupToken) return
-      handleStatus(side, media, state, routes, data, token)
-      if (String(data?.status || '').toLowerCase() === 'complete' || String(data?.status || '').toLowerCase() === 'error') {
-        clearPanePoll(side)
+      const status = String(data?.status || '').toLowerCase()
+      handleStatus(side, media, state, routes, data, token, { schedulePoll: false })
+      if (status !== 'complete' && status !== 'error') {
+        pollAttempts[side] = Math.min(pollAttempts[side] + 1, STREAM_POLL_DELAYS_MS.length - 1)
+        startPolling(side, media, state, routes, token)
       }
     } catch {
-      if (token === setupToken) state.progress = 0
+      if (token === setupToken) {
+        state.progress = 0
+        pollAttempts[side] = Math.min(pollAttempts[side] + 1, STREAM_POLL_DELAYS_MS.length - 1)
+        startPolling(side, media, state, routes, token)
+      }
     }
-  }, 1000)
+  }, delay)
 
   if (side === 'primary') primaryPoll = poll
   else secondaryPoll = poll
 }
 
-function clearPanePoll(side) {
+function clearPanePoll(side, { resetBackoff = true } = {}) {
   if (side === 'primary' && primaryPoll) {
-    clearInterval(primaryPoll)
+    clearTimeout(primaryPoll)
     primaryPoll = null
   }
   if (side === 'secondary' && secondaryPoll) {
-    clearInterval(secondaryPoll)
+    clearTimeout(secondaryPoll)
     secondaryPoll = null
   }
+  if (resetBackoff) pollAttempts[side] = 0
 }
 
 function cleanupPane(side) {
   clearPanePoll(side)
+  if (side === 'primary') primaryAttachRequestId += 1
+  else secondaryAttachRequestId += 1
   if (side === 'primary' && primaryHls) {
     primaryHls.destroy()
     primaryHls = null
@@ -519,29 +559,51 @@ function cleanupPane(side) {
 }
 
 function setPrimaryVideoRef(el) {
+  if (!el) cleanupPane('primary')
   primaryVideoRef.value = el
-  attachReadyVideo('primary')
+  void attachReadyVideo('primary')
 }
 
 function setSecondaryVideoRef(el) {
+  if (!el) cleanupPane('secondary')
   secondaryVideoRef.value = el
-  attachReadyVideo('secondary')
+  void attachReadyVideo('secondary')
 }
 
-function attachReadyVideo(side) {
+async function attachReadyVideo(side) {
   const state = side === 'primary' ? primaryState : secondaryState
   const video = side === 'primary' ? primaryVideoRef.value : secondaryVideoRef.value
   if (mediaFamily.value !== 'video' || !state.ready || !state.mediaUrl || !video) return
   if (state.attachedUrl === state.mediaUrl && state.attachedVideo === video) return
 
   cleanupPane(side)
+  const requestId = side === 'primary' ? primaryAttachRequestId : secondaryAttachRequestId
   state.attachedUrl = state.mediaUrl
   state.attachedVideo = video
-  if (Hls.isSupported()) {
+
+  let Hls
+  try {
+    const hlsModule = await import('hls.js')
+    Hls = hlsModule.default
+  } catch {
+    Hls = null
+  }
+  const currentRequestId = side === 'primary' ? primaryAttachRequestId : secondaryAttachRequestId
+  if (
+    requestId !== currentRequestId
+    || state.attachedUrl !== state.mediaUrl
+    || state.attachedVideo !== video
+  ) return
+
+  if (Hls?.isSupported()) {
     const hls = new Hls({
       enableWorker: true,
       lowLatencyMode: false,
-      backBufferLength: 90,
+      // Two panes run side by side, so each gets half the solo player's caps.
+      maxBufferLength: 15,
+      maxMaxBufferLength: 45,
+      maxBufferSize: 10 * 1000 * 1000,
+      backBufferLength: 15,
       autoStartLoad: false,
       startFragPrefetch: true,
     })
@@ -740,23 +802,25 @@ function startTimelineDrag(event) {
   if (!canPlayVideoPair.value || !clampedDuration.value) return
   resumeAfterTimelineDrag = isPlaying.value
   timelineDragging.value = true
+  timelineDragRect = timelineRef.value?.getBoundingClientRect?.() || null
   if (resumeAfterTimelineDrag) pauseBoth()
-  seekFromTimelineClientX(event.clientX)
+  seekFromTimelineClientX(event.clientX, timelineDragRect)
   window.addEventListener('mousemove', handleTimelineMouseMove)
   window.addEventListener('mouseup', stopTimelineDrag, { once: true })
 }
 
 function handleTimelineMouseMove(event) {
   if (!timelineDragging.value) return
-  seekFromTimelineClientX(event.clientX)
+  scheduleTimelineSeek(event.clientX)
 }
 
 function startTimelineTouch(event) {
   if (!canPlayVideoPair.value || !clampedDuration.value) return
   resumeAfterTimelineDrag = isPlaying.value
   timelineDragging.value = true
+  timelineDragRect = timelineRef.value?.getBoundingClientRect?.() || null
   if (resumeAfterTimelineDrag) pauseBoth()
-  seekFromTimelineClientX(event.touches?.[0]?.clientX)
+  seekFromTimelineClientX(event.touches?.[0]?.clientX, timelineDragRect)
   window.addEventListener('touchmove', handleTimelineTouchMove, { passive: false })
   window.addEventListener('touchend', stopTimelineDrag, { once: true })
   window.addEventListener('touchcancel', stopTimelineDrag, { once: true })
@@ -765,11 +829,13 @@ function startTimelineTouch(event) {
 function handleTimelineTouchMove(event) {
   if (!timelineDragging.value) return
   event.preventDefault()
-  seekFromTimelineClientX(event.touches?.[0]?.clientX)
+  scheduleTimelineSeek(event.touches?.[0]?.clientX)
 }
 
 function stopTimelineDrag() {
+  flushPendingTimelineSeek()
   timelineDragging.value = false
+  timelineDragRect = null
   removeTimelineListeners()
   if (!resumeAfterTimelineDrag) return
   resumeAfterTimelineDrag = false
@@ -782,13 +848,43 @@ function removeTimelineListeners() {
   window.removeEventListener('touchmove', handleTimelineTouchMove)
   window.removeEventListener('touchend', stopTimelineDrag)
   window.removeEventListener('touchcancel', stopTimelineDrag)
+  if (timelineSeekFrame) window.cancelAnimationFrame(timelineSeekFrame)
+  if (timelineSeekTimer) window.clearTimeout(timelineSeekTimer)
+  timelineSeekFrame = 0
+  timelineSeekTimer = 0
 }
 
-function seekFromTimelineClientX(clientX) {
+function seekFromTimelineClientX(clientX, cachedRect = null) {
   if (!timelineRef.value || !clampedDuration.value || Number.isNaN(Number(clientX))) return
-  const rect = timelineRef.value.getBoundingClientRect()
+  const rect = cachedRect || timelineRef.value.getBoundingClientRect()
+  if (!rect.width) return
   const ratio = clamp((Number(clientX) - rect.left) / rect.width, 0, 1)
   seekBoth(clampedDuration.value * ratio)
+  lastTimelineSeekAt = Date.now()
+}
+
+function flushPendingTimelineSeek() {
+  if (pendingTimelineClientX == null) return
+  const clientX = pendingTimelineClientX
+  pendingTimelineClientX = null
+  seekFromTimelineClientX(clientX, timelineDragRect)
+}
+
+function scheduleTimelineSeek(clientX) {
+  if (Number.isNaN(Number(clientX))) return
+  pendingTimelineClientX = clientX
+  if (timelineSeekFrame || timelineSeekTimer) return
+
+  const remaining = Math.max(0, COMPARE_TIMELINE_SEEK_INTERVAL_MS - (Date.now() - lastTimelineSeekAt))
+  const requestFlush = () => {
+    timelineSeekTimer = 0
+    timelineSeekFrame = window.requestAnimationFrame(() => {
+      timelineSeekFrame = 0
+      flushPendingTimelineSeek()
+    })
+  }
+  if (remaining) timelineSeekTimer = window.setTimeout(requestFlush, remaining)
+  else requestFlush()
 }
 
 function nudgeTimeline(deltaSeconds) {
@@ -831,24 +927,47 @@ function formatSeconds(seconds) {
 function startWipeDrag(event) {
   if (props.mode !== 'wipe' || !wipeStageRef.value) return
   draggingWipe = true
-  updateWipeFromEvent(event)
+  wipeDragRect = wipeStageRef.value.getBoundingClientRect()
+  updateWipeFromClientX(event.clientX)
   window.addEventListener('pointermove', updateWipeFromEvent)
   window.addEventListener('pointerup', stopWipeDrag, { once: true })
 }
 
 function updateWipeFromEvent(event) {
-  if (!draggingWipe || !wipeStageRef.value) return
-  const rect = wipeStageRef.value.getBoundingClientRect()
-  const next = ((event.clientX - rect.left) / rect.width) * 100
+  if (!draggingWipe || !wipeDragRect) return
+  pendingWipeClientX = event.clientX
+  if (wipeMoveFrame) return
+  wipeMoveFrame = window.requestAnimationFrame(() => {
+    wipeMoveFrame = 0
+    if (pendingWipeClientX == null) return
+    const clientX = pendingWipeClientX
+    pendingWipeClientX = null
+    updateWipeFromClientX(clientX)
+  })
+}
+
+function updateWipeFromClientX(clientX) {
+  const rect = wipeDragRect
+  if (!rect?.width) return
+  const next = ((clientX - rect.left) / rect.width) * 100
   wipePercent.value = clamp(next, 5, 95)
 }
 
 function stopWipeDrag() {
+  if (wipeMoveFrame) window.cancelAnimationFrame(wipeMoveFrame)
+  wipeMoveFrame = 0
+  if (pendingWipeClientX != null) updateWipeFromClientX(pendingWipeClientX)
+  pendingWipeClientX = null
+  wipeDragRect = null
   draggingWipe = false
   removeWipeListeners()
 }
 
 function removeWipeListeners() {
   window.removeEventListener('pointermove', updateWipeFromEvent)
+  if (wipeMoveFrame) window.cancelAnimationFrame(wipeMoveFrame)
+  wipeMoveFrame = 0
+  pendingWipeClientX = null
+  wipeDragRect = null
 }
 </script>

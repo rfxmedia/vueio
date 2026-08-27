@@ -116,7 +116,9 @@
         :new-comment="newComment"
         :user-name-input="userNameInput"
         :drawing-color="drawingColor"
-        v-bind="{ ...commentsPanelProps, currentUser, isAdmin }"
+        :current-user="currentUser"
+        :is-admin="isAdmin"
+        v-bind="commentsPanelProps"
         @update:new-comment="$emit('update:newComment', $event)"
         @update:user-name-input="$emit('update:userNameInput', $event)"
         @update:drawing-color="$emit('update:drawingColor', $event)"
@@ -161,7 +163,7 @@ const props = defineProps({
   commentsPanelProps: { type: Object, required: true },
   sidebarTab: { type: String, default: 'comments' },
   sidebarTabs: { type: Array, default: () => [] },
-  sidebarTabVariant: { type: String, default: 'segmented' },
+  sidebarTabVariant: { type: String, default: 'rail' },
   newComment: { type: String, default: '' },
   userNameInput: { type: String, default: '' },
   drawingColor: { type: String, default: '#ff3b30' },

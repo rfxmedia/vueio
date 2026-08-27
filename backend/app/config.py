@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     DATABASE_URL: Optional[str] = None
     APP_ENV: str = 'development'
     VUEIO_VERSION: str = 'development'
+    VUEIO_CHANNEL: str = 'stable'
     VUEIO_UPDATE_REPOSITORY: str = ''
     VUEIO_UPDATE_GITHUB_TOKEN: str = ''
     VUEIO_HIDDEN_STORAGE_FOLDERS: str = '.vueio,_gsdata_,.DS_Store'
@@ -54,6 +55,7 @@ class Settings(BaseSettings):
     PUBLIC_COMMENT_CREATE_RATE_LIMIT: str = '60/hour'
     PUBLIC_COMMENT_BATCH_RATE_LIMIT: str = '240/minute'
     PUBLIC_SHARE_PASSWORD_RATE_LIMIT: str = '30/minute'
+    PUBLIC_TRACKER_VIEW_RATE_LIMIT: str = '120/minute'
     VUEIO_TRUST_PROXY_HEADERS: bool = False
     VUEIO_TRUST_CLOUDFLARE: bool = False
     PROJECT_DIRECTORY_MODE: str = '0777'
@@ -105,6 +107,7 @@ class Settings(BaseSettings):
             'PUBLIC_COMMENT_CREATE_RATE_LIMIT',
             'PUBLIC_COMMENT_BATCH_RATE_LIMIT',
             'PUBLIC_SHARE_PASSWORD_RATE_LIMIT',
+            'PUBLIC_TRACKER_VIEW_RATE_LIMIT',
         ):
             try:
                 parse(getattr(self, name))

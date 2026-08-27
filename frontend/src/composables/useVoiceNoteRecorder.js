@@ -125,9 +125,22 @@ export function useVoiceNoteRecorder() {
     levels.value = Array.from({ length: LEVEL_BAR_COUNT }, () => 0.08)
   }
 
+  // The meter renders 16 bars; feeding it faster than ~20Hz just re-renders
+  // the comments panel per animation frame for no visible gain.
+  const LEVEL_UPDATE_INTERVAL_MS = 50
+  let levelBins = null
+  let lastLevelUpdate = 0
+
   function updateLevels() {
     if (!analyser || state.value !== 'recording') return
-    const bins = new Uint8Array(analyser.frequencyBinCount)
+    animationFrame = requestAnimationFrame(updateLevels)
+    const now = performance.now()
+    if (now - lastLevelUpdate < LEVEL_UPDATE_INTERVAL_MS) return
+    lastLevelUpdate = now
+    if (!levelBins || levelBins.length !== analyser.frequencyBinCount) {
+      levelBins = new Uint8Array(analyser.frequencyBinCount)
+    }
+    const bins = levelBins
     analyser.getByteFrequencyData(bins)
     levels.value = Array.from({ length: LEVEL_BAR_COUNT }, (_, bar) => {
       const start = Math.floor(bar * bins.length / LEVEL_BAR_COUNT)
@@ -136,7 +149,6 @@ export function useVoiceNoteRecorder() {
       for (let index = start; index < end; index += 1) sum += bins[index]
       return Math.max(0.08, Math.min(1, sum / Math.max(1, end - start) / 160))
     })
-    animationFrame = requestAnimationFrame(updateLevels)
   }
 
   async function finalizeRecording(recordingId) {

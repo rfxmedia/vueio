@@ -5,6 +5,7 @@ import logging
 import time
 from typing import Any
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.models import Comment, HorizonProject, HorizonShot, HorizonShotVersion, HorizonTracker, TrackerEvent
@@ -22,7 +23,11 @@ def _normalize_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
 def _json_payload(value: str | None) -> dict[str, Any]:
     if not value:
         return {}
-    return json.loads(value)
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def create_tracker_event(
@@ -40,6 +45,12 @@ def create_tracker_event(
     payload: dict[str, Any] | None = None,
     created_at: float | None = None,
 ) -> TrackerEvent:
+    from app.services.tracker_history import TRACKER_STATE_EVENT_TYPES, lock_tracker_for_history
+
+    if event_type in TRACKER_STATE_EVENT_TYPES:
+        # All restorable mutations share this row lock with full History
+        # restores, giving snapshots one unambiguous order under concurrency.
+        lock_tracker_for_history(db, project_id=project_id, tracker_id=tracker_id)
     event = TrackerEvent(
         project_id=project_id,
         tracker_id=tracker_id,
@@ -55,6 +66,8 @@ def create_tracker_event(
     )
     db.add(event)
     db.flush()
+    from app.services.tracker_history import capture_tracker_event_state
+    capture_tracker_event_state(db, event)
     try:
         from app.services.notifications import enqueue_tracker_event_deliveries
         enqueue_tracker_event_deliveries(db, event)
@@ -114,13 +127,15 @@ def get_tracker_event_context_for_version(
             .first()
         )
     elif media_asset_id:
-        version = (
+        versions = (
             db.query(HorizonShotVersion)
             .filter(HorizonShotVersion.project_id == project_id)
             .filter(HorizonShotVersion.media_asset_id == media_asset_id)
             .order_by(HorizonShotVersion.updated_at.desc(), HorizonShotVersion.created_at.desc(), HorizonShotVersion.id.asc())
-            .first()
+            .limit(2)
+            .all()
         )
+        version = versions[0] if len(versions) == 1 else None
     if version is None:
         return None
 
@@ -150,6 +165,32 @@ def get_tracker_event_context_for_version(
         'shot_version_id': version.id,
         'version_label': version.label,
     }
+
+
+def lock_tracker_for_comment_target(
+    db: Session,
+    *,
+    project_id: str | None,
+    shot_version_id: str | None = None,
+    media_asset_id: str | None = None,
+) -> dict[str, str] | None:
+    if not project_id:
+        return None
+    context = get_tracker_event_context_for_version(
+        db,
+        project_id=project_id,
+        shot_version_id=shot_version_id,
+        media_asset_id=media_asset_id,
+    )
+    if context is not None:
+        from app.services.tracker_history import prepare_tracker_history_mutation
+
+        prepare_tracker_history_mutation(
+            db,
+            project_id=project_id,
+            tracker_id=context['tracker_id'],
+        )
+    return context
 
 
 def _event_shots_for_visibility(
@@ -204,6 +245,10 @@ def _summary_for_event(event_type: str, payload: dict[str, Any]) -> str:
     tag = payload.get('new_value') if event_type == 'category_changed' else payload.get('tag') or payload.get('category')
     assignee_name = payload.get('assignee_name') or payload.get('new_value')
 
+    if event_type == 'tracker_checkpoint':
+        if payload.get('reason') == 'before_restore':
+            return 'Saved tracker before restore'
+        return 'Saved initial tracker state'
     if event_type == 'shot_created':
         return f'Created {shot_code}'
     if event_type == 'shot_deleted':
@@ -258,6 +303,9 @@ def _summary_for_event(event_type: str, payload: dict[str, Any]) -> str:
     if event_type == 'status_changed_bulk':
         return f'Changed status on {payload.get("count", 0)} shots to {payload.get("new_label") or payload.get("new_value")}'
     if event_type == 'shots_bulk_updated':
+        if payload.get('archive_action') in {'archived', 'restored'}:
+            action = 'Archived' if payload.get('archive_action') == 'archived' else 'Restored'
+            return f'{action} {payload.get("count", 0)} shots'
         fields = payload.get('fields') if isinstance(payload.get('fields'), list) else []
         field_label = ', '.join(str(field).replace('_', ' ') for field in fields) if fields else 'shot fields'
         return f'Updated {field_label} on {payload.get("count", 0)} shots'
@@ -272,6 +320,13 @@ def _summary_for_event(event_type: str, payload: dict[str, Any]) -> str:
     if event_type == 'download_started':
         resource = payload.get('resource_name') or payload.get('filename') or 'tracker files'
         return f'Downloaded {resource}'
+    if event_type == 'tracker_updated':
+        return 'Updated tracker settings'
+    if event_type == 'tracker_restored':
+        target = payload.get('restored_to_summary') or 'an earlier point'
+        return f'Restored tracker to {target}'
+    if event_type == 'versions_updated':
+        return f'Updated versions for {shot_code}'
     return event_type.replace('_', ' ')
 
 
@@ -320,13 +375,55 @@ def _navigation_target_for_event(event: TrackerEvent, payload: dict[str, Any]) -
     return target
 
 
+def _safe_activity_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return the small, presentation-only subset safe outside the owning team."""
+    safe: dict[str, Any] = {}
+    for key in ('shot_code', 'version_label', 'count'):
+        value = payload.get(key)
+        if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+            safe[key] = value
+
+    shots = payload.get('shots')
+    if isinstance(shots, list):
+        safe_shots = []
+        for shot in shots:
+            if not isinstance(shot, dict):
+                continue
+            safe_shot = {
+                key: shot.get(key)
+                for key in ('shot_code', 'version_label')
+                if isinstance(shot.get(key), str)
+            }
+            if safe_shot:
+                safe_shots.append(safe_shot)
+        safe['shots'] = safe_shots
+        safe['count'] = len(safe_shots)
+    return safe
+
+
+def _safe_activity_summary(event_type: str, payload: dict[str, Any], summary: str) -> str:
+    shot_code = payload.get('shot_code') or 'shot'
+    if event_type == 'assignee_changed':
+        return f'Updated assignments on {shot_code}'
+    if event_type == 'shot_renamed':
+        return f'Renamed {shot_code}'
+    if event_type == 'download_started':
+        return 'Downloaded tracker files'
+    return summary
+
+
 def serialize_tracker_event(
     event: TrackerEvent,
     *,
     visible_shot_ids: set[str] | None = None,
     visible_version_ids: set[str] | None = None,
+    audience: str = 'internal',
+    restoreable: bool = False,
+    current_point: bool = False,
+    recovery_unavailable_reason: str | None = None,
 ) -> dict[str, Any] | None:
     payload = _json_payload(event.payload_json)
+    payload.pop('_history_comment_id', None)
     if not _event_visible(event, payload, visible_shot_ids, visible_version_ids):
         return None
 
@@ -335,7 +432,11 @@ def serialize_tracker_event(
         payload['count'] = len(payload['shots'])
 
     summary = _summary_for_event(event.event_type, payload)
-    return {
+    target = _navigation_target_for_event(event, payload)
+    is_safe_audience = audience in {'public', 'restricted'}
+    if is_safe_audience:
+        summary = _safe_activity_summary(event.event_type, payload, summary)
+    serialized = {
         'id': event.id,
         'project_id': event.project_id,
         'tracker_id': event.tracker_id,
@@ -346,11 +447,28 @@ def serialize_tracker_event(
         'actor_id': event.actor_id,
         'actor_name': event.actor_name,
         'source': event.source,
+        'restoreable': bool(restoreable),
+        'current_point': bool(current_point),
         'created_at': event.created_at,
-        'payload': payload,
+        'payload': _safe_activity_payload(payload) if is_safe_audience else payload,
         'summary': summary,
-        'target': _navigation_target_for_event(event, payload),
+        'target': target,
     }
+    if audience == 'internal' and recovery_unavailable_reason:
+        serialized['recovery_unavailable'] = True
+        serialized['recovery_unavailable_reason'] = recovery_unavailable_reason
+    if audience == 'public':
+        serialized.update({
+            'actor_id': None,
+            'actor_name': 'Shared reviewer' if event.source == 'share' else 'Team member',
+            'restoreable': False,
+            'current_point': False,
+        })
+    elif audience == 'restricted':
+        serialized['actor_id'] = None
+        serialized['restoreable'] = False
+        serialized['current_point'] = False
+    return serialized
 
 
 def list_tracker_activity(
@@ -360,13 +478,30 @@ def list_tracker_activity(
     tracker_id: str,
     limit: int | None = None,
     before: float | None = None,
+    before_id: int | None = None,
     visible_shot_ids: set[str] | None = None,
     visible_version_ids: set[str] | None = None,
+    audience: str = 'internal',
 ) -> dict[str, Any]:
     page_limit = max(1, min(int(limit or TRACKER_EVENT_PAGE_LIMIT_DEFAULT), TRACKER_EVENT_PAGE_LIMIT_MAX))
     items = []
     cursor = before
+    cursor_id = before_id
     next_before = None
+    next_before_id = None
+    current_state_event_id = None
+    if audience == 'internal':
+        from app.services.tracker_history import TRACKER_STATE_EVENT_TYPES
+
+        current_state_event_id = (
+            db.query(TrackerEvent.id)
+            .filter(TrackerEvent.project_id == project_id)
+            .filter(TrackerEvent.tracker_id == tracker_id)
+            .filter(TrackerEvent.event_type.in_(TRACKER_STATE_EVENT_TYPES))
+            .order_by(TrackerEvent.created_at.desc(), TrackerEvent.id.desc())
+            .limit(1)
+            .scalar()
+        )
 
     while len(items) < page_limit:
         query = (
@@ -375,7 +510,13 @@ def list_tracker_activity(
             .filter(TrackerEvent.tracker_id == tracker_id)
         )
         if cursor is not None:
-            query = query.filter(TrackerEvent.created_at < cursor)
+            if cursor_id is None:
+                query = query.filter(TrackerEvent.created_at < cursor)
+            else:
+                query = query.filter(or_(
+                    TrackerEvent.created_at < cursor,
+                    and_(TrackerEvent.created_at == cursor, TrackerEvent.id < cursor_id),
+                ))
         rows = (
             query
             .order_by(TrackerEvent.created_at.desc(), TrackerEvent.id.desc())
@@ -384,14 +525,52 @@ def list_tracker_activity(
         )
         if not rows:
             next_before = None
+            next_before_id = None
             break
 
+        restoreable_event_ids: set[int] = set()
+        if audience == 'internal':
+            from app.services.tracker_history import (
+                is_tracker_snapshot_hash,
+                snapshot_unavailable_reason,
+            )
+            row_ids = [int(row.id) for row in rows[:page_limit] if row.id is not None]
+            stored_snapshot_ids = {
+                int(event_id)
+                for (event_id,) in db.query(TrackerEvent.id).filter(
+                    TrackerEvent.id.in_(row_ids),
+                    TrackerEvent.state_snapshot.isnot(None),
+                ).all()
+            } if row_ids else set()
+            restoreable_event_ids = {
+                int(row.id) for row in rows[:page_limit]
+                if (
+                    row.id is not None
+                    and int(row.id) in stored_snapshot_ids
+                    and is_tracker_snapshot_hash(row.state_hash)
+                )
+            }
         for row in rows[:page_limit]:
             cursor = row.created_at
+            cursor_id = row.id
+            unavailable_reason = None
+            if audience == 'internal':
+                unavailable_reason = snapshot_unavailable_reason(row.state_hash)
+                if (
+                    unavailable_reason is None
+                    and row.event_type in TRACKER_STATE_EVENT_TYPES
+                    and row.id not in restoreable_event_ids
+                    and (row.id != current_state_event_id or row.state_hash is not None)
+                ):
+                    unavailable_reason = 'legacy' if row.state_hash is None else 'unavailable'
             serialized = serialize_tracker_event(
                 row,
                 visible_shot_ids=visible_shot_ids,
                 visible_version_ids=visible_version_ids,
+                audience=audience,
+                restoreable=row.id in restoreable_event_ids,
+                current_point=row.id == current_state_event_id,
+                recovery_unavailable_reason=unavailable_reason,
             )
             if serialized is not None:
                 items.append(serialized)
@@ -400,17 +579,21 @@ def list_tracker_activity(
 
         if len(items) == page_limit:
             next_before = cursor
+            next_before_id = cursor_id
             break
 
         if len(rows) <= page_limit:
             next_before = None
+            next_before_id = None
             break
 
         cursor = rows[page_limit - 1].created_at
+        cursor_id = rows[page_limit - 1].id
 
     return {
         'items': items,
         'next_before': next_before,
+        'next_before_id': next_before_id,
     }
 
 
@@ -421,16 +604,18 @@ def list_global_tracker_activity(
     auth_mode: str | None = None,
     limit: int | None = None,
     before: float | None = None,
+    before_id: int | None = None,
 ) -> dict[str, Any]:
     from app.services.horizons_fresh import (
         get_horizon_project_access_role,
+        is_restricted_horizon_artist,
         list_visible_horizon_projects,
     )
 
     page_limit = max(1, min(int(limit or TRACKER_EVENT_PAGE_LIMIT_DEFAULT), TRACKER_EVENT_PAGE_LIMIT_MAX))
     projects = list_visible_horizon_projects(db, user, auth_mode=auth_mode)
     if not projects:
-        return {'items': [], 'next_before': None}
+        return {'items': [], 'next_before': None, 'next_before_id': None}
 
     project_map: dict[str, HorizonProject] = {project.id: project for project in projects}
     access_roles = {
@@ -463,13 +648,25 @@ def list_global_tracker_activity(
 
     items = []
     cursor = before
+    cursor_id = before_id
     next_before = None
+    next_before_id = None
     batch_limit = min(max(page_limit * 3, 50), 300)
 
     while len(items) < page_limit:
-        query = db.query(TrackerEvent).filter(TrackerEvent.project_id.in_(project_ids))
+        query = (
+            db.query(TrackerEvent)
+            .filter(TrackerEvent.project_id.in_(project_ids))
+            .filter(TrackerEvent.event_type != 'tracker_checkpoint')
+        )
         if cursor is not None:
-            query = query.filter(TrackerEvent.created_at < cursor)
+            if cursor_id is None:
+                query = query.filter(TrackerEvent.created_at < cursor)
+            else:
+                query = query.filter(or_(
+                    TrackerEvent.created_at < cursor,
+                    and_(TrackerEvent.created_at == cursor, TrackerEvent.id < cursor_id),
+                ))
 
         rows = (
             query
@@ -479,10 +676,12 @@ def list_global_tracker_activity(
         )
         if not rows:
             next_before = None
+            next_before_id = None
             break
 
         for row in rows:
             cursor = row.created_at
+            cursor_id = row.id
             project = project_map.get(row.project_id)
             tracker = tracker_map.get((row.project_id, row.tracker_id))
             if project is None or tracker is None:
@@ -491,6 +690,7 @@ def list_global_tracker_activity(
             serialized = serialize_tracker_event(
                 row,
                 visible_shot_ids=visible_shot_ids_for(row.project_id, row.tracker_id),
+                audience='restricted' if is_restricted_horizon_artist(user, access_roles.get(row.project_id)) else 'internal',
             )
             if serialized is None:
                 continue
@@ -509,14 +709,17 @@ def list_global_tracker_activity(
 
         if len(items) == page_limit:
             next_before = cursor
+            next_before_id = cursor_id
             break
         if len(rows) < batch_limit:
             next_before = None
+            next_before_id = None
             break
 
     return {
         'items': items,
         'next_before': next_before,
+        'next_before_id': next_before_id,
     }
 
 
@@ -565,6 +768,13 @@ def record_comment_tracker_event(
     )
     if context is None:
         return None
+    if not comment.horizons_shot_version_id:
+        # A media asset that maps to exactly one tracker version is the same
+        # logical target. Persist that stable version identity so History can
+        # capture and restore the comment without treating it as global media.
+        comment.horizons_shot_version_id = context['shot_version_id']
+        db.add(comment)
+        db.flush()
 
     payload = {
         'shot_id': context['shot_id'],

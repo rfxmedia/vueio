@@ -233,22 +233,19 @@ function handleLogoError(event) {
   border: 1px solid color-mix(in srgb, var(--v-accent) 26%, transparent);
   border-radius: var(--v-radius-full);
   color: color-mix(in srgb, var(--v-accent) 78%, var(--v-text));
-  background: color-mix(in srgb, var(--v-bg-black) 56%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 74%, transparent);
   font-size: var(--v-text-2xs);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  backdrop-filter: blur(10px);
 }
 
 :global(.main-wrapper:has(.tracker-delivery) .unified-nav .share-origin-badge) {
   max-width: min(56vw, 460px);
   height: 22px;
   border-color: color-mix(in srgb, var(--v-accent) 18%, transparent);
-  background: color-mix(in srgb, var(--v-bg-black) 42%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 66%, transparent);
   color: color-mix(in srgb, var(--v-text-secondary) 82%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
 }
 
 :global(.main-wrapper:has(.tracker-delivery) .unified-nav .nav-center:not(.share-origin-center)),
@@ -311,7 +308,6 @@ function handleLogoError(event) {
   animation:
     td-image-arrive 1500ms var(--td-ease) both,
     td-image-breathe 26s ease-in-out 1500ms infinite alternate;
-  will-change: transform;
 }
 
 .td-stage-empty {
@@ -442,7 +438,7 @@ function handleLogoError(event) {
   border: 1px solid color-mix(in srgb, var(--v-text) 14%, transparent);
   background:
     linear-gradient(140deg, color-mix(in srgb, var(--v-accent) 22%, transparent) 0%, transparent 60%),
-    color-mix(in srgb, var(--v-bg-black) 60%, transparent);
+    color-mix(in srgb, var(--v-bg-black) 78%, transparent);
   color: var(--v-text);
   font-size: var(--v-text-xl);
   font-weight: 800;
@@ -450,7 +446,6 @@ function handleLogoError(event) {
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.07),
     0 12px 32px rgba(0, 0, 0, 0.36);
-  backdrop-filter: blur(14px);
 }
 
 .td-mark-divider {
@@ -540,12 +535,11 @@ function handleLogoError(event) {
   border-radius: var(--v-radius-md);
   border: 1px solid color-mix(in srgb, var(--v-text) 8%, transparent);
   border-left: 2px solid color-mix(in srgb, var(--v-accent) 60%, transparent);
-  background: color-mix(in srgb, var(--v-bg-black) 36%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 62%, transparent);
   color: color-mix(in srgb, var(--v-text-secondary) 92%, var(--v-text));
   font-size: var(--v-text-md);
   line-height: 1.6;
   white-space: pre-wrap;
-  backdrop-filter: blur(10px);
   opacity: 0;
   animation: td-rise 800ms var(--td-ease) 380ms forwards;
 }
@@ -571,8 +565,7 @@ function handleLogoError(event) {
   border: 1px solid color-mix(in srgb, var(--v-text) 10%, transparent);
   background:
     linear-gradient(140deg, color-mix(in srgb, var(--v-text) 4%, transparent), transparent 60%),
-    color-mix(in srgb, var(--v-bg-black) 50%, transparent);
-  backdrop-filter: blur(12px) saturate(1.08);
+    color-mix(in srgb, var(--v-bg-black) 70%, transparent);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 14px 28px rgba(0, 0, 0, 0.18);
@@ -764,14 +757,13 @@ function handleLogoError(event) {
   padding: 0 22px 0 20px;
   border-radius: var(--v-button-radius);
   border: 1px solid color-mix(in srgb, var(--v-text) 14%, transparent);
-  background: color-mix(in srgb, var(--v-bg-black) 32%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 58%, transparent);
   color: var(--v-text);
   font-family: var(--v-font);
   font-size: var(--v-text-md);
   font-weight: 700;
   letter-spacing: 0;
   cursor: pointer;
-  backdrop-filter: blur(14px);
   transition:
     border-color 220ms var(--td-ease),
     background 220ms var(--td-ease),
@@ -845,13 +837,12 @@ function handleLogoError(event) {
   padding: 0 13px;
   border-radius: var(--v-button-radius);
   border: 1px solid color-mix(in srgb, var(--v-text) 10%, transparent);
-  background: color-mix(in srgb, var(--v-bg-black) 38%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 62%, transparent);
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
   font-weight: 650;
   letter-spacing: 0.02em;
   text-decoration: none;
-  backdrop-filter: blur(10px);
   transition:
     color 200ms var(--td-ease),
     border-color 200ms var(--td-ease),

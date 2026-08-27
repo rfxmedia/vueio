@@ -4,10 +4,14 @@ import router from './router'
 import './assets/main.css'
 import './assets/admin.css'
 import { loadAndApplyStoredTheme } from './utils/themeManager'
+import api from './lib/api'
+import { installConnectionRecovery } from './lib/connectionRecovery'
 
 const STARTUP_ERROR_PREFIX = '[vue.io startup crash]'
 const RUNTIME_ERROR_PREFIX = '[vue.io runtime error]'
 let appMounted = false
+
+installConnectionRecovery(api)
 
 function renderStartupCrash(title) {
   const target = document.querySelector('#app')

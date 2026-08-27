@@ -1,13 +1,14 @@
 <template>
-  <div class="comments-section">
+  <div class="comments-section" :class="{ 'is-empty': commentsWithSegments.length === 0 }">
     <div class="comments-list">
-      <div v-if="comments.length === 0" class="v-empty-state v-empty-state-compact empty-comments">
+      <div v-if="commentsWithSegments.length === 0" class="v-empty-state v-empty-state-compact empty-comments">
         <svg class="icon v-empty-state-icon"><use href="#icon-comment"/></svg>
         <p class="v-empty-state-title">No comments yet</p>
+        <p class="v-empty-state-copy">Add the first review note below.</p>
       </div>
 
       <div
-        v-for="(comment, commentIndex) in comments"
+        v-for="(comment, commentIndex) in commentsWithSegments"
         :key="comment.id"
         class="comment comment-thread"
         :class="{ resolved: comment.resolved, 'has-annotation': comment.annotation_data, 'has-replies': comment.replies && comment.replies.length, 'is-activity-focus': isActivityFocusComment(comment) }"
@@ -46,7 +47,7 @@
 
             <p class="comment-text">
               <span v-if="comment.text" class="comment-message">
-                <template v-for="(segment, segmentIndex) in segmentTextLinks(comment.text)" :key="`${comment.id}-${segmentIndex}`">
+                <template v-for="(segment, segmentIndex) in comment.textSegments" :key="`${comment.id}-${segmentIndex}`">
                   <a
                     v-if="segment.type === 'link'"
                     class="comment-text-link"
@@ -55,6 +56,16 @@
                     rel="noopener noreferrer"
                     @click.stop
                   >{{ segment.text }}</a>
+                  <button
+                    v-else-if="segment.type === 'mention'"
+                    type="button"
+                    class="comment-mention-chip"
+                    :title="`Open ${segment.reference.name || segment.text}`"
+                    @click.stop="openInlineMention(comment, segment.reference)"
+                  >
+                    <svg class="icon"><use :href="pendingAttachmentIcon(segment.reference)"/></svg>
+                    <span>{{ segment.text }}</span>
+                  </button>
                   <template v-else>{{ segment.text }}</template>
                 </template>
               </span>
@@ -114,7 +125,7 @@
 
               <p class="comment-text">
                 <span v-if="reply.text" class="comment-message">
-                  <template v-for="(segment, segmentIndex) in segmentTextLinks(reply.text)" :key="`${reply.id}-${segmentIndex}`">
+                  <template v-for="(segment, segmentIndex) in reply.textSegments" :key="`${reply.id}-${segmentIndex}`">
                     <a
                       v-if="segment.type === 'link'"
                       class="comment-text-link"
@@ -123,6 +134,16 @@
                       rel="noopener noreferrer"
                       @click.stop
                     >{{ segment.text }}</a>
+                    <button
+                      v-else-if="segment.type === 'mention'"
+                      type="button"
+                      class="comment-mention-chip"
+                      :title="`Open ${segment.reference.name || segment.text}`"
+                      @click.stop="openInlineMention(reply, segment.reference)"
+                    >
+                      <svg class="icon"><use :href="pendingAttachmentIcon(segment.reference)"/></svg>
+                      <span>{{ segment.text }}</span>
+                    </button>
                     <template v-else>{{ segment.text }}</template>
                   </template>
                 </span>
@@ -188,29 +209,51 @@
             </div>
           </div>
 
-          <div class="composer composer--inline-reply">
-            <div v-if="voiceRecorderState === 'recording' && !!replyTarget" class="voice-recording" role="status" aria-label="Recording voice note">
-              <span class="voice-recording__dot" aria-hidden="true"></span>
-              <div class="voice-recording__levels" aria-hidden="true">
-                <span v-for="(level, index) in voiceRecorderLevels" :key="index" :style="{ height: `${Math.max(12, level * 100)}%` }"></span>
-              </div>
-              <time class="voice-recording__time">{{ formatVoiceDuration(voiceRecorderElapsed) }}</time>
-              <button type="button" class="voice-recording__action" aria-label="Stop recording" title="Stop recording" @click="stopVoiceRecording">
-                <span class="voice-recording__stop"></span>
-              </button>
-              <button type="button" class="voice-recording__action is-cancel" aria-label="Cancel recording" title="Cancel recording" @click="cancelVoiceRecording">
-                <svg class="icon"><use href="#icon-close" /></svg>
-              </button>
+          <div
+            ref="replyComposer"
+            class="composer composer--inline-reply"
+            @dragenter="handleCommentDragEnter($event, 'reply')"
+            @dragover="handleCommentDragOver($event, 'reply')"
+            @dragleave="handleCommentDragLeave($event, 'reply')"
+            @drop="handleCommentDrop($event, 'reply')"
+          >
+            <div
+              v-if="projectDragComposer === 'reply'"
+              class="composer__drop-hint"
+              :class="{ 'is-blocked': Boolean(projectDragBlockedReason) }"
+              role="status"
+              aria-live="polite"
+            >
+              <svg class="icon" aria-hidden="true"><use :href="projectDragBlockedReason ? '#icon-close' : '#icon-link'"/></svg>
+              <strong>{{ projectDragTitle }}</strong>
+              <span>{{ projectDragBlockedReason || 'Release to add inline mentions.' }}</span>
             </div>
+            <VoiceRecordingStatus
+              v-if="voiceRecorderState === 'recording' && !!replyTarget"
+              :levels="voiceRecorderLevels"
+              :elapsed="voiceRecorderElapsed"
+              @stop="stopVoiceRecording"
+              @cancel="cancelVoiceRecording"
+            />
             <textarea
               v-else
-              ref="commentTextarea"
+              ref="replyCommentTextarea"
               class="composer__textarea"
               :value="newComment"
               :placeholder="replyPlaceholder"
+              :role="mentionContext?.enabled ? 'combobox' : undefined"
+              :aria-autocomplete="mentionContext?.enabled ? 'list' : undefined"
+              :aria-expanded="mentionContext?.enabled ? String(mentionOpenFor('reply')) : undefined"
+              :aria-controls="mentionOpenFor('reply') ? mentionListboxId : undefined"
+              :aria-activedescendant="mentionOpenFor('reply') ? mentionActiveDescendant : undefined"
               rows="1"
-              @input="updateNewComment"
-              @keydown.enter.ctrl="postMediaComment"
+              :disabled="commentPosting"
+              @input="updateNewComment($event, 'reply')"
+              @click="syncMentionFromTextarea($event, 'reply')"
+              @select="syncMentionFromTextarea($event, 'reply')"
+              @keyup="handleCommentKeyup($event, 'reply')"
+              @blur="handleMentionBlur"
+              @keydown="handleCommentKeydown($event, 'reply')"
             ></textarea>
             <input
               v-if="voiceRecorderState !== 'recording'"
@@ -224,17 +267,17 @@
             />
             <div v-if="voiceRecorderState !== 'recording'" class="composer__actions">
               <button type="button" class="comment-inline-cancel" @click="cancelReply">Cancel</button>
-              <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="pendingAttachmentCount >= maxAttachments" title="Add attachment">
+              <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
                 <svg class="icon"><use href="#icon-link"/></svg>
               </button>
-              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="isDrawingMode" title="Add Drawing">
+              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode" title="Add Drawing">
                 <svg class="icon"><use href="#icon-pen"/></svg>
               </button>
-              <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote" aria-label="Record voice note" title="Record voice note">
+              <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote" aria-label="Record voice note" title="Record voice note">
                 <svg class="icon"><use href="#icon-mic"/></svg>
               </button>
-              <button type="button" class="composer__action composer__action--submit" @click="postMediaComment" :disabled="!canSubmitComment" title="Post reply">
-                <svg class="icon"><use href="#icon-check"/></svg>
+              <button type="button" class="composer__action composer__action--submit" @click="postMediaComment" :disabled="commentPosting || !canSubmitComment" :title="commentPosting ? 'Posting reply' : 'Post reply'">
+                <svg class="icon" :class="{ 'is-spinning': commentPosting }"><use :href="commentPosting ? '#icon-loader' : '#icon-check'"/></svg>
               </button>
             </div>
           </div>
@@ -290,16 +333,44 @@
         </div>
       </div>
 
-      <div class="composer">
+      <div
+        ref="topLevelComposer"
+        class="composer"
+        @dragenter="handleCommentDragEnter($event, 'top')"
+        @dragover="handleCommentDragOver($event, 'top')"
+        @dragleave="handleCommentDragLeave($event, 'top')"
+        @drop="handleCommentDrop($event, 'top')"
+      >
+        <div
+          v-if="projectDragComposer === 'top'"
+          class="composer__drop-hint"
+          :class="{ 'is-blocked': Boolean(projectDragBlockedReason) }"
+          role="status"
+          aria-live="polite"
+        >
+          <svg class="icon" aria-hidden="true"><use :href="projectDragBlockedReason ? '#icon-close' : '#icon-link'"/></svg>
+          <strong>{{ projectDragTitle }}</strong>
+          <span>{{ projectDragBlockedReason || 'Release to add inline mentions.' }}</span>
+        </div>
         <textarea
           v-if="voiceRecorderState !== 'recording' || !!replyTarget"
-          ref="commentTextarea"
+          ref="topLevelCommentTextarea"
           class="composer__textarea"
           :value="replyTarget ? '' : newComment"
           :placeholder="topLevelCommentPlaceholder"
+          :role="mentionContext?.enabled ? 'combobox' : undefined"
+          :aria-autocomplete="mentionContext?.enabled ? 'list' : undefined"
+          :aria-expanded="mentionContext?.enabled ? String(mentionOpenFor('top')) : undefined"
+          :aria-controls="mentionOpenFor('top') ? mentionListboxId : undefined"
+          :aria-activedescendant="mentionOpenFor('top') ? mentionActiveDescendant : undefined"
           rows="1"
-          @input="updateNewComment"
-          @keydown.enter.ctrl="postMediaComment"
+          :disabled="commentPosting"
+          @input="updateNewComment($event, 'top')"
+          @click="syncMentionFromTextarea($event, 'top')"
+          @select="syncMentionFromTextarea($event, 'top')"
+          @keyup="handleCommentKeyup($event, 'top')"
+          @blur="handleMentionBlur"
+          @keydown="handleCommentKeydown($event, 'top')"
         ></textarea>
         <input
           v-if="voiceRecorderState !== 'recording' || !!replyTarget"
@@ -311,56 +382,77 @@
           @change="handleCommentAttachmentChange"
           hidden
         />
-        <div v-if="voiceRecorderState === 'recording' && !replyTarget" class="voice-recording" role="status" aria-label="Recording voice note">
-          <span class="voice-recording__dot" aria-hidden="true"></span>
-          <div class="voice-recording__levels" aria-hidden="true">
-            <span v-for="(level, index) in voiceRecorderLevels" :key="index" :style="{ height: `${Math.max(12, level * 100)}%` }"></span>
-          </div>
-          <time class="voice-recording__time">{{ formatVoiceDuration(voiceRecorderElapsed) }}</time>
-          <button type="button" class="voice-recording__action" aria-label="Stop recording" title="Stop recording" @click="stopVoiceRecording">
-            <span class="voice-recording__stop"></span>
-          </button>
-          <button type="button" class="voice-recording__action is-cancel" aria-label="Cancel recording" title="Cancel recording" @click="cancelVoiceRecording">
-            <svg class="icon"><use href="#icon-close" /></svg>
-          </button>
-        </div>
+        <VoiceRecordingStatus
+          v-if="voiceRecorderState === 'recording' && !replyTarget"
+          :levels="voiceRecorderLevels"
+          :elapsed="voiceRecorderElapsed"
+          @stop="stopVoiceRecording"
+          @cancel="cancelVoiceRecording"
+        />
         <div v-if="voiceRecorderState !== 'recording' || !!replyTarget" class="composer__actions">
           <span v-if="currentUser" class="composer__meta">
             Commenting as <strong>{{ currentUser.display_name }}</strong>
           </span>
-          <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="pendingAttachmentCount >= maxAttachments" title="Add attachment">
+          <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
             <svg class="icon"><use href="#icon-link"/></svg>
           </button>
-          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="isDrawingMode" title="Add Drawing">
+          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode" title="Add Drawing">
             <svg class="icon"><use href="#icon-pen"/></svg>
           </button>
-          <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote || !!replyTarget" aria-label="Record voice note" title="Record voice note">
+          <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote || !!replyTarget" aria-label="Record voice note" title="Record voice note">
             <svg class="icon"><use href="#icon-mic"/></svg>
           </button>
-          <button type="button" class="composer__action composer__action--submit" @click="postMediaComment" :disabled="!!replyTarget || !canSubmitComment" title="Post comment">
-            <svg class="icon"><use href="#icon-check"/></svg>
+          <button type="button" class="composer__action composer__action--submit" @click="postMediaComment" :disabled="commentPosting || !!replyTarget || !canSubmitComment" :title="commentPosting ? 'Posting comment' : 'Post comment'">
+            <svg class="icon" :class="{ 'is-spinning': commentPosting }"><use :href="commentPosting ? '#icon-loader' : '#icon-check'"/></svg>
           </button>
         </div>
       </div>
     </div>
+
+    <CommentMentionPopover
+      :open="mentionOpen"
+      :anchor="mentionAnchorElement"
+      :mode="mentionMode"
+      :query="mentionQuery"
+      :groups="mentionGroups"
+      :browse-path="mentionBrowsePath"
+      :browse-rows="mentionBrowseRows"
+      :browse-breadcrumbs="mentionBrowseBreadcrumbs"
+      :loading="mentionLoading"
+      :error="mentionError"
+      :active-index="mentionActiveIndex"
+      :listbox-id="mentionListboxId"
+      @choose="chooseMention"
+      @browse="mentionAutocomplete.enterBrowse"
+      @back="mentionAutocomplete.goBack"
+      @show-more="mentionAutocomplete.showMore"
+      @set-active="setMentionActiveIndex"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, ref, toRefs, watch } from 'vue'
+import { computed, nextTick, ref, shallowRef, toRefs, watch } from 'vue'
+import { commentMentionMarker, useCommentMentionAutocomplete } from '../../composables/useCommentMentionAutocomplete'
 import { useOutsideClick } from '../../composables/useOutsideClick'
 import { getPdfAnnotationTarget } from '../../lib/annotations'
+import { projectContentItemTarget } from '../../lib/projectContentItems'
+import { hasProjectItemDrag, readProjectItemDrag } from '../../lib/projectItemDrag'
 import { useFileBrowserStore } from '../../ownership/fileBrowser'
 import { useProjectTrackerSelectionStore } from '../../ownership/projectTrackerSelection'
 import { useShareAccessContext } from '../../ownership/shareAccessContext'
 import { getCommentAvatarStyle as getAvatarStyle, getCommentInitials as getInitials } from '../../utils/commentDisplay'
 import { formatIsoTimestamp, formatLocaleDateTime, normalizeTimestamp } from '../../utils/formatters'
-import { segmentTextLinks } from '../../utils/textSanitization'
+import { segmentCommentText } from '../../utils/textSanitization'
+import { notify } from '../../utils/toasts'
 import CommentAttachmentCard from './CommentAttachmentCard.vue'
+import CommentMentionPopover from './CommentMentionPopover.vue'
 import CommentVoiceNote from './CommentVoiceNote.vue'
+import VoiceRecordingStatus from './VoiceRecordingStatus.vue'
 
 const props = defineProps({
   comments: { type: Array, default: () => [] },
+  commentPosting: { type: Boolean, default: false },
   currentUser: { type: Object, default: null },
   userName: { type: String, default: '' },
   userNameInput: { type: String, default: '' },
@@ -368,6 +460,7 @@ const props = defineProps({
   pendingAnnotation: { type: String, default: '' },
   replyTarget: { type: Object, default: null },
   pendingCommentAttachments: { type: Array, default: () => [] },
+  mentionContext: { type: Object, default: () => ({ enabled: false, projectId: '', trackerId: '', shots: [] }) },
   pendingVoiceNote: { type: Object, default: null },
   voiceRecorderState: { type: String, default: 'idle' },
   voiceRecorderSupported: { type: Boolean, default: false },
@@ -394,6 +487,7 @@ const props = defineProps({
   onRemovePendingCommentAttachment: { type: Function, required: true },
   onHandleCommentAttachmentChange: { type: Function, required: true },
   onAddPendingCommentReferences: { type: Function, required: true },
+  onAddPendingInlineMention: { type: Function, default: () => false },
   onStartVoiceRecording: { type: Function, required: true },
   onStopVoiceRecording: { type: Function, required: true },
   onCancelVoiceRecording: { type: Function, required: true },
@@ -406,7 +500,7 @@ const props = defineProps({
 
 const emit = defineEmits(['update:newComment', 'update:userNameInput', 'update:drawingColor'])
 const {
-  comments,
+  commentPosting,
   currentUser,
   userName,
   userNameInput,
@@ -431,17 +525,84 @@ const {
   getCommentAttachmentUrl
 } = toRefs(props)
 const commentAttachmentInput = ref(null)
-const commentTextarea = ref(null)
+const topLevelCommentTextarea = ref(null)
+const replyCommentTextarea = ref(null)
+const topLevelComposer = ref(null)
+const replyComposer = ref(null)
+const activeMentionTextarea = shallowRef(null)
+const activeMentionComposer = ref('')
+const projectDragComposer = ref('')
+const projectDragItemCount = ref(0)
+const projectDragProjectId = ref('')
+const projectDragDepth = { top: 0, reply: 0 }
+const mentionListboxId = 'comment-mention-listbox'
 const { picker } = useFileBrowserStore()
 const { currentProject } = useProjectTrackerSelectionStore()
 const { shareMode } = useShareAccessContext()
 
 const showNameInput = computed(() => !props.currentUser && !props.userName)
-const replyPlaceholder = computed(() => `Reply to ${props.replyTarget?.user_name || 'comment'}...`)
-const topLevelCommentPlaceholder = computed(() => props.pendingAnnotation ? 'Add a note (optional)...' : 'Leave your comment...')
+const replyPlaceholder = computed(() => props.mentionContext?.enabled
+  ? `Reply to ${props.replyTarget?.user_name || 'comment'}…  @ to mention`
+  : `Reply to ${props.replyTarget?.user_name || 'comment'}...`)
+const topLevelCommentPlaceholder = computed(() => {
+  if (props.pendingAnnotation) return 'Add a note (optional)...'
+  return props.mentionContext?.enabled ? 'Add a review note…  @ to mention' : 'Add a review note...'
+})
 const pendingAttachmentCount = computed(() => props.pendingCommentAttachments.length + (props.pendingVoiceNote ? 1 : 0))
 const canSubmitComment = computed(() => !!props.newComment.trim() || !!props.pendingAnnotation || pendingAttachmentCount.value > 0)
+const projectDragBlockedReason = computed(() => {
+  if (!props.mentionContext?.enabled || !props.currentUser || shareMode.value) return 'Project mentions are unavailable here.'
+  if (props.commentPosting) return 'Wait for the current comment to finish posting.'
+  if (props.voiceRecorderState === 'recording') return 'Finish the voice recording before adding a mention.'
+  if (projectDragComposer.value === 'top' && props.replyTarget) return 'Finish or cancel the reply first.'
+  if (projectDragProjectId.value && projectDragProjectId.value !== props.mentionContext.projectId) {
+    return 'These items belong to a different project.'
+  }
+  return ''
+})
+const projectDragTitle = computed(() => {
+  if (projectDragBlockedReason.value) return 'Cannot mention these items'
+  if (projectDragItemCount.value === 1) return 'Mention 1 item'
+  if (projectDragItemCount.value > 1) return `Mention ${projectDragItemCount.value} items`
+  return 'Mention project items'
+})
 const drawingHint = computed(() => `Drawing on ${props.isViewingVideo ? 'frame' : props.isViewingImage ? 'image' : 'document'} • Post to save`)
+function commentWithSegments(comment) {
+  const inlineReferences = (comment.attachments || []).filter(attachment => (
+    attachment?.attachment_type === 'reference' && attachment?.marker
+  ))
+  return {
+    ...comment,
+    attachments: (comment.attachments || []).filter(attachment => !attachment?.marker),
+    textSegments: segmentCommentText(comment.text, inlineReferences),
+  }
+}
+
+const commentsWithSegments = computed(() => props.comments.map(comment => ({
+  ...commentWithSegments(comment),
+  replies: (comment.replies || []).map(commentWithSegments),
+})))
+
+const mentionAutocomplete = useCommentMentionAutocomplete({
+  enabled: computed(() => props.mentionContext?.enabled),
+  projectId: computed(() => props.mentionContext?.projectId),
+  trackerId: computed(() => props.mentionContext?.trackerId),
+  shots: computed(() => props.mentionContext?.shots || []),
+})
+const {
+  open: mentionOpen,
+  mode: mentionMode,
+  query: mentionQuery,
+  anchorElement: mentionAnchorElement,
+  groups: mentionGroups,
+  browsePath: mentionBrowsePath,
+  browseRows: mentionBrowseRows,
+  browseBreadcrumbs: mentionBrowseBreadcrumbs,
+  loading: mentionLoading,
+  error: mentionError,
+  activeIndex: mentionActiveIndex,
+  activeDescendant: mentionActiveDescendant,
+} = mentionAutocomplete
 
 function pdfPageLabel(comment) {
   const target = getPdfAnnotationTarget(comment)
@@ -456,9 +617,10 @@ function isActivityFocusComment(comment) {
   return String(props.activityFocusCommentId || '') === String(comment?.id || '')
 }
 
-function updateNewComment(event) {
+function updateNewComment(event, composer) {
   emit('update:newComment', event.target.value)
   resizeCommentTextarea(event.target)
+  syncMentionFromTextarea(event, composer)
 }
 
 function updateUserNameInput(event) {
@@ -483,6 +645,10 @@ function deleteComment(commentId) {
 
 function openAttachmentLightbox(comment, attachment) {
   props.onOpenAttachmentLightbox(comment, attachment)
+}
+
+function openInlineMention(comment, reference) {
+  props.onOpenAttachmentLightbox(comment, reference)
 }
 
 function clearCanvas() {
@@ -521,7 +687,125 @@ function triggerLocalCommentAttachmentPicker() {
   input?.click()
 }
 
+function inspectCommentProjectDrag(event) {
+  if (!hasProjectItemDrag(event?.dataTransfer)) return null
+  return readProjectItemDrag(event.dataTransfer)
+}
+
+function syncCommentProjectDrag(payload, composer) {
+  projectDragComposer.value = composer
+  projectDragProjectId.value = payload?.projectId || ''
+  projectDragItemCount.value = payload?.items?.length || 0
+}
+
+function resetCommentProjectDrag(composer = '') {
+  if (composer) projectDragDepth[composer] = 0
+  else {
+    projectDragDepth.top = 0
+    projectDragDepth.reply = 0
+  }
+  if (composer && projectDragComposer.value !== composer) return
+  projectDragComposer.value = ''
+  projectDragProjectId.value = ''
+  projectDragItemCount.value = 0
+}
+
+function handleCommentDragEnter(event, composer) {
+  if (!hasProjectItemDrag(event.dataTransfer)) return
+  event.preventDefault()
+  event.stopPropagation()
+  projectDragDepth[composer] += 1
+  syncCommentProjectDrag(inspectCommentProjectDrag(event), composer)
+}
+
+function handleCommentDragOver(event, composer) {
+  if (!hasProjectItemDrag(event.dataTransfer)) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (projectDragComposer.value !== composer || !projectDragProjectId.value) {
+    syncCommentProjectDrag(inspectCommentProjectDrag(event), composer)
+  }
+  event.dataTransfer.dropEffect = projectDragBlockedReason.value ? 'none' : 'copy'
+}
+
+function handleCommentDragLeave(event, composer) {
+  if (!hasProjectItemDrag(event.dataTransfer)) return
+  event.stopPropagation()
+  projectDragDepth[composer] = Math.max(0, projectDragDepth[composer] - 1)
+  if (projectDragDepth[composer] === 0) resetCommentProjectDrag(composer)
+}
+
+function insertDroppedMentions(items, composer) {
+  const textarea = composer === 'reply' ? replyCommentTextarea.value : topLevelCommentTextarea.value
+  if (!textarea) return false
+
+  const targets = items
+    .map(projectContentItemTarget)
+    .filter(target => target && !target.disabled && ['folder', 'media_asset'].includes(target.target_type))
+  if (!targets.length) {
+    notify('These project items are not available as mentions yet.')
+    return false
+  }
+
+  const markers = []
+  const markerSet = new Set()
+  for (const target of targets) {
+    const baseMarker = commentMentionMarker(target)
+    const marker = markerSet.has(baseMarker)
+      ? commentMentionMarker({ ...target, label: target.path || target.target_id })
+      : baseMarker
+    if (props.onAddPendingInlineMention(target, marker) === false) break
+    markers.push(marker)
+    markerSet.add(marker)
+  }
+  if (!markers.length) return false
+
+  const source = String(props.newComment || '')
+  const hasActiveCaret = document.activeElement === textarea
+  const start = hasActiveCaret && Number.isInteger(textarea.selectionStart) ? textarea.selectionStart : source.length
+  const end = hasActiveCaret && Number.isInteger(textarea.selectionEnd) ? textarea.selectionEnd : start
+  const before = source.slice(0, start)
+  const after = source.slice(end)
+  const leadingSpace = before && !/\s$/.test(before) ? ' ' : ''
+  const trailingSpace = !after || !/^\s/.test(after) ? ' ' : ''
+  const inserted = `${leadingSpace}${markers.join(' ')}${trailingSpace}`
+  const text = `${before}${inserted}${after}`
+  const caret = before.length + inserted.length
+
+  activeMentionTextarea.value = textarea
+  activeMentionComposer.value = composer
+  mentionAutocomplete.dismiss()
+  emit('update:newComment', text)
+  nextTick(() => {
+    textarea.focus()
+    textarea.setSelectionRange(caret, caret)
+    resizeCommentTextarea(textarea)
+  })
+  return true
+}
+
+function handleCommentDrop(event, composer) {
+  if (!hasProjectItemDrag(event.dataTransfer)) return
+  event.preventDefault()
+  event.stopPropagation()
+  const payload = inspectCommentProjectDrag(event)
+  syncCommentProjectDrag(payload, composer)
+  const blockedReason = projectDragBlockedReason.value
+  resetCommentProjectDrag()
+  if (!payload) {
+    notify('Those sidebar items could not be read. Try dragging them again.')
+    return
+  }
+  if (blockedReason) {
+    notify(blockedReason)
+    return
+  }
+  insertDroppedMentions(payload.items, composer)
+}
+
 function pendingAttachmentIcon(attachment) {
+  if (attachment?.target_type === 'shot') return '#icon-video'
+  if (attachment?.target_type === 'folder') return '#icon-folder'
   if (attachment?.target_type === 'tracker') return '#icon-project'
   if (attachment?.target_type === 'page') return '#icon-layout'
   if (attachment?.kind === 'pdf') return '#icon-pdf'
@@ -538,20 +822,84 @@ function resizeCommentTextarea(target) {
 }
 
 function resizeActiveCommentTextareas() {
-  const textareas = Array.isArray(commentTextarea.value)
-    ? commentTextarea.value
-    : [commentTextarea.value]
+  const textareas = [topLevelCommentTextarea.value, replyCommentTextarea.value]
   textareas.forEach(resizeCommentTextarea)
+}
+
+function mentionOpenFor(composer) {
+  return mentionOpen.value && activeMentionComposer.value === composer
+}
+
+function syncMentionFromTextarea(event, composer) {
+  if (composer === 'top' && props.replyTarget) {
+    mentionAutocomplete.dismiss()
+    return
+  }
+  const textarea = event?.currentTarget || event?.target
+  if (!textarea) return
+  activeMentionTextarea.value = textarea
+  activeMentionComposer.value = composer
+  const anchor = composer === 'reply' ? replyComposer.value : topLevelComposer.value
+  mentionAutocomplete.syncFromTextarea(textarea, anchor)
+}
+
+function handleCommentKeydown(event, composer) {
+  if (event.isComposing) return
+  if (mentionOpenFor(composer)) {
+    const result = mentionAutocomplete.handleKeydown(event)
+    if (result?.item) chooseMention(result.item)
+    if (result?.handled) return
+  }
+  if (event.key === 'Enter' && event.ctrlKey) postMediaComment()
+}
+
+function handleCommentKeyup(event, composer) {
+  if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    syncMentionFromTextarea(event, composer)
+  }
+}
+
+function chooseMention(item) {
+  const selectable = mentionAutocomplete.activate(item)
+  if (!selectable) return
+  const textarea = activeMentionTextarea.value
+  const result = mentionAutocomplete.select(selectable, textarea?.value ?? props.newComment)
+  if (!result) return
+  if (props.onAddPendingInlineMention(result.item, result.marker) === false) return
+  emit('update:newComment', result.text)
+  nextTick(() => {
+    const target = activeMentionTextarea.value
+    if (!target) return
+    target.focus()
+    target.setSelectionRange(result.caret, result.caret)
+    resizeCommentTextarea(target)
+  })
+}
+
+function setMentionActiveIndex(index) {
+  mentionActiveIndex.value = index
+}
+
+function handleMentionBlur() {
+  window.setTimeout(() => mentionAutocomplete.dismiss(), 0)
 }
 
 watch(() => props.newComment, () => {
   nextTick(resizeActiveCommentTextareas)
+  if (!props.newComment) mentionAutocomplete.reset()
+})
+
+watch(() => props.replyTarget?.id, () => {
+  mentionAutocomplete.dismiss()
+  activeMentionTextarea.value = null
+  activeMentionComposer.value = ''
+  resetCommentProjectDrag()
 })
 
 useOutsideClick(null, cancelReply, {
   enabled: computed(() => Boolean(props.replyTarget) && !props.isDrawingMode),
   isInside: event => event.target instanceof Element
-    && Boolean(event.target.closest('.comment-inline-composer, .comment-thread-reply-button')),
+    && Boolean(event.target.closest('.comment-inline-composer, .comment-thread-reply-button, .comment-mention-popover')),
 })
 
 function startReply(comment) {
@@ -584,11 +932,6 @@ function cancelVoiceRecording() {
 
 function removePendingVoiceNote() {
   props.onRemovePendingVoiceNote()
-}
-
-function formatVoiceDuration(seconds) {
-  const total = Math.max(0, Math.floor(Number(seconds) || 0))
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
 function postMediaComment() {
@@ -648,87 +991,95 @@ function commentPostedDatetime(value) {
 <style>
 .comments-section {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  min-height: 0;
 }
 
 .comments-list {
-  --comment-avatar-size: 24px;
-  --comment-gutter: 9px;
+  --comment-avatar-size: 26px;
+  --comment-gutter: 10px;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
-  padding: 4px 6px 12px;
+  padding: 0 12px 16px;
+}
+
+.comments-section.is-empty .comments-list {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .empty-comments {
-  min-height: 140px;
+  flex: 1;
+  min-height: 160px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
-/* Borderless rows: a thread reads as a conversation rather than a stack of
-   boxes, and drops the ~20px of border + card gap each comment used to cost. */
+.empty-comments .v-empty-state-icon {
+  width: 32px;
+  height: 32px;
+  opacity: 0.46;
+}
+
+.empty-comments .v-empty-state-copy {
+  max-width: 220px;
+  margin: -4px 0 0;
+}
+
 .comment {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 9px 9px 10px;
-  border-radius: var(--v-radius-md);
+  gap: 7px;
+  padding: 14px 4px 15px;
   cursor: pointer;
   transition: background var(--v-transition-fast);
 }
 
-.comment + .comment {
-  box-shadow: inset 0 1px 0 var(--v-divider-subtle);
-}
-
-.comment:hover {
-  background: color-mix(in srgb, var(--v-bg-hover) 55%, transparent);
-}
+.comment + .comment { border-top: 1px solid var(--v-divider-subtle); }
+.comment:hover { background: color-mix(in srgb, var(--v-bg-hover) 42%, transparent); }
 
 .comment.is-activity-focus,
 .comment-reply.is-activity-focus {
-  background: color-mix(in srgb, var(--v-accent) 9%, transparent);
+  background: var(--v-accent-subtle);
 }
 
-/* Accent rail marks the comment the activity tray sent you to. */
 .comment.is-activity-focus::before {
   content: '';
   position: absolute;
-  inset: 6px auto 6px -2px;
+  inset: 9px auto 9px -8px;
   width: 2px;
   border-radius: var(--v-radius-full);
   background: var(--v-accent);
 }
 
-.comment.resolved {
-  opacity: 0.55;
-}
+.comment.resolved,
+.comment-reply.resolved { opacity: 0.58; }
 
 .comment-entry {
-  position: relative;
   display: grid;
   grid-template-columns: var(--comment-avatar-size) minmax(0, 1fr);
-  column-gap: var(--comment-gutter);
   align-items: start;
+  gap: var(--comment-gutter);
+  min-width: 0;
 }
 
 .comment-avatar {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
   width: var(--comment-avatar-size);
   height: var(--comment-avatar-size);
-  margin-top: 0;
+  flex: 0 0 auto;
   border-radius: var(--v-radius-full);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
-  font-family: var(--v-font);
-  font-size: var(--v-text-3xs);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
   color: #fff;
-  flex-shrink: 0;
+  font: 700 var(--v-text-3xs)/1 var(--v-font);
+  letter-spacing: 0.02em;
   user-select: none;
 }
 
@@ -736,93 +1087,62 @@ function commentPostedDatetime(value) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding-top: 2px;
-}
-
-.comment-replies {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 1px 0 0 calc(var(--comment-avatar-size) / 2);
-  padding: 1px 0 0 calc(var(--comment-avatar-size) / 2 + var(--comment-gutter) - 1px);
-  border-left: 1px solid color-mix(in srgb, var(--v-control-border) 48%, transparent);
-}
-
-/* A smaller avatar is all the de-emphasis a reply needs. */
-.comment-reply {
-  --comment-avatar-size: 19px;
-}
-
-.comment-reply.resolved {
-  opacity: 0.55;
+  gap: 4px;
 }
 
 .comment-header {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  min-height: 16px;
   position: relative;
-}
-
-/* Never wraps — a long name truncates instead of pushing the row to two lines,
-   so every comment in the list keeps the same rhythm. */
-.comment-header-main {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
+  min-height: 20px;
+}
+
+.comment-header-main {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
   flex: 1 1 auto;
+  gap: 6px;
 }
 
 .comment-header-tools {
   margin-left: auto;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   flex: 0 0 auto;
-  align-self: center;
+  gap: 2px;
 }
 
 .author {
   min-width: 0;
-  font-size: var(--v-text-sm);
-  font-weight: 650;
-  letter-spacing: 0;
-  color: var(--v-text);
   overflow: hidden;
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+  font-weight: 650;
+  line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.comment-posted-at {
+.comment-posted-at,
+.comment-number {
   flex: 0 0 auto;
   color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
-  font-weight: 500;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* The index is reference material, not something you scan for — it and the
-   row actions both surface only when you're actually on the comment. */
 .comment-number,
 .comment-secondary-actions {
-  flex: 0 0 auto;
   opacity: 0;
   pointer-events: none;
   transition: opacity var(--v-transition-fast);
 }
 
-.comment-number {
-  color: color-mix(in srgb, var(--v-text-muted) 62%, transparent);
-  font-size: var(--v-text-2xs);
-  font-weight: 550;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
+.comment-number { color: color-mix(in srgb, var(--v-text-muted) 62%, transparent); }
 
 .comment-secondary-actions {
   display: flex;
@@ -839,24 +1159,28 @@ function commentPostedDatetime(value) {
   pointer-events: auto;
 }
 
-.comment-action-button {
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 0;
-  border-radius: var(--v-button-radius);
-  background: transparent;
-  color: var(--v-text-muted);
-  flex-shrink: 0;
+.comment-action-button,
+.composer__action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: var(--v-button-radius);
   cursor: pointer;
+}
+
+.comment-action-button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--v-text-muted);
   transition: color var(--v-transition-fast), background var(--v-transition-fast);
 }
 
 .comment-action-button:hover {
-  background: color-mix(in srgb, var(--v-surface-inline-strong) 70%, transparent);
+  background: var(--v-bg-hover);
   color: var(--v-text);
 }
 
@@ -865,135 +1189,144 @@ function commentPostedDatetime(value) {
   color: var(--v-danger);
 }
 
-.comment-action-button .icon {
-  width: 12px;
-  height: 12px;
-}
+.comment-action-button .icon { width: 12px; height: 12px; }
 
 .comment-text {
   margin: 0;
-  display: block;
   color: var(--v-text-secondary);
-  font-size: var(--v-text-sm);
-  line-height: 1.42;
-  white-space: pre-wrap;
+  font-size: var(--v-text-base);
+  line-height: 1.5;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
-.comment-message {
-  min-width: 0;
-}
+.comment-message { min-width: 0; }
 
-/* Clicking a comment seeks to it, so the timecode is a destination, not a
-   warning — it stays quiet until you hover the row that will take you there. */
-.comment-timecode {
+.comment-timecode,
+.comment-annotation-chip {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
-  height: 16px;
-  padding: 0 5px;
-  border-radius: var(--v-radius-sm);
-  background: color-mix(in srgb, var(--v-text-muted) 14%, transparent);
-  color: var(--v-text-secondary);
+  height: 18px;
+  border-radius: 5px;
+}
+
+.comment-timecode {
+  padding: 0 6px;
+  background: color-mix(in srgb, var(--v-warning) 11%, transparent);
+  color: color-mix(in srgb, var(--v-warning) 72%, var(--v-text-secondary));
   font-size: var(--v-text-2xs);
-  font-weight: 600;
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   transition: background var(--v-transition-fast), color var(--v-transition-fast);
 }
 
 .comment:hover .comment-timecode {
-  background: color-mix(in srgb, var(--v-accent) 16%, transparent);
-  color: color-mix(in srgb, var(--v-accent) 82%, var(--v-text));
+  background: color-mix(in srgb, var(--v-warning) 16%, transparent);
+  color: color-mix(in srgb, var(--v-warning) 85%, var(--v-text));
 }
 
 .comment-annotation-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  border: 0;
-  border-radius: var(--v-button-radius);
-  background: color-mix(in srgb, var(--v-annotation) 14%, transparent);
+  width: 18px;
+  background: color-mix(in srgb, var(--v-annotation) 13%, transparent);
   color: var(--v-annotation);
 }
 
-.comment-annotation-chip .icon {
-  width: 9px;
-  height: 9px;
-}
-
-.comment-text-placeholder {
-  color: var(--v-text-muted);
-  font-style: italic;
-}
+.comment-annotation-chip .icon { width: 10px; height: 10px; }
+.comment-text-placeholder { color: var(--v-text-muted); font-style: italic; }
 
 .comment-text-link {
   color: var(--v-info);
   text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--v-info) 62%, transparent);
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
-  text-decoration-color: color-mix(in srgb, var(--v-info) 68%, transparent);
-  transition: color var(--v-transition-fast);
 }
 
-.comment-text-link:hover {
-  color: color-mix(in srgb, var(--v-info) 76%, white);
+.comment-text-link:hover { color: color-mix(in srgb, var(--v-info) 76%, white); }
+
+.comment-mention-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 21px;
+  margin: 0 1px;
+  padding: 1px 7px 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--v-accent) 26%, var(--v-control-border));
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-accent-subtle) 72%, var(--v-surface-inline));
+  color: color-mix(in srgb, var(--v-accent) 82%, var(--v-text));
+  font: 650 var(--v-text-xs)/1.35 var(--v-font);
+  vertical-align: baseline;
+  cursor: pointer;
+  transition: border-color var(--v-transition-fast), background var(--v-transition-fast), color var(--v-transition-fast);
 }
+
+.comment-mention-chip:hover {
+  border-color: color-mix(in srgb, var(--v-accent) 54%, var(--v-control-border));
+  background: var(--v-accent-muted);
+  color: var(--v-text);
+}
+
+.comment-mention-chip:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 1px;
+}
+
+.comment-mention-chip .icon { width: 11px; height: 11px; }
+
+.comment-replies {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 2px 0 0 calc(var(--comment-avatar-size) / 2);
+  padding: 3px 0 1px calc(var(--comment-avatar-size) / 2 + var(--comment-gutter));
+  border-left: 1px solid color-mix(in srgb, var(--v-control-border) 54%, transparent);
+}
+
+.comment-reply { --comment-avatar-size: 20px; }
+.comment-reply .author { font-size: var(--v-text-sm); }
+.comment-reply .comment-text { font-size: var(--v-text-sm); }
 
 .comment-reply-button {
   align-self: flex-start;
+  min-height: 24px;
   margin: 0;
-  min-height: 0;
   padding: 0;
   border: 0;
   border-radius: 0;
   background: transparent;
   color: var(--v-text-muted);
-  font-family: var(--v-font);
-  font-size: var(--v-text-xs);
-  font-weight: 600;
-  letter-spacing: 0;
+  font: 600 var(--v-text-xs)/1 var(--v-font);
   cursor: pointer;
   transition: color var(--v-transition-fast);
 }
 
-.comment-reply-button:hover {
-  color: var(--v-accent);
-  background: transparent;
-  border-color: transparent;
-}
+.comment-reply-button:hover { color: var(--v-accent); }
 
-/* Reply is the primary action on a thread, so it stays visible — hiding it
-   until hover would both bury it and shift every row below on mouseover. */
 .comment-thread-reply-button {
-  align-self: flex-start;
   margin-left: calc(var(--comment-avatar-size) + var(--comment-gutter));
-  line-height: 1;
 }
 
 .comment-inline-composer {
   margin: 4px 0 0 calc(var(--comment-avatar-size) + var(--comment-gutter));
-  padding: 0;
-  border: 0;
-  background: transparent;
   cursor: default;
 }
 
 .comment-attachments {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 4px;
+  gap: 7px;
+  margin-top: 5px;
 }
 
 .drawing-panel {
-  margin: 0 8px 8px;
-  padding: 8px 10px;
+  margin: 0 12px 10px;
+  padding: 10px;
   border: 1px solid var(--v-warning-border);
-  border-radius: var(--v-radius-sm);
+  border-radius: var(--v-radius-md);
   background: var(--v-warning-bg);
 }
 
@@ -1012,10 +1345,7 @@ function commentPostedDatetime(value) {
   gap: 8px;
 }
 
-.color-picker {
-  display: flex;
-  gap: 5px;
-}
+.color-picker { display: flex; gap: 5px; }
 
 .color-btn {
   width: 22px;
@@ -1025,27 +1355,25 @@ function commentPostedDatetime(value) {
   cursor: pointer;
 }
 
-.color-btn.active {
-  border-color: white;
-  box-shadow: 0 0 0 1px var(--v-accent);
-}
+.color-btn.active { border-color: white; box-shadow: 0 0 0 1px var(--v-accent); }
 
 .add-comment {
-  padding: 8px 8px 10px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0));
+  flex: 0 0 auto;
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom, 0px));
   border-top: 1px solid var(--v-divider);
-  background: transparent;
+  background: var(--v-surface-canvas);
 }
 
 .name-input {
   width: 100%;
+  min-height: 36px;
   margin-bottom: 8px;
-  padding: 8px 10px;
+  padding: 0 10px;
   border: 1px solid var(--v-control-border);
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-inline);
+  background: var(--v-surface-inset);
   color: var(--v-text);
-  font-size: var(--v-text-sm);
+  font: 500 var(--v-text-base)/1 var(--v-font);
 }
 
 .name-input:focus {
@@ -1054,33 +1382,38 @@ function commentPostedDatetime(value) {
   box-shadow: 0 0 0 3px var(--v-accent-muted);
 }
 
+.pending-annotation,
+.pending-voice-note,
+.pending-attachment {
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 74%, transparent);
+  border-radius: var(--v-radius-sm);
+  background: var(--v-surface-inset);
+}
+
 .pending-annotation {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   margin-bottom: 8px;
-  padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--v-warning-border) 70%, transparent);
-  border-radius: var(--v-radius-sm);
-  background: color-mix(in srgb, var(--v-warning-bg) 80%, transparent);
+  padding: 7px 9px;
   color: var(--v-annotation);
   font-size: var(--v-text-xs);
 }
 
-.pending-annotation .icon {
-  width: 13px;
-  height: 13px;
+.pending-annotation .icon { width: 13px; height: 13px; }
+
+.pending-annotation button,
+.pending-attachment-remove {
+  border: 0;
+  background: transparent;
+  color: var(--v-text-muted);
+  cursor: pointer;
 }
 
 .pending-annotation button {
   margin-left: auto;
   padding: 0 4px;
-  border: none;
-  background: none;
-  color: inherit;
   font-size: var(--v-text-lg);
-  line-height: 1;
-  cursor: pointer;
 }
 
 .pending-attachments {
@@ -1091,27 +1424,20 @@ function commentPostedDatetime(value) {
 }
 
 .pending-voice-note {
+  width: 100%;
   display: flex;
   align-items: center;
   gap: 4px;
-  width: 100%;
   margin-bottom: 8px;
   padding: 2px 4px 2px 2px;
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 70%, transparent);
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-tint-strong);
 }
 
 .pending-voice-note .pending-attachment-remove {
-  flex: 0 0 auto;
   width: 24px;
   height: 24px;
+  flex: 0 0 auto;
   border-radius: var(--v-button-radius);
   font-size: var(--v-text-md);
-}
-
-.pending-voice-note .pending-attachment-remove:hover {
-  background: var(--v-danger-bg);
 }
 
 .pending-attachment {
@@ -1119,9 +1445,6 @@ function commentPostedDatetime(value) {
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 70%, transparent);
-  border-radius: var(--v-radius-sm);
-  background: var(--v-surface-tint-strong);
 }
 
 .pending-attachment img {
@@ -1136,8 +1459,8 @@ function commentPostedDatetime(value) {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: var(--v-text-xs);
   color: var(--v-text-secondary);
+  font-size: var(--v-text-xs);
 }
 
 .pending-attachment-name {
@@ -1147,328 +1470,181 @@ function commentPostedDatetime(value) {
   white-space: nowrap;
 }
 
-.pending-attachment-remove {
-  padding: 2px 4px;
-  border: none;
-  background: none;
-  color: var(--v-text-muted);
-  cursor: pointer;
-}
+.pending-attachment-remove { padding: 2px 4px; }
 
 .pending-attachment-remove:hover,
-.pending-annotation button:hover {
+.pending-annotation button:hover { color: var(--v-danger); }
+
+.composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 8px 7px 11px;
+  border: 1px solid var(--v-control-border);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+  box-shadow: var(--v-surface-shadow-inset);
+  transition: border-color var(--v-transition-fast), background var(--v-transition-fast), box-shadow var(--v-transition-fast);
+}
+
+.composer__drop-hint {
+  position: absolute;
+  inset: 3px;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  align-content: center;
+  align-items: center;
+  column-gap: 8px;
+  padding: 7px 10px;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--v-accent) 46%, var(--v-control-border));
+  border-radius: calc(var(--v-radius-md) - 2px);
+  background: var(--v-surface-raised-strong);
+  box-shadow: var(--v-surface-shadow-raised);
+  color: var(--v-accent);
+}
+
+.composer__drop-hint .icon {
+  grid-row: 1 / span 2;
+  width: 17px;
+  height: 17px;
+}
+
+.composer__drop-hint strong {
+  color: var(--v-text);
+  font-size: var(--v-text-sm);
+  line-height: 1.25;
+}
+
+.composer__drop-hint span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  line-height: 1.3;
+}
+
+.composer__drop-hint.is-blocked {
+  border-color: var(--v-danger-border);
+  background: color-mix(in srgb, var(--v-danger-bg) 72%, var(--v-surface-raised));
   color: var(--v-danger);
 }
 
-/* ── Composer ───────────────────────────────────────────────────────
-   Single integrated card. Meta label sits inside, textarea is flat,
-   actions anchor bottom-right. Focus ring lives on the card, not the
-   textarea, so "Commenting as" feels part of the same surface. */
-.composer {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 9px 8px 7px 11px;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-surface-inline) 88%, var(--v-bg-base));
-  transition: border-color var(--v-transition-fast), box-shadow var(--v-transition-fast);
-}
-
-.composer:hover {
-  border-color: var(--v-control-border-hover);
-  background: var(--v-surface-inline-strong);
-}
+.composer:hover { background: var(--v-surface-inset-hover); }
 
 .composer:focus-within {
   border-color: var(--v-control-border-hover);
   box-shadow: 0 0 0 3px var(--v-accent-muted);
 }
 
-/* Rides the action row's empty left half rather than owning a line of its own. */
-.composer__meta {
-  margin-right: auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--v-text-2xs);
-  font-weight: 500;
-  color: var(--v-text-muted);
-}
-
-.composer__meta strong {
-  color: var(--v-text-secondary);
-  font-weight: 600;
-}
-
 .composer__textarea {
   width: 100%;
-  min-height: 26px;
+  min-height: 30px;
   max-height: 160px;
   padding: 0;
+  overflow: hidden;
   border: 0;
+  outline: 0;
   background: transparent;
   color: var(--v-text);
-  resize: none;
-  overflow: hidden;
-  font-family: var(--v-font);
-  font-size: var(--v-text-base);
-  line-height: 1.45;
+  font: 500 var(--v-text-base)/1.45 var(--v-font);
   field-sizing: content;
+  resize: none;
 }
 
-.composer__textarea:focus {
-  outline: none;
-}
+.composer__textarea::placeholder { color: var(--v-text-muted); }
 
-.composer__textarea::placeholder {
-  color: var(--v-text-muted);
-}
-
-/* Actions sit on their own row under the field. The old absolute placement
-   needed a hand-tuned right padding on the textarea that broke as soon as the
-   button count or font size changed — worst on mobile at 16px. */
 .composer__actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
-  margin-top: 1px;
 }
 
-/* Cancel is the odd one out — it belongs on the opposite end. */
-.comment-inline-cancel {
+.composer__meta {
+  min-width: 0;
   margin-right: auto;
+  overflow: hidden;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.composer__meta strong { color: var(--v-text-secondary); font-weight: 600; }
 
 .composer__action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
   border: 0;
-  border-radius: var(--v-button-radius);
   background: transparent;
   color: var(--v-text-muted);
-  cursor: pointer;
-  transition: background var(--v-transition-fast), color var(--v-transition-fast), transform var(--v-transition-fast);
+  transition: background var(--v-transition-fast), color var(--v-transition-fast);
 }
 
-.composer__action:hover:not(:disabled) {
-  background: var(--v-bg-hover);
-  color: var(--v-text);
-}
-
-.composer__action:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.composer__action .icon {
-  width: 13px;
-  height: 13px;
-}
+.composer__action:hover:not(:disabled) { background: var(--v-bg-hover); color: var(--v-text); }
+.composer__action:disabled { opacity: 0.42; cursor: not-allowed; }
+.composer__action .icon { width: 13px; height: 13px; }
+.composer__action .icon.is-spinning { animation: v-spin 0.8s linear infinite; }
 
 .composer__action--submit {
   background: var(--v-accent);
   color: var(--v-on-accent);
 }
 
-.composer__action--submit:hover:not(:disabled) {
-  background: var(--v-accent-hover);
-  color: var(--v-on-accent);
-}
+.composer__action--submit:hover:not(:disabled) { background: var(--v-accent-hover); color: var(--v-on-accent); }
 
 .composer__action--submit:disabled {
-  background: color-mix(in srgb, var(--v-accent) 28%, transparent);
-  color: color-mix(in srgb, var(--v-on-accent) 70%, var(--v-text-muted));
+  background: color-mix(in srgb, var(--v-accent) 26%, transparent);
+  color: var(--v-text-muted);
   opacity: 1;
 }
 
-.composer--inline-reply {
-  width: 100%;
-}
-
-.voice-recording {
-  display: grid;
-  grid-template-columns: 8px minmax(64px, 1fr) auto 28px 28px;
-  align-items: center;
-  gap: 6px;
-  min-height: 40px;
-}
-
-.voice-recording__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-danger);
-  animation: voice-recording-pulse 1.2s var(--v-ease-soft) infinite;
-}
-
-.voice-recording__levels {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 24px;
-  min-width: 0;
-}
-
-.voice-recording__levels span {
-  flex: 1 1 2px;
-  max-width: 4px;
-  border-radius: var(--v-radius-full);
-  background: color-mix(in srgb, var(--v-accent) 74%, var(--v-text-muted));
-  transition: height 90ms linear;
-}
-
-.voice-recording__time {
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-xs);
-  font-variant-numeric: tabular-nums;
-}
-
-.voice-recording__action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-button-radius);
-  background: var(--v-surface-inline);
-  color: var(--v-text-secondary);
-  cursor: pointer;
-}
-
-.voice-recording__action:hover {
-  border-color: var(--v-control-border-hover);
-  background: var(--v-surface-inline-strong);
-  color: var(--v-text);
-}
-
-.voice-recording__action.is-cancel:hover {
-  border-color: var(--v-danger-border-hover);
-  background: var(--v-danger-bg-hover);
-  color: var(--v-danger);
-}
-
-.voice-recording__action .icon {
-  width: 12px;
-  height: 12px;
-}
-
-.voice-recording__stop {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  background: var(--v-accent);
-}
-
-@keyframes voice-recording-pulse {
-  50% { opacity: 0.35; }
-}
+.composer--inline-reply { width: 100%; }
 
 .comment-inline-cancel {
   height: 28px;
+  margin-right: auto;
   padding: 0 4px;
   border: 0;
   background: transparent;
   color: var(--v-text-muted);
-  font-family: var(--v-font);
-  font-size: var(--v-text-xs);
-  font-weight: 600;
+  font: 600 var(--v-text-xs)/1 var(--v-font);
   cursor: pointer;
-  transition: color var(--v-transition-fast);
 }
 
-.comment-inline-cancel:hover {
-  color: var(--v-text);
-}
+.comment-inline-cancel:hover { color: var(--v-text); }
 
 @media (max-width: 768px) {
-  .comments-section {
-    --comments-safe-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 4px));
-  }
-
-  .comments-list {
-    padding: 4px var(--v-viewer-mobile-content-gutter) 12px;
-  }
-
+  .comments-section { --comments-safe-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 4px)); }
+  .comments-list { padding: 0 var(--v-viewer-mobile-content-gutter) 14px; }
   .empty-comments {
-    min-height: 120px;
+    min-height: 144px;
+    padding: var(--v-space-5) var(--v-space-4);
   }
-
-  /* No hover on touch, so the row actions and index stay put. */
+  .comment { padding-block: 14px; }
   .comment-number,
-  .comment-secondary-actions {
-    opacity: 0.7;
-    pointer-events: auto;
-  }
-
-  .comment-action-button {
-    width: 30px;
-    height: 30px;
-  }
-
-  .comment-text {
-    font-size: var(--v-text-base);
-    line-height: 1.45;
-  }
-
-  .comment-thread-reply-button {
-    min-height: 30px;
-  }
-
+  .comment-secondary-actions { opacity: 0.72; pointer-events: auto; }
+  .comment-action-button { width: 32px; height: 32px; }
+  .comment-text,
+  .comment-reply .comment-text { font-size: var(--v-text-base); }
+  .comment-thread-reply-button { min-height: 30px; }
   .add-comment {
     position: sticky;
     bottom: 0;
     z-index: 3;
     margin-top: auto;
     padding: 8px var(--v-viewer-mobile-content-gutter) var(--comments-safe-bottom);
-    border-top-color: var(--v-divider);
-    background: var(--v-bg-base);
+    background: var(--v-surface-canvas);
   }
-
   .composer {
-    padding: 10px 10px 9px 12px;
+    gap: 2px;
+    padding: 8px 7px 6px 10px;
   }
-
-  /* 16px keeps iOS from zooming the viewport on focus. */
-  .composer__textarea {
-    min-height: 30px;
-    font-size: var(--v-text-xl);
-    line-height: 1.4;
-  }
-
-  .composer__action {
-    width: 34px;
-    height: 34px;
-  }
-
-  .composer__action .icon {
-    width: 14px;
-    height: 14px;
-  }
-
-  .voice-recording {
-    min-height: 44px;
-  }
-}
-
-@media (max-width: 430px) {
-  .voice-recording {
-    grid-template-columns: 8px minmax(48px, 1fr) auto 28px 28px;
-    gap: 5px;
-  }
+  .composer__textarea { min-height: 28px; font-size: var(--v-text-xl); }
+  .composer__action { width: 44px; height: 44px; }
+  .composer__action .icon { width: 15px; height: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .voice-recording__dot {
-    animation: none;
-  }
+  .composer__action .icon.is-spinning { animation-duration: 1.6s; }
 }
 </style>

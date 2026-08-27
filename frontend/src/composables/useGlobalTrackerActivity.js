@@ -1,14 +1,17 @@
 import { computed, getCurrentScope, onScopeDispose, ref, watch } from 'vue'
 import api from '../lib/api'
+import { useDocumentVisible } from './useDocumentVisible'
 
 const ACTIVITY_POLL_MS = 15_000
-const ACTIVITY_LIMIT = 100
+const ACTIVITY_LIMIT = 25
 const INITIAL_ACTIVITY_DAYS = 2
 const LOAD_MORE_ACTIVITY_DAYS = 1
 
 export function useGlobalTrackerActivity({ currentUser, shareMode }) {
+  const documentVisible = useDocumentVisible()
   const items = ref([])
   const loading = ref(false)
+  const loadError = ref(false)
   const open = ref(false)
   const nextCursor = ref(null)
   const unreadCount = ref(0)
@@ -38,6 +41,7 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
       const nextItems = Array.isArray(data?.items) ? data.items : []
       items.value = append ? [...items.value, ...nextItems] : nextItems
       unreadCount.value = Number(data?.unread_count || 0)
+      loadError.value = false
       nextCursor.value = data?.next_before_created_at && data?.next_before_id
         ? { createdAt: data.next_before_created_at, id: data.next_before_id }
         : null
@@ -46,7 +50,11 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
       if (!silent) {
         console.error('Failed to load global tracker activity')
       }
-      if (!append && !silent) items.value = []
+      if (!append && !silent) {
+        items.value = []
+        nextCursor.value = null
+        loadError.value = true
+      }
       return false
     } finally {
       if (!silent) loading.value = false
@@ -82,6 +90,7 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
         filter: 'all',
       })
       unreadCount.value = 0
+      loadError.value = false
       if (readStatus.value === 'unread') {
         items.value = []
         nextCursor.value = null
@@ -114,24 +123,37 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
 
   function startPolling() {
     stopPolling()
-    if (!canLoadActivity.value || typeof window === 'undefined') return
+    if (!canLoadActivity.value || !documentVisible.value || typeof window === 'undefined') return
     pollTimer = window.setInterval(() => {
+      if (!documentVisible.value) return
       refreshActivity({ silent: true })
     }, ACTIVITY_POLL_MS)
   }
 
-  watch(canLoadActivity, (enabled) => {
+  watch([canLoadActivity, documentVisible], ([enabled, visible], previous = []) => {
     if (!enabled) {
       stopPolling()
       items.value = []
       nextCursor.value = null
       unreadCount.value = 0
+      loadError.value = false
       readStatus.value = 'unread'
       loadedCalendarDays.value = INITIAL_ACTIVITY_DAYS
       closeActivityTray()
       return
     }
-    refreshActivity({ silent: true })
+
+    if (!visible) {
+      stopPolling()
+      return
+    }
+
+    const [wasEnabled, wasVisible] = previous
+    const isInitialLoad = !wasEnabled && items.value.length === 0
+    const resumed = wasEnabled && wasVisible === false
+    if (isInitialLoad || resumed) {
+      refreshActivity({ silent: !isInitialLoad })
+    }
     startPolling()
   }, { immediate: true })
 
@@ -140,6 +162,7 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
   return {
     globalActivityItems: items,
     globalActivityLoading: loading,
+    globalActivityError: loadError,
     globalActivityOpen: open,
     globalActivityHasMore: hasMore,
     globalActivityUnreadCount: unreadCount,

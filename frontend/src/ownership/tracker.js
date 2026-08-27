@@ -30,6 +30,8 @@ export function createTrackerStore(context) {
   viewerController = useTrackerViewerController({
     ...context.viewer,
     openTracker: workspaceController.openTracker,
+    recordTrackerMediaView: workspaceController.recordTrackerMediaView,
+    invalidateTrackerPayloads: workspaceController.invalidateCurrentTrackerPayloads,
     trackerShotsForDisplay: listController.trackerShotsForDisplay,
     trackerStatusOptions: listController.trackerStatusOptions,
     showStatusPicker: listController.showStatusPicker,

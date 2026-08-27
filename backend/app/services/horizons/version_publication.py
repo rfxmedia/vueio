@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import HorizonShotVersion, HorizonTracker, MediaAsset
+from app.models import HorizonShot, HorizonShotVersion, HorizonTracker, MediaAsset
 
 from .tracker_settings import tracker_settings_for
 
@@ -20,6 +20,7 @@ VERSION_SHARE_STATES = {
     VERSION_SHARE_STATE_PENDING,
     VERSION_SHARE_STATE_INTERNAL,
 }
+AUTO_REVIEW_SOURCE_STATUSES = {'not_started', 'in_progress', 'edits_requested'}
 
 
 def normalize_version_share_state(value: Any) -> str:
@@ -40,6 +41,30 @@ def version_share_state(version: HorizonShotVersion | dict | None) -> str:
 
 def version_is_published(version: HorizonShotVersion | dict | None) -> bool:
     return version_share_state(version) == VERSION_SHARE_STATE_PUBLISHED
+
+
+def move_latest_published_version_to_review(
+    db: Session,
+    shot: HorizonShot,
+    version: HorizonShotVersion,
+    *,
+    now: float | None = None,
+) -> str | None:
+    """Move active work to Review when its latest playable version is published."""
+    if (
+        shot.archived_at is not None
+        or shot.status not in AUTO_REVIEW_SOURCE_STATUSES
+        or not version.media_asset_id
+        or not version_is_published(version)
+        or shot.latest_version_label != version.label
+    ):
+        return None
+
+    previous_status = shot.status
+    shot.status = 'waiting_review'
+    shot.updated_at = float(now if now is not None else time.time())
+    db.add(shot)
+    return previous_status
 
 
 def initial_version_publication(tracker: HorizonTracker, *, now: float | None = None) -> tuple[str, float | None]:

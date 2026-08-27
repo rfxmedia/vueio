@@ -50,6 +50,7 @@ from app.services.horizons_fresh import (
 )
 from app.services.media_assets import declare_media_asset, serialize_media_asset
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandService
+from app.services.tracker_events import build_tracker_event_actor, create_tracker_event
 
 router = APIRouter(tags=['horizons-fresh'])
 
@@ -70,7 +71,7 @@ def _horizons_shot_context(project_id: str, tracker, ctx, access_role: str) -> S
         can_delete_versions=False,
         can_archive_shot=False,
         restricted_artist=is_restricted_horizon_artist(ctx.user),
-        event_mode='none',
+        event_mode='full',
     )
 
 
@@ -605,7 +606,23 @@ def put_horizons_tracker(project_id: str, tracker_id: str, data: HorizonTrackerU
         name=data.name,
         settings=data.settings,
         fields_set=set(data.model_fields_set),
+        commit=False,
     )
+    actor = build_tracker_event_actor(
+        user=ctx.user,
+        source='agent' if ctx.auth_mode == 'agent_key' else 'app',
+    )
+    create_tracker_event(
+        db,
+        project_id=project_id,
+        tracker_id=tracker.id,
+        event_type='tracker_updated',
+        actor_id=actor['actor_id'],
+        actor_name=actor['actor_name'] or 'Unknown',
+        source=actor['source'] or 'app',
+        payload={'fields': sorted(data.model_fields_set)},
+    )
+    db.commit()
     return _tracker_payload(tracker)
 
 

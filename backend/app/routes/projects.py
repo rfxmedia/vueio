@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
-from app.models import HorizonProject, MediaAsset
+from app.models import HorizonProject, HorizonTracker, MediaAsset
 from app.services.auth import get_request_user
 from app.services.file_metadata import build_file_metadata
 from app.services.file_operation_journal import create_file_operation, complete_file_operation, fail_file_operation
@@ -311,6 +311,18 @@ def delete_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_a
         project_id=project_id,
         source_path='',
     )
+    # Tracker mutations lock one tracker and then touch the project. Lock every
+    # tracker in a stable order before deleting the project so a concurrent
+    # restore cannot resume halfway through deletion.
+    db.query(HorizonTracker.id).filter(
+        HorizonTracker.project_id == project_id,
+    ).order_by(HorizonTracker.id.asc()).with_for_update().all()
+    project = db.query(HorizonProject).filter(
+        HorizonProject.id == project_id,
+    ).populate_existing().with_for_update().first()
+    if project is None:
+        fail_file_operation(db, operation, RuntimeError('project_missing'))
+        raise HTTPException(status_code=404, detail='Project not found')
     project_assets = db.query(MediaAsset).filter(MediaAsset.project_id == project_id).filter(MediaAsset.unavailable_at.is_(None)).all()
     for asset in project_assets:
         retire_media_asset(db, asset, 'project_deleted')

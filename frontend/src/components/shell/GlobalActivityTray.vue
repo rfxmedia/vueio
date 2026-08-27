@@ -1,102 +1,150 @@
 <template>
   <div ref="rootEl" class="global-activity" :class="{ 'is-open': open }">
-    <button
-      type="button"
-      class="v-btn v-btn-quiet v-btn-icon global-activity-trigger"
-      :class="{ 'has-unread': unreadCount > 0 }"
-      :aria-expanded="open ? 'true' : 'false'"
-      aria-label="Activity notifications"
-      @click.stop="toggleGlobalActivityTray"
+    <slot
+      name="trigger"
+      :open="open"
+      :unread-count="unreadCount"
+      :unread-label="unreadLabel"
+      :trigger-aria-label="triggerAriaLabel"
+      panel-id="global-activity-panel"
+      :toggle="toggleGlobalActivityTray"
     >
-      <svg class="icon"><use href="#icon-bell" /></svg>
-      <span v-if="unreadCount > 0" class="global-activity-badge">{{ unreadLabel }}</span>
-    </button>
+      <button
+        type="button"
+        class="v-btn v-btn-quiet v-btn-icon global-activity-trigger"
+        :class="{ 'has-unread': unreadCount > 0 }"
+        aria-haspopup="dialog"
+        :aria-expanded="open ? 'true' : 'false'"
+        :aria-controls="open ? 'global-activity-panel' : undefined"
+        :aria-label="triggerAriaLabel"
+        @click.stop="toggleGlobalActivityTray"
+      >
+        <svg class="icon"><use href="#icon-bell" /></svg>
+        <span v-if="unreadCount > 0" class="global-activity-badge" aria-hidden="true">{{ unreadLabel }}</span>
+      </button>
+    </slot>
 
     <Transition name="v-menu-pop">
-      <section v-if="open" class="global-activity-panel" role="dialog" aria-label="Activity notifications" @click.stop>
+      <section
+        v-if="open"
+        id="global-activity-panel"
+        class="global-activity-panel"
+        role="dialog"
+        aria-labelledby="global-activity-title"
+        aria-describedby="global-activity-meta"
+        :aria-busy="loading ? 'true' : 'false'"
+        @click.stop
+      >
         <header class="global-activity-head">
           <div class="global-activity-head-text">
-            <h2 class="global-activity-title">Activity</h2>
-            <p class="global-activity-meta">{{ activityMetaLabel }}</p>
+            <h2 id="global-activity-title" class="global-activity-title">Notifications</h2>
+            <p id="global-activity-meta" class="global-activity-meta">{{ activityMetaLabel }}</p>
           </div>
           <div class="global-activity-head-actions">
             <button
               v-if="readStatus === 'unread' && unreadCount > 0"
               type="button"
               class="global-activity-mark-read"
-              :title="unreadCount > 1 ? `Mark all ${unreadLabel} as read` : 'Mark as read'"
+              :disabled="markingRead"
+              :title="unreadCount > 1 ? `Mark all ${unreadCount} as read` : 'Mark as read'"
               aria-label="Mark all unread notifications as read"
-              @click="markGlobalActivitySeen"
+              @click="handleMarkAllRead"
             >
-              <svg class="icon" aria-hidden="true"><use href="#icon-check" /></svg>
-              <span>Mark as read</span>
+              <svg class="icon" :class="{ spinning: markingRead }" aria-hidden="true"><use :href="markingRead ? '#icon-loader' : '#icon-check'" /></svg>
+              <span>{{ markingRead ? 'Marking read' : 'Mark all read' }}</span>
             </button>
             <button
               type="button"
               class="v-icon-action is-muted global-activity-refresh"
               :disabled="loading"
-              title="Refresh"
-              aria-label="Refresh activity"
+              title="Refresh notifications"
+              aria-label="Refresh notifications"
               @click="refreshGlobalActivity"
             >
               <svg class="icon" :class="{ spinning: loading }"><use href="#icon-refresh" /></svg>
+            </button>
+            <button
+              type="button"
+              class="v-icon-action is-muted global-activity-close"
+              title="Close notifications"
+              aria-label="Close notifications"
+              @click="closeGlobalActivityTray"
+            >
+              <svg class="icon"><use href="#icon-close" /></svg>
             </button>
           </div>
         </header>
 
         <div class="global-activity-controls">
-          <div class="v-tabs v-tabs--segmented global-activity-read-toggle" role="tablist" aria-label="Notification read state">
-            <button
-              v-for="option in readStatusOptions"
-              :key="option.value"
-              type="button"
-              class="v-tab-btn global-activity-read-option"
-              :class="{
-                active: readStatus === option.value,
-                'is-unread-option': option.value === 'unread',
-                'is-read-option': option.value === 'read',
-              }"
-              role="tab"
-              :aria-selected="readStatus === option.value ? 'true' : 'false'"
-              @click="setGlobalActivityReadStatus(option.value)"
-            >
-              <span>{{ option.label }}</span>
-              <span v-if="option.value === 'unread' && unreadCount > 0" class="v-tab-btn__count">{{ unreadLabel }}</span>
-            </button>
-          </div>
+          <VTabs
+            class="global-activity-read-toggle"
+            :tabs="readStatusTabs"
+            :model-value="readStatus"
+            variant="segmented"
+            :full-width="true"
+            aria-label="Notification inbox"
+            @update:model-value="handleReadStatusChange"
+          />
 
-          <div v-if="items.length" class="global-activity-filters" role="tablist" aria-label="Activity filters">
-            <button
-              v-for="filter in visibleFilters"
-              :key="filter.value"
-              type="button"
-              class="global-activity-filter"
-              :class="{ active: activeFilter === filter.value }"
-              role="tab"
-              :aria-selected="activeFilter === filter.value ? 'true' : 'false'"
-              :title="`${filter.label}: ${countForFilter(filter.value)}`"
-              @click="activeFilter = filter.value"
-            >
-              <svg class="icon"><use :href="filter.icon" /></svg>
-              <span class="global-activity-filter-label">{{ filter.label }}</span>
-              <span class="global-activity-filter-count">{{ countForFilter(filter.value) }}</span>
-            </button>
+          <label v-if="items.length" class="global-activity-filter-control">
+            <span class="v-sr-only">Filter notifications by activity type</span>
+            <svg class="icon global-activity-filter-icon" aria-hidden="true"><use :href="activeFilterIcon" /></svg>
+            <span class="global-activity-filter-value">{{ activeFilterLabel }}</span>
+            <span class="global-activity-filter-count" aria-hidden="true">{{ countForFilter(activeFilter) }}</span>
+            <svg class="icon global-activity-filter-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+            <select v-model="activeFilter" class="global-activity-filter-select" aria-label="Filter notifications by activity type">
+              <option v-for="filter in visibleFilters" :key="filter.value" :value="filter.value">
+                {{ filter.label }} ({{ countForFilter(filter.value) }})
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div v-if="loading && !items.length" class="global-activity-skeleton" role="status" aria-live="polite">
+          <span class="v-sr-only">Loading notifications</span>
+          <div v-for="index in 3" :key="index" class="global-activity-skeleton-group" :style="{ '--skeleton-index': index }">
+            <span class="global-activity-skeleton-thumb"></span>
+            <span class="global-activity-skeleton-line is-title"></span>
+            <span class="global-activity-skeleton-line is-meta"></span>
+            <span class="global-activity-skeleton-row"></span>
+            <span class="global-activity-skeleton-row is-short"></span>
           </div>
         </div>
 
-        <div v-if="loading && !items.length" class="global-activity-empty">
-          <svg class="icon spinning"><use href="#icon-loader" /></svg>
-          <span>Loading activity</span>
+        <div v-else-if="loadError && !items.length" class="global-activity-empty is-error" role="alert">
+          <span class="global-activity-empty-icon" aria-hidden="true">
+            <svg class="icon"><use href="#icon-alert" /></svg>
+          </span>
+          <div class="global-activity-empty-copy">
+            <strong>Notifications could not load</strong>
+            <span>Check your connection, then try again.</span>
+          </div>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" :disabled="loading" @click="refreshGlobalActivity">
+            Try again
+          </button>
         </div>
 
         <div v-else-if="!items.length" class="global-activity-empty">
-          <svg class="icon"><use :href="readStatus === 'read' ? '#icon-check' : '#icon-bell'" /></svg>
-          <span>{{ emptyStateLabel }}</span>
+          <span class="global-activity-empty-icon" aria-hidden="true">
+            <svg class="icon"><use :href="readStatus === 'read' ? '#icon-clock' : '#icon-check'" /></svg>
+          </span>
+          <div class="global-activity-empty-copy">
+            <strong>{{ emptyStateTitle }}</strong>
+            <span>{{ emptyStateCopy }}</span>
+          </div>
         </div>
 
         <div v-else-if="!filteredItems.length" class="global-activity-empty">
-          <svg class="icon"><use :href="activeFilterIcon" /></svg>
-          <span>No {{ activeFilterLabel.toLowerCase() }} activity yet</span>
+          <span class="global-activity-empty-icon" aria-hidden="true">
+            <svg class="icon"><use :href="activeFilterIcon" /></svg>
+          </span>
+          <div class="global-activity-empty-copy">
+            <strong>No {{ activeFilterLabel.toLowerCase() }} here</strong>
+            <span>Choose another activity type or return to everything.</span>
+          </div>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="activeFilter = 'all'">
+            Show all activity
+          </button>
         </div>
 
         <ol v-else class="global-activity-list">
@@ -207,10 +255,8 @@
                                 </span>
                                 <span class="v-truncate">{{ actorLabel(item) }}</span>
                               </span>
-                              <span class="global-activity-foot-dot" aria-hidden="true"></span>
                               <span class="global-activity-scope v-truncate">{{ item.tracker_name || 'Tracker' }}</span>
-                              <span class="global-activity-foot-dot" aria-hidden="true"></span>
-                              <span :title="absoluteTimestamp(item.created_at)">{{ relativeTimestamp(item.created_at) }}</span>
+                              <span class="global-activity-time" :title="absoluteTimestamp(item.created_at)">{{ relativeTimestamp(item.created_at) }}</span>
                               <span v-if="item.group_count > 1" class="v-tag v-tag--accent">{{ item.group_count }} updates</span>
                             </div>
                           </div>
@@ -254,10 +300,8 @@
                             </span>
                             <span class="v-truncate">{{ actorLabel(entry.item) }}</span>
                           </span>
-                          <span class="global-activity-foot-dot" aria-hidden="true"></span>
                           <span class="global-activity-scope v-truncate">{{ entry.item.tracker_name || 'Tracker' }}</span>
-                          <span class="global-activity-foot-dot" aria-hidden="true"></span>
-                          <span :title="absoluteTimestamp(entry.item.created_at)">{{ relativeTimestamp(entry.item.created_at) }}</span>
+                          <span class="global-activity-time" :title="absoluteTimestamp(entry.item.created_at)">{{ relativeTimestamp(entry.item.created_at) }}</span>
                           <span v-if="entry.item.group_count > 1" class="v-tag v-tag--accent">{{ entry.item.group_count }} updates</span>
                         </div>
                       </div>
@@ -270,7 +314,7 @@
         </ol>
 
         <button
-          v-if="hasMore"
+          v-if="hasMore && items.length"
           type="button"
           class="v-btn v-btn-secondary v-btn-sm global-activity-more"
           :disabled="loading"
@@ -279,6 +323,8 @@
           <svg v-if="loading" class="icon spinning"><use href="#icon-loader" /></svg>
           <span>{{ loading ? 'Loading' : 'Load more' }}</span>
         </button>
+
+        <slot v-if="$slots.footer" name="footer" :close="closeGlobalActivityTray" />
       </section>
     </Transition>
   </div>
@@ -286,8 +332,10 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { VTabs } from '../primitives'
 import { useOutsideClick } from '../../composables/useOutsideClick'
-import { getTrackerEventIcon } from '../../lib/trackerCatalogs'
+import { getTrackerEventColor, getTrackerEventIcon } from '../../lib/trackerCatalogs'
+import { identityColorStyle } from '../../utils/semanticColors'
 import {
   formatActivityAbsoluteTimestamp as absoluteTimestamp,
   formatActivityRelativeTimestamp as relativeTimestamp,
@@ -303,6 +351,7 @@ const {
   globalActivityHasMore: hasMore,
   globalActivityUnreadCount: unreadCount,
   globalActivityReadStatus: readStatus,
+  globalActivityError: loadError,
   setGlobalActivityReadStatus,
   toggleGlobalActivityTray,
   closeGlobalActivityTray,
@@ -312,31 +361,11 @@ const {
   openGlobalActivityTarget,
 } = useActivityStore()
 
-const PALETTE = {
-  versions: 'var(--v-info)',
-  comments: 'color-mix(in srgb, var(--v-info) 62%, var(--v-text-secondary))',
-  assignments: 'var(--v-warning)',
-  status: 'var(--v-accent)',
-  updates: 'color-mix(in srgb, var(--v-info) 52%, var(--v-accent))',
-  default: 'var(--v-text-muted)',
-}
-
-const AVATAR_HUES = [
-  'var(--v-accent)',
-  'var(--v-info)',
-  'color-mix(in srgb, var(--v-accent) 58%, var(--v-info))',
-  'color-mix(in srgb, var(--v-info) 64%, var(--v-text-secondary))',
-  'color-mix(in srgb, var(--v-accent) 48%, var(--v-text-secondary))',
-  'var(--v-warning)',
-]
 const GROUP_WINDOW_SECONDS = 30 * 60
 const rootEl = ref(null)
 const activeFilter = ref('all')
 const expandedBundles = ref(new Set())
-const readStatusOptions = [
-  { value: 'unread', label: 'Unread' },
-  { value: 'read', label: 'Read' },
-]
+const markingRead = ref(false)
 
 useOutsideClick(rootEl, closeGlobalActivityTray, {
   enabled: open,
@@ -344,7 +373,7 @@ useOutsideClick(rootEl, closeGlobalActivityTray, {
 })
 
 const filters = [
-  { value: 'all', label: 'All', icon: '#icon-activity' },
+  { value: 'all', label: 'All activity', icon: '#icon-activity' },
   { value: 'comments', label: 'Comments', icon: '#icon-comment' },
   { value: 'status', label: 'Status', icon: '#icon-circle' },
   { value: 'assignments', label: 'Assigned', icon: '#icon-user' },
@@ -354,27 +383,54 @@ const filters = [
 ]
 
 const unreadLabel = computed(() => unreadCount.value > 9 ? '9+' : String(unreadCount.value))
+const triggerAriaLabel = computed(() => unreadCount.value > 0
+  ? `Notifications, ${unreadCount.value} unread`
+  : 'Notifications')
+const readStatusTabs = computed(() => [
+  {
+    value: 'unread',
+    label: 'Inbox',
+    icon: '#icon-inbox',
+    count: unreadCount.value > 0 ? unreadLabel.value : undefined,
+    disabled: loading.value,
+  },
+  {
+    value: 'read',
+    label: 'History',
+    icon: '#icon-clock',
+    disabled: loading.value,
+  },
+])
 const activeFilterConfig = computed(() => filters.find(filter => filter.value === activeFilter.value) || filters[0])
 const activeFilterLabel = computed(() => activeFilterConfig.value.label)
 const activeFilterIcon = computed(() => activeFilterConfig.value.icon)
-const emptyStateLabel = computed(() => readStatus.value === 'read' ? 'No read notifications yet' : 'All caught up')
+const emptyStateTitle = computed(() => readStatus.value === 'read' ? 'No notification history' : "You're caught up")
+const emptyStateCopy = computed(() => readStatus.value === 'read'
+  ? 'Notifications you mark as read will appear here.'
+  : 'New comments, assignments, and review updates will appear here.')
 const visibleFilters = computed(() => filters.filter((filter) => {
   if (filter.value === 'all' || filter.value === activeFilter.value) return true
   return countForFilter(filter.value) > 0
 }))
 const activityMetaLabel = computed(() => {
-  const count = items.value.length
+  const count = readStatus.value === 'unread'
+    ? Math.max(unreadCount.value, items.value.length)
+    : items.value.length
   if (!count) {
-    return readStatus.value === 'read' ? 'Viewing read notifications' : 'Viewing unread notifications'
+    return readStatus.value === 'read' ? 'Your read notification history' : 'Updates that need your attention'
   }
   const visibleCount = filteredItems.value.length
+  if (activeFilter.value !== 'all' && visibleCount === 0) {
+    const destination = readStatus.value === 'read' ? 'history' : 'inbox'
+    return `No ${activeFilterLabel.value.toLowerCase()} in ${destination}`
+  }
   const projectCount = new Set(filteredItems.value.map(projectKeyForItem)).size || 1
   const stateLabel = readStatus.value === 'read' ? 'read' : 'unread'
   const projectLabel = `${projectCount} ${projectCount === 1 ? 'project' : 'projects'}`
   if (activeFilter.value === 'all') {
-    return `${count} ${stateLabel} ${count === 1 ? 'update' : 'updates'} from ${projectLabel}`
+    return `${count} ${stateLabel} across ${projectLabel}`
   }
-  return `${visibleCount} of ${count} ${stateLabel} ${visibleCount === 1 ? 'update' : 'updates'} from ${projectLabel}`
+  return `${visibleCount} ${activeFilterLabel.value.toLowerCase()} across ${projectLabel}`
 })
 const filteredItems = computed(() => {
   if (activeFilter.value === 'all') return items.value
@@ -429,6 +485,23 @@ const groupedItems = computed(() => {
   })
   return groups.map(({ _projectMap, ...group }) => group)
 })
+
+async function handleReadStatusChange(nextStatus) {
+  if (nextStatus === readStatus.value || loading.value) return
+  activeFilter.value = 'all'
+  expandedBundles.value = new Set()
+  await setGlobalActivityReadStatus(nextStatus)
+}
+
+async function handleMarkAllRead() {
+  if (markingRead.value) return
+  markingRead.value = true
+  try {
+    await markGlobalActivitySeen()
+  } finally {
+    markingRead.value = false
+  }
+}
 
 function activityFilterForEvent(eventType) {
   if ([
@@ -603,7 +676,7 @@ function bundleDetailForItems(items) {
     targetSummaryForItems(items),
     firstItem?.tracker_name || firstItem?.target?.tracker_name || 'Tracker',
     relativeTimestamp(firstItem?.created_at),
-  ].filter(Boolean).join(' · ')
+  ].filter(Boolean).join(', ')
 }
 
 function actorSummaryForItems(items) {
@@ -659,25 +732,35 @@ function projectKeyForItem(item) {
 function projectDetailForItems(items) {
   const bucketCounts = new Map()
   items.forEach((item) => {
-    const label = filterLabel(activityFilterForEvent(item.event_type))
-    bucketCounts.set(label, (bucketCounts.get(label) || 0) + activityCountForItems([item]))
+    const filterValue = activityFilterForEvent(item.event_type)
+    bucketCounts.set(filterValue, (bucketCounts.get(filterValue) || 0) + activityCountForItems([item]))
   })
   return Array.from(bucketCounts.entries())
     .slice(0, 3)
-    .map(([label, count]) => `${count} ${label}`)
-    .join(' · ')
+    .map(([filterValue, count]) => filterCountLabel(filterValue, count))
+    .join(', ')
 }
 
 function activityCountForItems(items) {
   return items.reduce((sum, item) => sum + Math.max(1, Number(item?.group_count || 1)), 0)
 }
 
-function filterLabel(filterValue) {
-  return filters.find(filter => filter.value === filterValue)?.label.toLowerCase() || 'updates'
+function filterCountLabel(filterValue, count) {
+  const nouns = {
+    comments: 'comment',
+    status: 'status change',
+    assignments: 'assignment',
+    versions: 'version',
+    downloads: 'download',
+    updates: 'update',
+  }
+  return `${count} ${pluralize(nouns[filterValue] || 'update', count)}`
 }
 
 function countLabel(count) {
-  return `${count} ${count === 1 ? 'update' : 'updates'}`
+  return readStatus.value === 'read'
+    ? `${count} read`
+    : `${count} unread`
 }
 
 function primaryShotLabel(item) {
@@ -753,9 +836,8 @@ function eventIcon(eventType) {
 }
 
 function eventBadgeStyle(eventType) {
-  const baseColor = PALETTE[activityFilterForEvent(eventType)] || PALETTE.default
   return {
-    '--global-activity-event-color': baseColor,
+    '--global-activity-event-color': getTrackerEventColor(eventType),
   }
 }
 
@@ -770,20 +852,8 @@ function hideBrokenThumbnail(event) {
   event.target.style.display = 'none'
 }
 
-function hashString(value) {
-  let hash = 0
-  const seed = String(value ?? '')
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0
-  }
-  return hash
-}
-
 function avatarStyle(seed) {
-  const hue = AVATAR_HUES[hashString(seed || 'user') % AVATAR_HUES.length]
-  return {
-    '--global-activity-avatar-color': hue,
-  }
+  return identityColorStyle(seed || 'user', '--global-activity-avatar-color')
 }
 
 function initialsFor(name) {
@@ -810,10 +880,30 @@ function trimContext(text) {
 
 .global-activity-trigger {
   position: relative;
+  width: var(--v-btn-height);
+  min-width: var(--v-btn-height);
+  height: var(--v-btn-height);
+  min-height: var(--v-btn-height);
+  border: 1px solid transparent;
+  border-radius: var(--v-button-radius);
+  color: var(--v-text-muted);
 }
 
 .global-activity-trigger.has-unread {
   color: var(--v-text);
+}
+
+.global-activity-trigger:hover:not(:disabled),
+.global-activity.is-open .global-activity-trigger {
+  border-color: var(--v-control-border);
+  background: var(--v-surface-inline);
+  color: var(--v-text);
+}
+
+.global-activity.is-open .global-activity-trigger {
+  border-color: var(--v-control-border-active);
+  background: var(--v-control-bg-active);
+  color: var(--v-accent);
 }
 
 .global-activity-badge {
@@ -850,11 +940,11 @@ function trimContext(text) {
   top: calc(100% + 10px);
   right: 0;
   z-index: 10020;
-  width: min(420px, calc(100vw - 28px));
+  width: min(472px, calc(100vw - 28px));
   max-height: calc(100svh - var(--global-activity-top-offset) - var(--global-activity-bottom-offset));
   display: flex;
   flex-direction: column;
-  padding: 14px 6px 6px;
+  padding: 0;
   border: 1px solid var(--v-surface-border-strong);
   border-radius: var(--v-radius-lg);
   background: var(--v-surface-canvas);
@@ -878,7 +968,7 @@ function trimContext(text) {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--v-space-3);
-  padding: 0 6px 12px;
+  padding: 16px 16px 14px;
   flex-shrink: 0;
 }
 
@@ -886,7 +976,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .global-activity-title,
@@ -899,7 +989,7 @@ function trimContext(text) {
 
 .global-activity-title {
   color: var(--v-text);
-  font-size: var(--v-text-xl);
+  font-size: var(--v-text-2xl);
   font-weight: 700;
   letter-spacing: 0;
   line-height: 1.2;
@@ -917,14 +1007,14 @@ function trimContext(text) {
   align-items: center;
   gap: 6px;
   flex: 0 0 auto;
-  margin-top: 2px;
+  margin-top: 1px;
 }
 
 .global-activity-head-actions .v-icon-action {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
-  min-height: 30px;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
 }
 
 .global-activity-head-actions .v-icon-action .icon {
@@ -936,9 +1026,9 @@ function trimContext(text) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 26px;
-  padding: 0 9px;
-  border: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: var(--v-button-radius);
   background: transparent;
   color: var(--v-text-muted);
@@ -966,6 +1056,11 @@ function trimContext(text) {
   color: var(--v-text);
 }
 
+.global-activity-mark-read:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
 .global-activity-mark-read:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--v-accent-muted);
@@ -974,193 +1069,263 @@ function trimContext(text) {
 /* ─── Controls ────────────────────────────────────────────────────────────── */
 
 .global-activity-controls {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(142px, 0.62fr);
   gap: var(--v-space-2);
-  padding: 0 6px 10px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--v-divider-subtle);
+  border-bottom: 1px solid var(--v-divider-subtle);
+  background: color-mix(in srgb, var(--v-surface-panel) 72%, transparent);
   flex-shrink: 0;
 }
 
 .global-activity-read-toggle {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
+  min-width: 0;
   width: 100%;
-  padding: 3px;
-  border-radius: var(--v-button-radius);
-  border: 1px solid var(--v-surface-border-soft);
-  background: var(--v-surface-inset);
-  box-shadow: var(--v-surface-shadow-inset);
 }
 
-.global-activity-read-option {
-  min-width: 0;
-  min-height: 30px;
+.global-activity-read-toggle :deep(.v-tab-btn) {
+  min-height: 36px;
   padding: 0 10px;
-  border: 0;
-  border-radius: var(--v-button-radius);
-  background: transparent;
-  color: var(--v-text-muted);
   font-size: var(--v-text-sm);
   font-weight: 700;
-  letter-spacing: 0;
-  text-transform: none;
-  transition: none;
 }
 
-.global-activity-read-option:hover:not(.active) {
-  color: var(--v-text-secondary);
-  background: transparent;
-}
-
-.global-activity-read-option.active {
-  background: var(--v-surface-raised);
+.global-activity-read-toggle :deep(.v-tab-btn.active) {
   color: var(--v-text);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 1px 6px rgba(0, 0, 0, 0.12);
 }
 
-.global-activity-read-option.is-unread-option.active {
+.global-activity-read-toggle :deep(.v-tab-btn:first-child.active) {
   color: var(--v-accent);
 }
 
-.global-activity-read-option .v-tab-btn__count {
-  min-width: 16px;
-  height: 16px;
+.global-activity-read-toggle :deep(.v-tab-btn:last-child.active) {
+  border-color: var(--v-control-border-hover);
+  background: var(--v-surface-inline-strong);
+}
+
+.global-activity-read-toggle :deep(.v-tab-btn__count) {
+  min-width: 17px;
+  height: 17px;
   padding: 0 5px;
-  background: color-mix(in srgb, var(--v-text) 8%, transparent);
-  color: var(--v-text-muted);
+  background: color-mix(in srgb, var(--v-accent) 18%, transparent);
+  color: var(--v-accent);
   font-size: var(--v-text-2xs);
   font-weight: 800;
 }
 
-.global-activity-read-option.is-unread-option.active .v-tab-btn__count {
-  background: var(--v-accent);
-  color: var(--v-bg-black);
-}
-
-.global-activity-filters {
-  display: flex;
+.global-activity-filter-control {
+  position: relative;
+  min-width: 0;
+  height: 38px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto 12px;
   align-items: center;
-  gap: var(--v-space-1);
-  margin: 0 -2px;
-  padding: 1px 2px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-
-.global-activity-filter {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  min-height: 26px;
-  padding: 0 9px;
-  border: 0;
+  gap: 7px;
+  padding: 0 10px;
+  border: 1px solid var(--v-control-border);
   border-radius: var(--v-button-radius);
-  background: transparent;
-  color: var(--v-text-muted);
-  font-family: var(--v-font);
-  font-size: var(--v-text-sm);
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  cursor: pointer;
-  transition: none;
-}
-
-.global-activity-filter:hover:not(.active) {
+  background: var(--v-control-bg);
+  box-shadow: var(--v-surface-shadow-inset);
   color: var(--v-text-secondary);
-  background: var(--v-bg-hover);
+  cursor: pointer;
+  transition:
+    border-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
-.global-activity-filter.active {
-  color: var(--v-text);
-  background: var(--v-surface-inline);
+.global-activity-filter-control:hover {
+  border-color: var(--v-control-border-hover);
+  background: var(--v-control-bg-hover);
 }
 
-.global-activity-filter .icon {
+.global-activity-filter-control:focus-within {
+  border-color: var(--v-border-focus);
+  box-shadow: 0 0 0 3px var(--v-accent-muted);
+}
+
+.global-activity-filter-icon,
+.global-activity-filter-chevron {
   width: 12px;
   height: 12px;
-  flex: 0 0 auto;
-  opacity: 0.8;
+  color: var(--v-text-muted);
 }
 
-.global-activity-filter.active .icon {
-  opacity: 1;
-}
-
-.global-activity-filter-label {
+.global-activity-filter-value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  font-weight: 650;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .global-activity-filter-count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--v-radius-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 4px;
-  border-radius: var(--v-radius-full);
-  background: color-mix(in srgb, var(--v-text) 7%, transparent);
+  background: var(--v-surface-inline);
   color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
   font-weight: 800;
-  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
 
-.global-activity-filter.active .global-activity-filter-count {
-  background: color-mix(in srgb, var(--v-accent) 18%, transparent);
-  color: var(--v-accent);
+.global-activity-filter-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
-/* ─── Spinners ────────────────────────────────────────────────────────────── */
+/* ─── Feedback states ─────────────────────────────────────────────────────── */
+
+.global-activity-close {
+  display: none;
+}
 
 .global-activity-refresh .icon.spinning,
-.global-activity-empty .icon.spinning,
+.global-activity-mark-read .icon.spinning,
 .global-activity-more .icon.spinning {
   animation: global-activity-spin 1s linear infinite;
 }
 
-/* ─── Empty state ─────────────────────────────────────────────────────────── */
+.global-activity-skeleton {
+  min-height: 300px;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.global-activity-skeleton-group {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-rows: 16px 12px 34px 34px;
+  align-items: center;
+  gap: 5px 10px;
+  padding: 11px 12px 8px;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-panel);
+  animation: global-activity-skeleton 1.4s ease-in-out infinite alternate;
+  animation-delay: calc(var(--skeleton-index) * 90ms);
+}
+
+.global-activity-skeleton-thumb,
+.global-activity-skeleton-line,
+.global-activity-skeleton-row {
+  display: block;
+  border-radius: var(--v-radius-sm);
+  background: color-mix(in srgb, var(--v-text) 7%, transparent);
+}
+
+.global-activity-skeleton-thumb {
+  grid-row: 1 / span 2;
+  width: 42px;
+  height: 32px;
+}
+
+.global-activity-skeleton-line.is-title {
+  width: min(180px, 64%);
+  height: 11px;
+}
+
+.global-activity-skeleton-line.is-meta {
+  width: min(132px, 45%);
+  height: 8px;
+}
+
+.global-activity-skeleton-row {
+  grid-column: 1 / -1;
+  height: 28px;
+  margin-top: 2px;
+  background: color-mix(in srgb, var(--v-text) 4%, transparent);
+}
+
+.global-activity-skeleton-row.is-short {
+  width: 78%;
+}
 
 .global-activity-empty {
-  min-height: 200px;
+  min-height: 300px;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: var(--v-space-3);
-  margin: 0 6px;
   padding: var(--v-space-6);
   color: var(--v-text-muted);
-  font-size: var(--v-text-base);
-  font-weight: 500;
+  text-align: center;
 }
 
-.global-activity-empty .icon {
-  width: 24px;
-  height: 24px;
-  padding: 14px;
-  box-sizing: content-box;
-  border-radius: var(--v-radius-full);
-  background: color-mix(in srgb, var(--v-text) 5%, transparent);
-  color: color-mix(in srgb, var(--v-text-muted) 80%, transparent);
+.global-activity-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--v-radius-md);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--v-accent) 12%, transparent);
+  color: var(--v-accent);
 }
 
-/* ─── List ────────────────────────────────────────────────────────────────── */
+.global-activity-empty.is-error .global-activity-empty-icon {
+  background: color-mix(in srgb, var(--v-danger) 12%, transparent);
+  color: var(--v-danger);
+}
 
-.global-activity-list {
-  list-style: none;
-  margin: 0;
-  padding: 0 6px 8px;
+.global-activity-empty-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.global-activity-empty-copy {
+  max-width: 32ch;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 4px;
+}
+
+.global-activity-empty-copy strong {
+  color: var(--v-text);
+  font-size: var(--v-text-lg);
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.global-activity-empty-copy span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  font-weight: 500;
+  line-height: 1.45;
+}
+
+/* ─── Notification groups ─────────────────────────────────────────────────── */
+
+.global-activity-list {
   width: 100%;
-  min-height: 0;
   min-width: 0;
-  max-width: 100%;
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0 12px 12px;
+  list-style: none;
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -1173,20 +1338,17 @@ function trimContext(text) {
 .global-activity-day-list,
 .global-activity-bundle,
 .global-activity-bundle-items {
-  list-style: none;
+  min-width: 0;
   margin: 0;
   padding: 0;
+  list-style: none;
 }
 
 .global-activity-day {
   display: flex;
   flex-direction: column;
   gap: var(--v-space-2);
-  min-width: 0;
-  max-width: 100%;
 }
-
-/* ─── Day header ──────────────────────────────────────────────────────────── */
 
 .global-activity-day-head {
   position: sticky;
@@ -1196,64 +1358,49 @@ function trimContext(text) {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--v-space-3);
-  margin: 0 -6px;
-  padding: 10px 10px 8px;
+  margin: 0 -2px;
+  padding: 12px 2px 8px;
   background: var(--v-surface-canvas);
-  box-shadow: 0 6px 10px -6px var(--v-surface-canvas);
+  box-shadow: 0 8px 10px -8px var(--v-surface-canvas);
 }
 
-/* Recedes behind the day label it annotates. */
 .global-activity-day-detail {
-  opacity: 0.75;
+  opacity: 0.72;
 }
-
-/* ─── Project group ───────────────────────────────────────────────────────── */
 
 .global-activity-project-list {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-  max-width: 100%;
+  gap: 10px;
 }
 
 .global-activity-project {
-  --spine-color: color-mix(in srgb, var(--v-text) 18%, transparent);
-  --spine-fade: color-mix(in srgb, var(--v-text) 12%, transparent);
-
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-1);
-  padding: 0;
-  background: transparent;
-  border: 0;
-  min-width: 0;
-  max-width: 100%;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-panel);
+  overflow: hidden;
   transition:
-    opacity var(--global-activity-motion-med) var(--global-activity-motion-ease),
-    transform var(--global-activity-motion-med) var(--global-activity-motion-ease);
+    border-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    transform var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
-.global-activity-project.has-unread {
-  --spine-color: var(--v-accent);
-  --spine-fade: color-mix(in srgb, var(--v-accent) 28%, transparent);
-}
-
-.global-activity-project.is-read-group {
-  --spine-color: color-mix(in srgb, var(--v-text) 22%, transparent);
-  --spine-fade: color-mix(in srgb, var(--v-text) 10%, transparent);
+.global-activity-project:hover {
+  border-color: var(--v-surface-border-strong);
 }
 
 .global-activity-project-head {
   width: 100%;
+  min-height: 54px;
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto;
+  grid-template-columns: 42px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  padding: 6px 4px 6px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: var(--v-button-radius);
+  border-radius: 0;
   background: transparent;
   color: inherit;
   font: inherit;
@@ -1265,31 +1412,29 @@ function trimContext(text) {
     box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
-.global-activity-project-head:hover,
-.global-activity-project-head:focus-visible {
+.global-activity-project-head:hover {
   background: var(--v-surface-tint-hover);
 }
 
+.global-activity-project-head:active {
+  transform: scale(0.995);
+}
+
 .global-activity-project-head:focus-visible {
-  box-shadow: 0 0 0 3px var(--v-accent-muted);
+  box-shadow: inset 0 0 0 2px var(--v-border-focus);
 }
 
 .global-activity-project-thumb {
   position: relative;
-  width: 36px;
-  height: 28px;
-  border-radius: var(--v-radius-sm);
+  width: 42px;
+  height: 32px;
+  border-radius: var(--v-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  background: linear-gradient(135deg, var(--v-surface-inline-strong), var(--v-surface-inline));
+  background: var(--v-surface-inline-strong);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, white 6%, transparent);
-  transition: box-shadow var(--global-activity-motion-med) var(--global-activity-motion-ease);
-}
-
-.global-activity-project:hover .global-activity-project-thumb {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 9%, transparent), 0 6px 14px rgba(0, 0, 0, 0.16);
 }
 
 .global-activity-project-thumb img {
@@ -1304,14 +1449,14 @@ function trimContext(text) {
   content: '';
   position: absolute;
   inset: 0;
-  background: linear-gradient(180deg, transparent 55%, rgba(0, 0, 0, 0.16));
+  background: linear-gradient(180deg, transparent 62%, rgba(0, 0, 0, 0.18));
   pointer-events: none;
 }
 
 .global-activity-project-thumb-fallback {
   position: relative;
   z-index: 1;
-  color: color-mix(in srgb, var(--v-text-muted) 90%, transparent);
+  color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -1322,7 +1467,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .global-activity-project-title-row {
@@ -1337,28 +1482,22 @@ function trimContext(text) {
   color: var(--v-text);
   font-size: var(--v-text-base);
   font-weight: 700;
-  letter-spacing: 0;
   line-height: 1.25;
 }
 
 .global-activity-project-count {
-  flex: 0 0 auto;
-  min-height: 18px;
-  padding: 0 8px;
-  border-radius: var(--v-radius-full);
+  min-height: 19px;
   display: inline-flex;
   align-items: center;
-  border: 0;
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 7px;
+  border-radius: var(--v-radius-full);
   background: color-mix(in srgb, var(--v-text) 7%, transparent);
   color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
-  font-weight: 700;
-  letter-spacing: 0;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
-  transition:
-    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    color var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
 .global-activity-project.has-unread .global-activity-project-count {
@@ -1373,53 +1512,37 @@ function trimContext(text) {
   line-height: 1.3;
 }
 
-/* ─── Project body (timeline) ─────────────────────────────────────────────── */
-
 .global-activity-day-list {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0;
-  margin-left: 18px;
-  padding-left: 18px;
-  border-left: 1.5px solid var(--spine-color);
-  transition: border-color var(--global-activity-motion-med) var(--global-activity-motion-ease);
+  border-top: 1px solid var(--v-divider-subtle);
 }
 
-.global-activity-day-list::after {
-  content: '';
-  position: absolute;
-  left: -1.5px;
-  bottom: -1px;
-  width: 1.5px;
-  height: 18px;
-  background: linear-gradient(180deg, var(--spine-color), transparent);
-}
+/* ─── Notification rows ───────────────────────────────────────────────────── */
 
-/* ─── Item ────────────────────────────────────────────────────────────────── */
+.global-activity-item,
+.global-activity-bundle {
+  --global-activity-event-color: var(--v-text-muted);
+  position: relative;
+}
 
 .global-activity-item {
-  --global-activity-event-color: var(--v-text-muted);
-
-  position: relative;
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr);
-  gap: 10px;
-  margin: 0;
-  padding: 9px 8px 11px;
-  border: 0;
-  border-radius: var(--v-radius-md);
-  background: transparent;
-  box-shadow: none;
   min-width: 0;
-  max-width: 100%;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 11px;
+  margin: 0;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   outline: none;
   transition:
     background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease);
+    box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    transform var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
-/* Hairline dividers between adjacent rows (inset so hover stays rounded) */
 .global-activity-item + .global-activity-item::before,
 .global-activity-bundle + .global-activity-item::before,
 .global-activity-item + .global-activity-bundle > .global-activity-bundle-toggle::before,
@@ -1427,8 +1550,8 @@ function trimContext(text) {
   content: '';
   position: absolute;
   top: 0;
-  left: 8px;
-  right: 8px;
+  left: 51px;
+  right: 12px;
   height: 1px;
   background: var(--v-divider-subtle);
   pointer-events: none;
@@ -1438,57 +1561,57 @@ function trimContext(text) {
   cursor: pointer;
 }
 
-.global-activity-item.is-actionable:hover {
-  background: var(--v-bg-hover);
+.global-activity-item.is-actionable:hover,
+.global-activity-bundle-toggle:hover {
+  background: color-mix(in srgb, var(--global-activity-event-color) 5%, transparent);
 }
 
-.global-activity-item.is-actionable:focus-visible {
-  background: var(--v-bg-hover);
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--v-accent) 50%, transparent);
+.global-activity-item.is-actionable:active,
+.global-activity-bundle-toggle:active {
+  transform: scale(0.995);
 }
 
+.global-activity-item.is-actionable:focus-visible,
+.global-activity-bundle-toggle:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--v-border-focus);
+}
 
-.global-activity-item-icon {
+.global-activity-item-icon,
+.global-activity-bundle-icon {
   position: relative;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--v-radius-full);
+  width: 28px;
+  height: 28px;
+  border-radius: var(--v-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  grid-column: 1;
-  grid-row: 1;
-  margin-top: 1px;
+  flex: 0 0 auto;
   background: color-mix(in srgb, var(--global-activity-event-color) 14%, transparent);
   color: var(--global-activity-event-color);
-  box-shadow: 0 0 0 3px var(--v-surface-canvas);
-  transition:
-    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    color var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
-.global-activity-item-icon::before {
-  content: '';
-  position: absolute;
-  left: -26px;
-  top: 50%;
-  width: 24px;
-  height: 1.5px;
-  background: var(--spine-color);
-  transform: translateY(-50%);
-  border-radius: var(--v-radius-full);
+.global-activity-item-icon {
+  grid-column: 1;
+  grid-row: 1;
 }
 
-.global-activity-item-icon .icon {
-  width: 12px;
-  height: 12px;
+.global-activity-item-icon .icon,
+.global-activity-bundle-icon .icon {
+  width: 13px;
+  height: 13px;
+}
+
+.global-activity-project.is-read-group .global-activity-item-icon,
+.global-activity-project.is-read-group .global-activity-bundle-icon {
+  background: var(--v-surface-inline);
+  color: var(--v-text-muted);
 }
 
 .global-activity-item-body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-1);
+  gap: 5px;
   grid-column: 2;
 }
 
@@ -1499,7 +1622,7 @@ function trimContext(text) {
   gap: 10px;
   color: var(--v-text);
   font-size: var(--v-text-base);
-  font-weight: 600;
+  font-weight: 650;
   line-height: 1.4;
 }
 
@@ -1519,13 +1642,13 @@ function trimContext(text) {
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
-  margin-top: var(--v-space-1);
+  margin-top: 3px;
   color: var(--v-text-muted);
-  opacity: 0;
+  opacity: 0.35;
   transform: translateX(-2px);
   transition:
-    opacity var(--v-transition-fast),
-    transform var(--v-transition-fast);
+    opacity var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    transform var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
 .global-activity-item.is-actionable:hover .global-activity-open-icon,
@@ -1535,10 +1658,11 @@ function trimContext(text) {
 }
 
 .global-activity-context {
-  margin: 2px 0 0;
-  padding: 6px 10px;
-  border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-text) 4%, transparent);
+  margin: 1px 0 0;
+  padding: 7px 9px;
+  border-left: 2px solid color-mix(in srgb, var(--global-activity-event-color) 35%, transparent);
+  border-radius: var(--v-radius-sm);
+  background: var(--v-surface-inline);
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
   font-weight: 400;
@@ -1546,33 +1670,24 @@ function trimContext(text) {
 }
 
 .global-activity-foot {
+  min-width: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
-  margin-top: 1px;
+  gap: 5px 10px;
   color: var(--v-text-muted);
   font-size: var(--v-text-2xs);
   font-weight: 500;
 }
 
 .global-activity-actor {
+  min-width: 0;
+  max-width: 150px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  min-width: 0;
-  max-width: 170px;
   color: var(--v-text-secondary);
-  font-weight: 600;
-}
-
-.global-activity-foot-dot {
-  width: 2px;
-  height: 2px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-text-muted);
-  opacity: 0.55;
-  flex: 0 0 auto;
+  font-weight: 650;
 }
 
 .global-activity-scope {
@@ -1580,33 +1695,33 @@ function trimContext(text) {
   max-width: 130px;
 }
 
+.global-activity-time {
+  margin-left: auto;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .global-activity-avatar {
   --global-activity-avatar-color: var(--v-accent);
-
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: var(--v-radius-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
-  font-size: var(--v-text-3xs);
-  font-weight: 800;
   border: 0;
   background: color-mix(in srgb, var(--global-activity-avatar-color) 16%, transparent);
   color: var(--global-activity-avatar-color);
+  font-size: var(--v-text-3xs);
+  font-weight: 800;
 }
 
-/* ─── Bundle (collapsible group of similar events) ────────────────────────── */
+/* ─── Bundled rows ────────────────────────────────────────────────────────── */
 
 .global-activity-bundle {
-  --global-activity-event-color: var(--v-text-muted);
-  position: relative;
   border: 0;
-  border-radius: var(--v-radius-md);
   background: transparent;
-  box-shadow: none;
-  overflow: visible;
 }
 
 .global-activity-bundle-toggle {
@@ -1614,12 +1729,12 @@ function trimContext(text) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 9px 8px 10px;
+  gap: 11px;
+  padding: 11px 12px;
   border: 0;
-  border-radius: var(--v-button-radius);
+  border-radius: 0;
   background: transparent;
   color: var(--v-text);
   font-family: var(--v-font);
@@ -1628,56 +1743,15 @@ function trimContext(text) {
   outline: none;
   transition:
     background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease);
-}
-
-.global-activity-bundle-toggle:hover {
-  background: var(--v-bg-hover);
-}
-
-.global-activity-bundle-toggle:focus-visible {
-  background: var(--v-bg-hover);
-  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--v-accent) 50%, transparent);
-}
-
-.global-activity-bundle-icon {
-  position: relative;
-  width: 22px;
-  height: 22px;
-  border-radius: var(--v-radius-full);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--global-activity-event-color) 14%, transparent);
-  color: var(--global-activity-event-color);
-  box-shadow: 0 0 0 3px var(--v-surface-canvas);
-  transition:
-    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    color var(--global-activity-motion-fast) var(--global-activity-motion-ease);
-}
-
-.global-activity-bundle-icon::before {
-  content: '';
-  position: absolute;
-  left: -26px;
-  top: 50%;
-  width: 24px;
-  height: 1.5px;
-  background: var(--spine-color);
-  transform: translateY(-50%);
-  border-radius: var(--v-radius-full);
-}
-
-.global-activity-bundle-icon .icon {
-  width: 12px;
-  height: 12px;
+    box-shadow var(--global-activity-motion-fast) var(--global-activity-motion-ease),
+    transform var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
 .global-activity-bundle-copy {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .global-activity-bundle-title {
@@ -1686,7 +1760,7 @@ function trimContext(text) {
   color: var(--v-text);
   font-size: var(--v-text-base);
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1695,7 +1769,7 @@ function trimContext(text) {
   min-width: 0;
   overflow: hidden;
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
+  font-size: var(--v-text-xs);
   font-weight: 500;
   line-height: 1.3;
   text-overflow: ellipsis;
@@ -1705,13 +1779,13 @@ function trimContext(text) {
 .global-activity-bundle-side {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   color: var(--v-text-muted);
 }
 
 .global-activity-bundle-count {
-  min-width: 20px;
-  height: 18px;
+  min-width: 22px;
+  height: 20px;
   padding: 0 7px;
   border-radius: var(--v-radius-full);
   display: inline-flex;
@@ -1722,9 +1796,6 @@ function trimContext(text) {
   font-size: var(--v-text-2xs);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
-  transition:
-    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    color var(--global-activity-motion-fast) var(--global-activity-motion-ease);
 }
 
 .global-activity-bundle-chevron {
@@ -1745,32 +1816,34 @@ function trimContext(text) {
 }
 
 .global-activity-bundle-items {
-  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0;
-  margin-left: 11px;
-  padding: 2px 0 4px 16px;
-  border-left: 1px dashed color-mix(in srgb, var(--global-activity-event-color) 30%, var(--v-divider-subtle));
+  margin: 0 8px 8px 50px;
+  padding: 4px;
+  border: 1px solid var(--v-divider-subtle);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+  overflow: hidden;
 }
 
 .global-activity-bundle-items .global-activity-item {
-  grid-template-columns: 18px minmax(0, 1fr);
+  grid-template-columns: 20px minmax(0, 1fr);
   gap: 9px;
-  padding: 8px 8px 9px;
+  padding: 9px 8px;
+  border-radius: var(--v-radius-sm);
+}
+
+.global-activity-bundle-items .global-activity-item + .global-activity-item::before {
+  left: 37px;
+  right: 8px;
 }
 
 .global-activity-bundle-items .global-activity-item-icon {
-  width: 18px;
-  height: 18px;
-  margin-top: 2px;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: var(--v-radius-sm);
   background: transparent;
-  box-shadow: none;
-  color: var(--global-activity-event-color);
-}
-
-.global-activity-bundle-items .global-activity-item-icon::before {
-  display: none;
 }
 
 .global-activity-bundle-items .global-activity-item-icon .icon {
@@ -1792,25 +1865,21 @@ function trimContext(text) {
 .global-activity-bundle-expand-leave-to {
   max-height: 0;
   opacity: 0;
-  transform: translateY(-4px) scaleY(0.96);
+  transform: translateY(-4px) scaleY(0.97);
 }
 
 .global-activity-bundle-expand-enter-to,
 .global-activity-bundle-expand-leave-from {
-  max-height: 420px;
+  max-height: 480px;
   opacity: 1;
   transform: translateY(0) scaleY(1);
 }
 
-/* ─── Load more ───────────────────────────────────────────────────────────── */
-
 .global-activity-more {
-  margin: 4px 6px 4px;
-  width: calc(100% - 12px);
+  width: calc(100% - 24px);
+  min-height: 36px;
   flex-shrink: 0;
-  transition:
-    background-color var(--global-activity-motion-fast) var(--global-activity-motion-ease),
-    border-color var(--global-activity-motion-fast) var(--global-activity-motion-ease);
+  margin: 0 12px 12px;
 }
 
 @keyframes global-activity-spin {
@@ -1829,9 +1898,17 @@ function trimContext(text) {
   }
 }
 
+@keyframes global-activity-skeleton {
+  from { opacity: 0.48; }
+  to { opacity: 0.88; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .global-activity-panel,
-  .global-activity-empty .icon {
+  .global-activity-skeleton-group,
+  .global-activity-refresh .icon.spinning,
+  .global-activity-mark-read .icon.spinning,
+  .global-activity-more .icon.spinning {
     animation: none !important;
   }
 
@@ -1839,21 +1916,6 @@ function trimContext(text) {
   .global-activity-bundle-expand-enter-active,
   .global-activity-bundle-expand-leave-active {
     transition-duration: 1ms !important;
-  }
-
-  .global-activity-mark-read:hover,
-  .global-activity-read-option.active,
-  .global-activity-filter:hover:not(.active),
-  .global-activity-filter.active,
-  .global-activity-project:hover .global-activity-project-thumb,
-  .global-activity-project:hover .global-activity-project-count,
-  .global-activity-item.is-actionable:hover,
-  .global-activity-item.is-actionable:hover .global-activity-item-icon,
-  .global-activity-bundle-toggle:hover,
-  .global-activity-bundle-toggle:hover .global-activity-bundle-icon,
-  .global-activity-bundle-toggle:hover .global-activity-bundle-count,
-  .global-activity-more:hover:not(:disabled) {
-    transform: none !important;
   }
 }
 
@@ -1875,12 +1937,7 @@ function trimContext(text) {
     right: max(12px, env(safe-area-inset-right, 0px));
     left: max(12px, env(safe-area-inset-left, 0px));
     width: auto;
-    height: auto;
-    min-height: 0;
     max-height: min(700px, calc(100svh - var(--global-activity-top-offset) - var(--global-activity-bottom-offset)));
-    border-radius: var(--v-radius-lg);
-    padding-bottom: calc(6px + var(--global-activity-safe-bottom));
-    overflow-x: hidden;
     touch-action: pan-y;
   }
 
@@ -1890,11 +1947,12 @@ function trimContext(text) {
     }
   }
 
+  .global-activity-close {
+    display: inline-flex;
+  }
+
   .global-activity-head-actions .v-icon-action,
-  .global-activity-mark-read,
-  .global-activity-read-option,
-  .global-activity-filter,
-  .global-activity-more {
+  .global-activity-mark-read {
     min-height: 44px;
   }
 
@@ -1905,56 +1963,18 @@ function trimContext(text) {
   }
 
   .global-activity-mark-read {
+    height: 44px;
     padding: 0 13px;
   }
 
-  .global-activity-read-toggle {
-    border-radius: var(--v-button-radius);
+  .global-activity-read-toggle :deep(.v-tab-btn),
+  .global-activity-filter-control,
+  .global-activity-more {
+    min-height: 44px;
   }
 
-  .global-activity-read-option {
-    border-radius: var(--v-button-radius);
-  }
-
-  .global-activity-filters {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-    margin: 0;
-    padding: 0;
-    overflow: visible;
-  }
-
-  .global-activity-filter {
-    justify-content: flex-start;
-    width: 100%;
-    padding: 0 10px;
-    border: 1px solid transparent;
-    background: color-mix(in srgb, var(--v-text) 4%, transparent);
-  }
-
-  .global-activity-filter:hover:not(.active) {
-    border-color: var(--v-control-border);
-  }
-
-  .global-activity-filter.active {
-    border-color: var(--v-control-border-active);
-  }
-
-  .global-activity-filter-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .global-activity-filter-count {
-    margin-left: auto;
-  }
-
-  .global-activity-list {
-    padding-right: var(--v-space-1);
-    overflow-x: hidden;
-    touch-action: pan-y;
+  .global-activity-filter-control {
+    height: 44px;
   }
 
   .global-activity-project-head,
@@ -1965,26 +1985,77 @@ function trimContext(text) {
 }
 
 @media (max-width: 430px) {
-  .global-activity-panel {
-    padding: 14px 4px 4px;
-  }
-
   .global-activity-head {
-    padding: 0 6px 10px;
-    flex-wrap: wrap;
+    align-items: center;
+    padding: 13px 12px 12px;
   }
 
-  .global-activity-head-actions {
-    width: 100%;
-    justify-content: flex-end;
+  .global-activity-title {
+    font-size: var(--v-text-xl);
+  }
+
+  .global-activity-meta {
+    font-size: var(--v-text-xs);
   }
 
   .global-activity-controls {
-    padding: 0 4px 8px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 8px 10px;
   }
 
-  .global-activity-filters {
-    grid-template-columns: 1fr;
+  .global-activity-list {
+    padding: 0 8px 10px;
+  }
+
+  .global-activity-day-head {
+    margin: 0;
+  }
+
+  .global-activity-project-head,
+  .global-activity-item,
+  .global-activity-bundle-toggle {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .global-activity-bundle-items {
+    margin-right: 6px;
+    margin-left: 47px;
+  }
+
+  .global-activity-skeleton {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 390px) {
+  .global-activity-head-actions {
+    gap: 4px;
+  }
+
+  .global-activity-mark-read {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .global-activity-mark-read span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .global-activity-head-actions .v-icon-action {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .global-activity-scope {
+    max-width: 104px;
   }
 }
 </style>

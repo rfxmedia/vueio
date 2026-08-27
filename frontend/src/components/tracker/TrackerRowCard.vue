@@ -1,7 +1,7 @@
 <template>
   <article
     class="tracker-row-card v-card"
-    :data-tracker-shot-id="shot.id"
+    :data-tracker-shot-id="shotRef"
     :data-tracker-shot-code="shot.shot_id || shot.shot_code"
     :class="[
       `status-${shot.status}`,
@@ -15,6 +15,9 @@
         'selection-enabled': selectionEnabled,
         'is-mobile-card': isMobileCard,
         'is-grid-card': isGridCard,
+        'is-action-busy': shotActionBusy,
+        'is-version-drop-target': versionDropActive,
+        'is-version-drop-blocked': versionDropActive && Boolean(versionDropBlockedReason),
       },
     ]"
     :draggable="canReorderShots"
@@ -24,6 +27,24 @@
     @drop="canReorderShots && onDrop($event, index)"
     @dragend="onDragEnd"
   >
+    <div
+      v-if="versionDropActive"
+      class="v-drop-overlay tracker-version-drop"
+      :class="{ 'is-blocked': Boolean(versionDropBlockedReason) }"
+      role="status"
+      aria-live="polite"
+    >
+      <div class="v-drop-overlay-inner tracker-version-drop__inner">
+        <span class="tracker-version-drop__icon" aria-hidden="true">
+          <svg class="icon"><use :href="versionDropBlockedReason ? '#icon-close' : '#icon-upload'" /></svg>
+        </span>
+        <span class="tracker-version-drop__copy">
+          <strong>{{ versionDropTitle }}</strong>
+          <span>{{ versionDropDetail }}</span>
+        </span>
+      </div>
+    </div>
+
     <div
       v-if="selectionEnabled"
       class="tracker-row-card__select"
@@ -77,8 +98,7 @@
             :formatted-updated="formatShotLatestAdded(shot)"
             :can-edit-shot-name="canEditShotName"
             :share-mode="shareMode"
-            :save-shot="saveShot"
-            :can-reorder-shots="canReorderShots"
+            :save-shot="commitShotName"
           />
         </div>
 
@@ -89,17 +109,26 @@
               :label="formatStatus(shot.status)"
               :accent="getTrackerStatusColor(shot.status)"
               :accent-text="getTrackerStatusTextColor(shot.status)"
-              :open="showStatusPicker === shot.shot_id"
-              :flip-up="dropdownFlipUp"
+              :open="statusPickerOpen"
+              :flip-up="pickerFlipUp"
               @trigger="toggleShotStatusPicker($event, shot.shot_id)"
-              @close="showStatusPicker = null"
+              @close="closeStatusPicker"
             >
               <template #leading>
                 <span class="status-dot" :class="`dot-${shot.status}`"></span>
               </template>
               <template #menu>
                 <div class="tracker-select-list">
-                  <button v-for="s in STATUS_ORDER" :key="s" class="status-option tracker-select-option v-dropdown-item" :class="{ active: shot.status === s }" @click="selectStatus(shot, s)">
+                  <button
+                    v-for="s in STATUS_ORDER"
+                    :key="s"
+                    class="status-option tracker-select-option v-dropdown-item"
+                    :class="{ active: shot.status === s }"
+                    type="button"
+                    role="menuitemradio"
+                    :aria-checked="shot.status === s ? 'true' : 'false'"
+                    @click="selectStatus(shot, s)"
+                  >
                     <span class="status-dot" :class="`dot-${s}`"></span>
                     <span class="tracker-select-option-label">{{ formatStatus(s) }}</span>
                     <svg v-if="shot.status === s" class="icon tracker-select-check"><use href="#icon-check" /></svg>
@@ -112,14 +141,16 @@
           <TrackerTagSelect
             class="trc-control-cell is-category"
             :shot="shot"
-            :flip-up="dropdownFlipUp"
+            :open="categoryPickerOpen"
+            :flip-up="pickerFlipUp"
           />
 
           <TrackerAssigneeSelect
             v-if="showShotAssignees"
             class="trc-control-cell is-assignee"
             :shot="shot"
-            :flip-up="dropdownFlipUp"
+            :open="assigneePickerOpen"
+            :flip-up="pickerFlipUp"
           />
         </div>
       </header>
@@ -189,6 +220,7 @@
           class="tracker-utility-btn v-icon-action"
           type="button"
           title="Download latest version"
+          aria-label="Download latest version"
           @click.stop="downloadShotFile(shot)"
         >
           <svg class="icon"><use href="#icon-download" /></svg>
@@ -197,28 +229,37 @@
           v-if="showUtilityArchive"
           class="tracker-utility-btn v-icon-action"
           type="button"
-          title="Archive shot"
+          :disabled="shotActionBusy"
+          :aria-busy="shotActionBusy ? 'true' : 'false'"
+          title="Move shot to Archived"
+          aria-label="Move shot to Archived"
           @click.stop="archiveShot(shot)"
         >
-          <svg class="icon"><use href="#icon-inbox" /></svg>
+          <svg class="icon" :class="{ 'is-spinning': shotActionBusy }"><use :href="shotActionBusy ? '#icon-loader' : '#icon-inbox'" /></svg>
         </button>
         <button
           v-if="showUtilityRestore"
           class="tracker-utility-btn v-icon-action"
           type="button"
+          :disabled="shotActionBusy"
+          :aria-busy="shotActionBusy ? 'true' : 'false'"
           title="Restore shot"
+          aria-label="Restore shot"
           @click.stop="restoreShot(shot)"
         >
-          <svg class="icon"><use href="#icon-undo" /></svg>
+          <svg class="icon" :class="{ 'is-spinning': shotActionBusy }"><use :href="shotActionBusy ? '#icon-loader' : '#icon-undo'" /></svg>
         </button>
         <button
           v-if="showUtilityDelete"
           class="tracker-utility-btn tracker-utility-btn-danger v-icon-action is-danger"
           type="button"
-          title="Delete shot"
+          :disabled="shotActionBusy"
+          :aria-busy="shotActionBusy ? 'true' : 'false'"
+          title="Delete shot permanently"
+          aria-label="Delete shot permanently"
           @click.stop="deleteShot(shot)"
         >
-          <svg class="icon"><use href="#icon-trash" /></svg>
+          <svg class="icon" :class="{ 'is-spinning': shotActionBusy }"><use :href="shotActionBusy ? '#icon-loader' : '#icon-trash'" /></svg>
         </button>
       </div>
     </div>
@@ -251,6 +292,11 @@ const props = defineProps({
     default: 'list',
   },
   selectionEnabled: Boolean,
+  selected: Boolean,
+  statusPickerOpen: Boolean,
+  categoryPickerOpen: Boolean,
+  assigneePickerOpen: Boolean,
+  pickerFlipUp: Boolean,
   shot: {
     type: Object,
     required: true,
@@ -258,6 +304,15 @@ const props = defineProps({
   toggleShotSelected: {
     type: Function,
     required: true,
+  },
+  versionDropActive: Boolean,
+  versionDropBlockedReason: {
+    type: String,
+    default: '',
+  },
+  versionDropItemName: {
+    type: String,
+    default: '',
   },
 })
 
@@ -274,7 +329,6 @@ const {
   deleteShotVersion,
   downloadShotFile,
   downloadVersion,
-  dropdownFlipUp,
   fetchBatchMediaInfo,
   formatShotLatestAdded,
   formatStatus,
@@ -289,8 +343,8 @@ const {
   getThumbnailUrl,
   isBriefPreviewEmpty,
   isLatestPreviewEmpty,
+  isShotActionBusy,
   isMobile,
-  isShotSelected,
   onDragEnd,
   onDragLeave,
   onDragOver,
@@ -303,11 +357,10 @@ const {
   publicationControlsEnabled,
   restoreShot,
   saveShot,
+  saveShotName,
   selectStatus,
   shareMode,
-  showAssigneePicker,
   showBriefPreview,
-  showCategoryPicker,
   showShotAssignees,
   showShotDownloads,
   showStatusPicker,
@@ -320,7 +373,11 @@ const showUtilityDownload = computed(() => (
   showShotDownloads.value && !!getLatestShotFile(props.shot)
 ))
 
-const showUtilityDelete = computed(() => canDeleteShots.value && !shareMode.value)
+const showUtilityDelete = computed(() => (
+  canDeleteShots.value &&
+  !shareMode.value &&
+  !!props.shot?.archived_at
+))
 
 const showUtilityArchive = computed(() => (
   canArchiveShots.value &&
@@ -347,14 +404,32 @@ const centerUtilityAction = computed(() => (
 ))
 
 const hasOpenPicker = computed(() => (
-  showStatusPicker.value === props.shot.shot_id ||
-  showCategoryPicker.value === props.shot.shot_id ||
-  showAssigneePicker.value === props.shot.shot_id
+  props.statusPickerOpen ||
+  props.categoryPickerOpen ||
+  props.assigneePickerOpen
 ))
 
-const isSelected = computed(() => (
-  typeof isShotSelected === 'function' && isShotSelected(props.shot)
+function closeStatusPicker() {
+  showStatusPicker.value = null
+}
+
+const isSelected = computed(() => props.selected)
+const shotRef = computed(() => String(
+  props.shot?.id || props.shot?._originalId || props.shot?.shot_id || props.shot?.shot_code || '',
 ))
+const nextVersionLabel = computed(() => `V${(getShotVersions(props.shot) || []).length + 1}`)
+const versionDropTitle = computed(() => (
+  props.versionDropBlockedReason ? 'Cannot add this version' : `Drop to add ${nextVersionLabel.value}`
+))
+const versionDropDetail = computed(() => {
+  if (props.versionDropBlockedReason) return props.versionDropBlockedReason
+  const shotLabel = props.shot?.shot_id || props.shot?.shot_code || 'this shot'
+  return props.versionDropItemName ? `${props.versionDropItemName} → ${shotLabel}` : `Add to ${shotLabel}`
+})
+const shotActionBusy = computed(() => (
+  typeof isShotActionBusy === 'function' && isShotActionBusy(props.shot)
+))
+const commitShotName = typeof saveShotName === 'function' ? saveShotName : saveShot
 
 const isMobileCard = computed(() => isMobile.value || props.presentation === 'grid')
 const isGridCard = computed(() => props.presentation === 'grid')
@@ -365,7 +440,7 @@ const briefText = computed(() => {
   const raw = getBriefPreviewText(props.shot)
   if (isBriefPreviewEmpty(props.shot)) {
     if (raw === LOADING_LABEL) return raw
-    return 'No brief written yet — leave a comment on V1 to start one'
+    return 'No brief written yet. Leave a comment on V1 to start one.'
   }
   return raw
 })
@@ -400,7 +475,7 @@ const latestCommentCount = computed(() => {
   --tracker-row-status-surface: var(--v-surface-canvas);
   --tracker-row-status-surface-hover: color-mix(in srgb, var(--v-surface-canvas) 86%, var(--v-surface-inline));
   --tracker-row-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 10px 24px rgba(0, 0, 0, 0.08);
-  --tracker-row-shadow-hover: 0 1px 0 rgba(255, 255, 255, 0.055) inset, 0 14px 34px rgba(0, 0, 0, 0.26);
+  --tracker-row-shadow-hover: 0 1px 0 rgba(255, 255, 255, 0.045) inset;
   position: relative;
   display: grid;
   grid-template-columns:
@@ -419,6 +494,90 @@ const latestCommentCount = computed(() => {
     background var(--v-transition-fast),
     box-shadow var(--v-transition-fast);
   overflow: visible;
+}
+
+.tracker-row-card.is-reorderable {
+  cursor: grab;
+}
+
+.tracker-row-card.is-reorderable:active {
+  cursor: grabbing;
+}
+
+.tracker-row-card.is-version-drop-target {
+  z-index: 13;
+}
+
+.tracker-version-drop {
+  z-index: 10;
+  padding: var(--v-space-4);
+  border-color: color-mix(in srgb, var(--v-accent) 72%, var(--v-control-border));
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--v-surface-canvas) 90%, transparent);
+}
+
+.tracker-version-drop__inner {
+  max-width: min(100%, 440px);
+  flex-direction: row;
+  gap: var(--v-space-3);
+  padding: var(--v-space-3) var(--v-space-4);
+  border: 1px solid var(--v-control-border-hover);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-raised);
+  box-shadow: var(--v-surface-shadow-raised);
+}
+
+.tracker-version-drop__icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--v-accent) 28%, var(--v-control-border));
+  border-radius: var(--v-radius-md);
+  background: var(--v-accent-subtle);
+  color: var(--v-accent);
+}
+
+.tracker-version-drop__icon .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.tracker-version-drop__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tracker-version-drop__copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tracker-version-drop__copy strong {
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tracker-version-drop__copy span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tracker-version-drop.is-blocked {
+  border-color: var(--v-danger-border);
+}
+
+.tracker-version-drop.is-blocked .tracker-version-drop__icon {
+  border-color: var(--v-danger-border);
+  background: var(--v-danger-bg);
+  color: var(--v-danger);
 }
 
 .tracker-row-card.selection-enabled {
@@ -671,8 +830,8 @@ const latestCommentCount = computed(() => {
   pointer-events: none;
 }
 
-.tracker-row-card:not(.is-mobile-card):hover .tracker-row-card__preview :deep(.v-media-thumb-image) {
-  transform: scale(1.035);
+.tracker-row-card:not(.is-mobile-card) .tracker-row-card__preview :deep(.version-card:hover .v-media-thumb-image) {
+  transform: scale(1.018);
 }
 
 .tracker-row-card:not(.is-mobile-card) .tracker-row-card__preview :deep(.shot-version-stack),
@@ -723,7 +882,7 @@ const latestCommentCount = computed(() => {
 .trc-head {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 12px;
   min-width: 0;
 }
 
@@ -735,13 +894,13 @@ const latestCommentCount = computed(() => {
 .trc-controls {
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: repeat(2, minmax(110px, 148px));
+  grid-template-columns: repeat(2, minmax(108px, 136px));
   gap: 6px;
   align-items: center;
 }
 
 .trc-controls.has-assignee {
-  grid-template-columns: repeat(3, minmax(108px, 148px));
+  grid-template-columns: repeat(3, minmax(130px, 160px));
 }
 
 .trc-control-cell {
@@ -791,8 +950,8 @@ const latestCommentCount = computed(() => {
   flex-direction: column;
   min-width: 0;
   border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
+  background: color-mix(in srgb, var(--v-surface-well) 78%, var(--v-surface-canvas));
+  box-shadow: inset 0 0 0 1px var(--v-divider-subtle);
   overflow: hidden;
 }
 
@@ -1153,6 +1312,10 @@ const latestCommentCount = computed(() => {
   height: 13px;
 }
 
+.tracker-utility-btn .icon.is-spinning {
+  animation: v-spin 0.85s linear infinite;
+}
+
 /* ─── Status / category dots ─────────────────────────────── */
 .status-dot {
   width: 7px;
@@ -1167,29 +1330,32 @@ const latestCommentCount = computed(() => {
 .dot-edits_requested { background: var(--v-status-hold); }
 .dot-done { background: var(--v-status-done); }
 
-/* ─── Responsive: head wraps on narrower viewports ───────── */
-@media (max-width: 1200px) {
-  .tracker-row-card {
-    --tracker-row-thumb-width: clamp(220px, 27vw, 300px);
-  }
-
-  .trc-controls {
-    grid-template-columns: repeat(2, minmax(96px, 132px));
-    gap: 5px;
-  }
-
-  .trc-controls.has-assignee {
-    grid-template-columns: repeat(3, minmax(92px, 124px));
-  }
-}
-
-@media (max-width: 1024px) {
+/* Preserve the shot identity before the workspace sidebars squeeze the card.
+   The controls remain one compact row until the narrower two-column layout. */
+@media (max-width: 1280px) {
   .trc-head {
     flex-direction: column;
     align-items: stretch;
     gap: var(--v-space-2);
   }
 
+  .trc-controls {
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .trc-controls.has-assignee {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1200px) {
+  .tracker-row-card {
+    --tracker-row-thumb-width: clamp(220px, 27vw, 300px);
+  }
+}
+
+@media (max-width: 1150px) {
   .trc-controls,
   .trc-controls.has-assignee {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1573,13 +1739,14 @@ const latestCommentCount = computed(() => {
     flex-direction: row;
     gap: 1px;
     opacity: 1;
+    transform: none;
     pointer-events: auto;
     padding: 2px;
     border-radius: var(--v-button-radius);
-    background: color-mix(in srgb, var(--v-overlay-pill-bg) 58%, transparent);
-    border: 1px solid color-mix(in srgb, var(--v-overlay-pill-border) 55%, transparent);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
+    background: color-mix(in srgb, var(--v-bg-black) 86%, var(--v-surface-panel));
+    border: 1px solid var(--v-overlay-pill-border);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
 }
 
 .tracker-row-card.is-mobile-card .tracker-utility-btn {
@@ -1614,9 +1781,56 @@ const latestCommentCount = computed(() => {
     opacity: 1;
 }
 
-.tracker-row-card.is-mobile-card .status-dot,
-.tracker-row-card.is-mobile-card :deep(.category-color-indicator) {
-    width: 6px;
-    height: 6px;
+.tracker-row-card.is-mobile-card .tracker-inline-select-trigger .status-dot,
+.tracker-row-card.is-mobile-card :deep(.tracker-inline-select-trigger .category-color-indicator) {
+    width: 7px;
+    height: 7px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .tracker-row-card.is-grid-card .tracker-row-card__utility-actions {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  .tracker-row-card.is-grid-card:hover .tracker-row-card__utility-actions,
+  .tracker-row-card.is-grid-card:focus-within .tracker-row-card__utility-actions {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .tracker-row-card.is-mobile-card .trc-controls :deep(.tracker-inline-select-trigger) {
+    min-height: 44px;
+  }
+
+  .tracker-row-card.is-mobile-card .tracker-utility-btn {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 430px) {
+  .tracker-row-card.is-mobile-card .trc-controls.has-assignee {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .tracker-row-card.is-mobile-card .trc-controls.has-assignee .trc-control-cell.is-status {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tracker-row-card__utility-actions {
+    transition-duration: 1ms;
+  }
+
+  .tracker-row-card:not(.is-mobile-card) .tracker-row-card__preview :deep(.v-media-thumb-image) {
+    transform: none;
+    transition-duration: 1ms;
+  }
 }
 </style>

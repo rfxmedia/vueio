@@ -4,7 +4,9 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,7 +17,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import Comment, HorizonPage, HorizonProject, HorizonShotVersion, MediaAsset
+from app.models import Comment, HorizonPage, HorizonProject, HorizonShotVersion, HorizonTracker, MediaAsset
 from app.services.file_access import require_file_browser_read_access
 from app.services.horizons_fresh import (
     can_access_horizon_media_asset_id,
@@ -23,6 +25,7 @@ from app.services.horizons_fresh import (
     get_horizon_media_asset_by_path,
     is_restricted_horizon_artist,
     require_horizon_project_access,
+    require_horizon_shot_view_access,
     require_horizon_tracker_view_access,
 )
 from app.services.media import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
@@ -34,11 +37,18 @@ from app.services.upload_payloads import require_valid_image_path
 from app.services.uploads import ensure_upload_capacity
 
 settings = get_settings()
+_AUTH_USER_UNSET = object()
 
 COMMENT_SHARE_TYPES = ('file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page')
 VOICE_NOTE_MAX_DURATION_SECONDS = 300
 VOICE_NOTE_MAX_PEAKS = 128
 VOICE_NOTE_TRANSCRIPTION_MAX_CHARS = 20000
+COMMENT_ATTACHMENT_LIMIT = 3
+MENTION_REFERENCE_LIMIT = 20
+MENTION_MARKER_MAX_CHARS = 120
+MENTION_MARKER_SANITIZE_PATTERN = re.compile(
+    '[\u00AD\u034F\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF\uFFF9-\uFFFC\uFFFD]'
+)
 
 
 @dataclass(frozen=True)
@@ -330,9 +340,10 @@ def require_comment_access(
     project_id: str | None = None,
     horizons_media_asset_id: str | None = None,
     horizons_shot_version_id: str | None = None,
+    known_user: object = _AUTH_USER_UNSET,
 ):
     normalized_path = _normalize_comment_path(path)
-    user = get_user_from_session_fn(vueio_session)
+    user = get_user_from_session_fn(vueio_session) if known_user is _AUTH_USER_UNSET else known_user
     share = None
     effective_project_id = project_id
     if share_id:
@@ -542,6 +553,24 @@ def delete_comment_attachments(comment: Comment) -> None:
             continue
 
 
+def preserve_comment_attachments(comment: Comment) -> None:
+    """Keep app-owned uploads available while a History checkpoint can restore them."""
+    root = settings.comment_attachments_dir.resolve()
+    for attachment in load_attachment_list(comment):
+        if attachment.get('attachment_type') == 'reference' or attachment.get('scope') == 'project':
+            continue
+        rel_path = attachment.get('rel_path')
+        if not rel_path:
+            continue
+        try:
+            full_path = (settings.comment_attachments_dir / rel_path).resolve()
+            full_path.relative_to(root)
+            if full_path.is_file():
+                os.utime(full_path, None)
+        except (OSError, ValueError):
+            continue
+
+
 def _attachment_kind_from_asset(asset: MediaAsset) -> str:
     ext = Path(asset.file_path or '').suffix.lower()
     if ext in IMAGE_EXTENSIONS:
@@ -551,6 +580,61 @@ def _attachment_kind_from_asset(asset: MediaAsset) -> str:
     if ext == '.pdf':
         return 'pdf'
     return 'file'
+
+
+def _reference_has_marker(reference: object) -> bool:
+    return isinstance(reference, dict) and 'marker' in reference and reference.get('marker') is not None
+
+
+def normalize_mention_marker(value: object) -> str:
+    if not isinstance(value, str):
+        raise HTTPException(status_code=400, detail='Invalid mention marker')
+    marker = MENTION_MARKER_SANITIZE_PATTERN.sub('', unicodedata.normalize('NFKC', value)).strip()
+    if not marker.startswith('@') or '\n' in marker or '\r' in marker or len(marker) > MENTION_MARKER_MAX_CHARS:
+        raise HTTPException(status_code=400, detail='Invalid mention marker')
+    return marker
+
+
+def validate_comment_reference_limits(references: list[dict], *, file_count: int = 0) -> None:
+    mention_count = sum(1 for reference in references if _reference_has_marker(reference))
+    attachment_count = len(references) - mention_count + max(0, int(file_count))
+    if mention_count > MENTION_REFERENCE_LIMIT:
+        raise HTTPException(status_code=400, detail=f'Max {MENTION_REFERENCE_LIMIT} inline mentions allowed')
+    if attachment_count > COMMENT_ATTACHMENT_LIMIT:
+        raise HTTPException(status_code=400, detail=f'Max {COMMENT_ATTACHMENT_LIMIT} attachments allowed')
+
+
+def _require_comment_reference_folder(db: Session, project_id: str, folder_path: str) -> None:
+    from app.services.media_assets import normalize_storage_scope
+    from app.services.media_resolution import resolve_project_link_target
+
+    project_root = resolve_horizon_project_root(db, project_id)
+    project_folder = project_root / folder_path
+    verify_path_in_project(project_folder, project_root)
+    if project_folder.exists() and project_folder.is_dir() and not project_folder.is_symlink():
+        return
+
+    linked_folder, _cache_key, _storage_scope = resolve_project_link_target(project_id, folder_path)
+    if linked_folder is not None and linked_folder.exists() and linked_folder.is_dir():
+        return
+
+    prefix = f'{folder_path}/'
+    virtual_folder_exists = any(
+        normalize_storage_scope(asset.storage_scope) not in {
+            'media_root',
+            'tracker_version',
+            'thumbnail',
+            'transcode',
+            'derived_artifact',
+        }
+        and str(asset.file_path or '').strip().strip('/').startswith(prefix)
+        for asset in db.query(MediaAsset)
+        .filter(MediaAsset.project_id == project_id)
+        .filter(MediaAsset.unavailable_at.is_(None))
+        .all()
+    )
+    if not virtual_folder_exists:
+        raise HTTPException(status_code=404, detail='Project attachment not found')
 
 
 def _build_reference_attachments(
@@ -573,18 +657,48 @@ def _build_reference_attachments(
         required_role='viewer',
     )
     normalized: list[dict] = []
-    seen: set[tuple[str, str]] = set()
+    seen: set[tuple[str, str, str | None]] = set()
     for raw in references:
         if not isinstance(raw, dict):
             raise HTTPException(status_code=400, detail='Invalid project attachment')
         target_type = str(raw.get('target_type') or '').strip()
         target_id = str(raw.get('target_id') or '').strip()
-        key = (target_type, target_id)
-        if not target_id or target_type not in {'media_asset', 'tracker', 'page'}:
+        marker = normalize_mention_marker(raw.get('marker')) if _reference_has_marker(raw) else None
+        if not target_id or target_type not in {'media_asset', 'folder', 'shot', 'tracker', 'page'}:
             raise HTTPException(status_code=400, detail='Invalid project attachment')
+        if target_type == 'folder':
+            from app.services.share_access import normalize_virtual_path
+
+            target_id = normalize_virtual_path(
+                target_id,
+                allow_empty=False,
+                field_name='folder path',
+            )
+        key = (target_type, target_id, marker)
         if key in seen:
             continue
         seen.add(key)
+
+        if target_type == 'folder':
+            from app.services.project_content_gateway import HorizonsProjectAuthPolicy
+
+            folder_path = target_id
+            policy = HorizonsProjectAuthPolicy(db, project_id, user, access_role)
+            policy.assert_can_list(folder_path)
+            _require_comment_reference_folder(db, project_id, folder_path)
+            policy.list_folder(folder_path)
+            attachment = {
+                'id': uuid.uuid4().hex[:8],
+                'attachment_type': 'reference',
+                'target_type': 'folder',
+                'target_id': folder_path,
+                'name': Path(folder_path).name,
+                'kind': 'folder',
+            }
+            if marker:
+                attachment['marker'] = marker
+            normalized.append(attachment)
+            continue
 
         if target_type == 'media_asset':
             asset = (
@@ -602,14 +716,47 @@ def _build_reference_attachments(
                 access_role=access_role,
             ):
                 raise HTTPException(status_code=404, detail='Project attachment not found')
-            normalized.append({
+            attachment = {
                 'id': uuid.uuid4().hex[:8],
                 'attachment_type': 'reference',
                 'target_type': 'media_asset',
                 'target_id': asset.id,
                 'name': Path(asset.file_path).name,
                 'kind': _attachment_kind_from_asset(asset),
-            })
+            }
+            if marker:
+                attachment['marker'] = marker
+            normalized.append(attachment)
+            continue
+
+        if target_type == 'shot':
+            shot = require_horizon_shot_view_access(
+                db,
+                project_id,
+                target_id,
+                user=user,
+                access_role=access_role,
+            )
+            tracker_exists = (
+                db.query(HorizonTracker.id)
+                .filter(HorizonTracker.id == shot.tracker_id)
+                .filter(HorizonTracker.project_id == project_id)
+                .first()
+            )
+            if not tracker_exists or shot.archived_at is not None:
+                raise HTTPException(status_code=404, detail='Project attachment not found')
+            attachment = {
+                'id': uuid.uuid4().hex[:8],
+                'attachment_type': 'reference',
+                'target_type': 'shot',
+                'target_id': shot.id,
+                'name': shot.shot_code,
+                'kind': 'shot',
+                'tracker_id': shot.tracker_id,
+            }
+            if marker:
+                attachment['marker'] = marker
+            normalized.append(attachment)
             continue
 
         if target_type == 'tracker':
@@ -620,14 +767,17 @@ def _build_reference_attachments(
                 user=user,
                 access_role=access_role,
             )
-            normalized.append({
+            attachment = {
                 'id': uuid.uuid4().hex[:8],
                 'attachment_type': 'reference',
                 'target_type': 'tracker',
                 'target_id': tracker.id,
                 'name': tracker.name,
                 'kind': 'tracker',
-            })
+            }
+            if marker:
+                attachment['marker'] = marker
+            normalized.append(attachment)
             continue
 
         if is_restricted_horizon_artist(user, access_role):
@@ -640,14 +790,17 @@ def _build_reference_attachments(
         )
         if not page:
             raise HTTPException(status_code=404, detail='Project attachment not found')
-        normalized.append({
+        attachment = {
             'id': uuid.uuid4().hex[:8],
             'attachment_type': 'reference',
             'target_type': 'page',
             'target_id': page.id,
             'name': page.title,
             'kind': 'page',
-        })
+        }
+        if marker:
+            attachment['marker'] = marker
+        normalized.append(attachment)
     return normalized
 
 
@@ -656,9 +809,8 @@ def attach_uploaded_files(comment: Comment, *, path: str, project_id: Optional[s
     attachments = []
     saved_paths: list[Path] = []
     try:
+        validate_comment_reference_limits(references or [], file_count=len(incoming_files))
         attachments = _build_reference_attachments(references or [], project_id=project_id, user=user, db=db)
-        if len(incoming_files) + len(attachments) > 3:
-            raise HTTPException(status_code=400, detail='Max 3 attachments allowed')
         if incoming_files:
             # Uploaded comment binaries are application data, not source media.
             # Keeping one canonical store also lets comments work when project
@@ -751,8 +903,7 @@ def attach_uploaded_files(comment: Comment, *, path: str, project_id: Optional[s
         if attachments:
             comment.attachments_data = json.dumps(attachments)
             db.add(comment)
-            db.commit()
-            db.refresh(comment)
+            db.flush()
         return comment
     except Exception:
         for saved in saved_paths:
@@ -761,8 +912,7 @@ def attach_uploaded_files(comment: Comment, *, path: str, project_id: Optional[s
                     saved.unlink()
             except Exception:
                 pass
-        db.delete(comment)
-        db.commit()
+        db.rollback()
         raise
 
 

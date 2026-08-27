@@ -199,6 +199,7 @@
                             v-for="segment in trackerStatusLabels(entry.tracker)"
                             :key="segment.status"
                             class="dash-tracker-status-chip"
+                            :style="trackerStatusChipStyle(segment.status)"
                           >
                             {{ segment.count }} {{ segment.label }}
                           </span>
@@ -496,6 +497,7 @@
 import { computed, ref, watch } from 'vue'
 import VMediaThumbnail from '../components/media/VMediaThumbnail.vue'
 import { VMenu, VModal } from '../components/primitives'
+import { getTrackerStatusColor, getTrackerStatusTextColor } from '../lib/trackerCatalogs'
 import { formatDurationHMS, formatLocaleDate } from '../utils/formatters'
 import { normalizeExternalHttpUrl } from '../utils/textSanitization'
 import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSelection'
@@ -519,6 +521,7 @@ const {
   openTracker,
   openPageResourceFolder,
   openFileFromProject,
+  clonePageDraft,
   savePage,
 } = useProjectWorkspaceStore()
 
@@ -596,6 +599,10 @@ function pageIdentity(p) {
   return String(p.id || p.slug || p.path || '')
 }
 
+function pageRevision(p) {
+  return String(p?.updated_at || p?.updatedAt || p?.revision || '')
+}
+
 // Only resync the draft from the parent when we're not actively editing or
 // in the middle of an autosave round-trip. The workspace updates `page`
 // with the just-saved data after every save; resyncing during a dirty or
@@ -603,8 +610,8 @@ function pageIdentity(p) {
 // was scheduled (the autosave-deletes-my-typing bug). We always resync on a
 // page identity change so loading a different page still works.
 let lastSyncedPageId = pageIdentity(page.value)
-watch(page, (next) => {
-  const nextId = pageIdentity(next)
+watch(() => [pageIdentity(page.value), pageRevision(page.value)], ([nextId]) => {
+  const next = page.value
   if (nextId !== lastSyncedPageId) {
     lastSyncedPageId = nextId
     draft.value = clonePage(next)
@@ -614,10 +621,10 @@ watch(page, (next) => {
   }
   if (autosaveState.value === 'dirty' || autosaveState.value === 'saving') return
   draft.value = clonePage(next)
-}, { deep: true })
+})
 
-function clonePage(page) {
-  return JSON.parse(JSON.stringify(page || { title: '', description: '', blocks: [] }))
+function clonePage(source) {
+  return clonePageDraft(source)
 }
 
 function blockIcon(type) {
@@ -783,7 +790,7 @@ function resolveTracker(block, ref) {
   return candidates.find(item => [item.id, item.path, item.slug, item.name].includes(ref))
 }
 
-function trackerEntries(block) {
+function buildTrackerEntries(block) {
   const refs = block.tracker_ids || []
   if (refs.length) {
     return refs
@@ -802,6 +809,14 @@ function trackerEntries(block) {
     ref: trackerKey(tracker),
     tracker,
   }))
+}
+
+const trackerEntriesByBlock = computed(() => new Map(
+  (displayPage.value?.blocks || []).map(block => [block, buildTrackerEntries(block)]),
+))
+
+function trackerEntries(block) {
+  return trackerEntriesByBlock.value.get(block) || buildTrackerEntries(block)
 }
 
 function resolvedTrackers(block) {
@@ -865,8 +880,27 @@ function trackerStatusSegments(tracker) {
 }
 
 function trackerStatusLabels(tracker) {
-  return trackerStatusSegments(tracker).slice(0, 3)
+  return trackerStatusLabelsByTracker.value.get(tracker) || []
 }
+
+function trackerStatusChipStyle(status) {
+  return {
+    '--dash-status-color': getTrackerStatusColor(status),
+    '--dash-status-text': getTrackerStatusTextColor(status),
+  }
+}
+
+const trackerStatusLabelsByTracker = computed(() => {
+  const labels = new Map()
+  for (const entries of trackerEntriesByBlock.value.values()) {
+    for (const entry of entries) {
+      if (entry.tracker && !labels.has(entry.tracker)) {
+        labels.set(entry.tracker, trackerStatusSegments(entry.tracker).slice(0, 3))
+      }
+    }
+  }
+  return labels
+})
 
 function formatShortDate(timestamp) {
   return formatLocaleDate(timestamp, {
@@ -1077,8 +1111,14 @@ function handleSharedUpload(block) {
   background: var(--v-accent-muted);
 }
 
+.dash-hero-savestate.is-saving {
+  color: var(--v-info);
+  background: var(--v-info-bg);
+}
+
 .dash-hero-savestate.is-error {
   color: var(--v-danger-text);
+  background: var(--v-danger-bg);
 }
 
 .dash-hero-savestate-spinner {
@@ -1634,14 +1674,16 @@ function handleSharedUpload(block) {
 }
 
 .dash-tracker-status-chip {
+  --dash-status-color: var(--v-text-muted);
+  --dash-status-text: var(--v-text-secondary);
   display: inline-flex;
   align-items: center;
   min-height: 24px;
   padding: 0 8px;
   border-radius: var(--v-radius-full);
-  background: var(--v-surface-tint-hover);
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 38%, transparent);
-  color: var(--v-text-secondary);
+  background: color-mix(in srgb, var(--dash-status-color) 10%, var(--dash-surface-inset));
+  border: 1px solid color-mix(in srgb, var(--dash-status-color) 24%, transparent);
+  color: var(--dash-status-text);
   font-size: var(--v-text-2xs);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -1912,8 +1954,6 @@ function handleSharedUpload(block) {
   letter-spacing: 0;
   display: inline-flex;
   align-items: center;
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
 }
 
 .dash-resource-copy {
@@ -2011,9 +2051,7 @@ function handleSharedUpload(block) {
   top: 8px;
   right: 8px;
   opacity: 0;
-  background: rgba(0, 0, 0, 0.55);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: rgba(0, 0, 0, 0.72);
 }
 
 .dash-resource-card:hover .dash-resource-remove,

@@ -1,16 +1,17 @@
-import { getCurrentScope, markRaw, onScopeDispose, reactive, ref, shallowRef } from 'vue'
+import { computed, getCurrentScope, markRaw, onScopeDispose, reactive, ref, shallowRef } from 'vue'
 import api, { buildShareCredentialQuery, getApiErrorMessage } from '../lib/api'
 
 import { isSafePngDataUrl } from '../lib/annotations'
 import { buildCommentBatchTarget, chunkCommentTargets } from '../lib/commentTargets'
 import { readStoredString } from '../utils/storage'
-import { sanitizeUiText } from '../utils/textSanitization'
+import { sanitizeUiText, textRendersMentionMarker } from '../utils/textSanitization'
 import { notify } from '../utils/toasts'
 import { useVoiceNoteRecorder } from './useVoiceNoteRecorder'
 
 const EMPTY_BRIEF_PREVIEW = 'No Instructions Yet'
 const LEGACY_EMPTY_COMMENT_PREVIEW = 'No comments yet.'
 const PENDING_TRANSCRIPTION_STATUSES = new Set(['queued', 'processing'])
+const INLINE_MENTION_LIMIT = 20
 
 function getOptionalRefValue(source) {
   if (typeof source === 'function') return source()
@@ -208,9 +209,11 @@ function resolveCommentTimestamp(ctx, { hasAnnotation = false } = {}) {
 export function useMediaComments(ctx) {
   const comments = shallowRef([])
   const newComment = ref('')
+  const commentPosting = ref(false)
   const userNameInput = ref('')
   const userName = ref(normalizeStoredCommenterName(readStoredString('vueio_user', '')))
   const pendingCommentAttachments = shallowRef([])
+  const pendingInlineMentions = shallowRef([])
   const attachmentLightbox = ref(null)
   const showAnnotationPreview = ref(false)
   const replyTarget = ref(null)
@@ -221,6 +224,26 @@ export function useMediaComments(ctx) {
   let briefPreviewRequestId = 0
   let commentRequestId = 0
   let voiceTranscriptRefreshTimer = 0
+  let commentAbortController = null
+  let briefPreviewAbortController = null
+
+  const mentionContext = computed(() => {
+    const projectId = getCommentProjectId(ctx)
+    const tracker = getOptionalRefValue(ctx.currentTracker)
+    return {
+      enabled: Boolean(getOptionalRefValue(ctx.currentUser)) && !ctx.shareMode?.value && Boolean(projectId),
+      projectId,
+      trackerId: tracker?.id || tracker?.slug || tracker?.name || '',
+      shots: tracker?.shots || [],
+    }
+  })
+
+  function isCanceledRequest(error, signal = null) {
+    return signal?.aborted
+      || error?.name === 'CanceledError'
+      || error?.code === 'ERR_CANCELED'
+      || error?.name === 'AbortError'
+  }
 
   function clearVoiceTranscriptRefresh() {
     if (voiceTranscriptRefreshTimer) window.clearTimeout(voiceTranscriptRefreshTimer)
@@ -242,11 +265,14 @@ export function useMediaComments(ctx) {
     replyTarget.value = null
     clearPendingAnnotationDraft(ctx)
     clearPendingCommentAttachments()
+    clearPendingInlineMentions()
     voiceRecorder.removeVoiceNote()
   }
 
   function resetMediaCommentState() {
     commentRequestId += 1
+    commentAbortController?.abort()
+    commentAbortController = null
     clearVoiceTranscriptRefresh()
     comments.value = []
     resetCommentDraft()
@@ -308,12 +334,18 @@ export function useMediaComments(ctx) {
       .map(item => `${item.target_type}:${item.target_id}`))
     const references = []
     for (const item of items) {
-      const targetType = item?.type === 'tracker'
-        ? 'tracker'
-        : item?.type === 'page'
-          ? 'page'
-          : 'media_asset'
-      const targetId = targetType === 'media_asset' ? item?.media_asset_id : item?.id
+      const targetType = item?.type === 'folder'
+        ? 'folder'
+        : item?.type === 'tracker'
+          ? 'tracker'
+          : item?.type === 'page'
+            ? 'page'
+            : 'media_asset'
+      const targetId = targetType === 'media_asset'
+        ? item?.media_asset_id
+        : targetType === 'folder'
+          ? item?.path
+          : item?.id
       const key = `${targetType}:${targetId || ''}`
       if (!targetId || existing.has(key)) continue
       existing.add(key)
@@ -332,6 +364,53 @@ export function useMediaComments(ctx) {
     if (references.length) pendingCommentAttachments.value = [...current, ...references]
   }
 
+  function addPendingInlineMention(item, rawMarker) {
+    if (!mentionContext.value.enabled) return false
+    const marker = sanitizeUiText(rawMarker).trim()
+    if (!marker.startsWith('@') || marker.includes('\n') || marker.includes('\r') || marker.length > 120) return false
+    const targetType = item?.target_type || (
+      item?.type === 'shot'
+        ? 'shot'
+        : item?.type === 'folder'
+          ? 'folder'
+          : item?.type === 'tracker'
+            ? 'tracker'
+            : item?.type === 'page'
+              ? 'page'
+              : 'media_asset'
+    )
+    if (!['shot', 'media_asset', 'folder', 'tracker', 'page'].includes(targetType)) return false
+    const targetId = item?.target_id || (
+      targetType === 'media_asset'
+        ? item?.media_asset_id || item?.horizons_media_asset_id
+        : targetType === 'folder'
+          ? item?.path
+        : targetType === 'shot'
+          ? item?.id || item?._originalId || item?.shot_id
+          : item?.id
+    )
+    if (!targetId) return false
+    const key = `${marker}:${targetType}:${targetId}`
+    if (pendingInlineMentions.value.some(mention => mention.key === key)) return true
+    if (pendingInlineMentions.value.length >= INLINE_MENTION_LIMIT) {
+      notify(`A comment can include up to ${INLINE_MENTION_LIMIT} mentions.`)
+      return false
+    }
+
+    pendingInlineMentions.value = [...pendingInlineMentions.value, markRaw({
+      key,
+      id: `mention_${pendingInlineMentions.value.length}_${targetType}_${targetId}`,
+      attachment_type: 'reference',
+      target_type: targetType,
+      target_id: targetId,
+      marker,
+      name: item?.label || item?.name || item?.title || marker.slice(1),
+      kind: item?.kind || targetType,
+      tracker_id: item?.tracker_id || '',
+    })]
+    return true
+  }
+
   function removePendingCommentAttachment(id) {
     const current = pendingCommentAttachments.value
     const idx = current.findIndex(att => att.id === id)
@@ -348,6 +427,10 @@ export function useMediaComments(ctx) {
     pendingCommentAttachments.value = []
   }
 
+  function clearPendingInlineMentions() {
+    pendingInlineMentions.value = []
+  }
+
   async function startVoiceRecording() {
     if (voiceRecorder.pendingVoiceNote.value) {
       notify('Remove the current voice note before recording another.')
@@ -362,7 +445,7 @@ export function useMediaComments(ctx) {
 
   function openAttachmentLightbox(comment, attachment) {
     if (attachment?.attachment_type === 'reference') {
-      void ctx.onOpenProjectReference?.(attachment)
+      void ctx.onOpenProjectReference?.(attachment, comment)
       return
     }
     const url = getCommentAttachmentUrl(comment, attachment)
@@ -404,16 +487,22 @@ export function useMediaComments(ctx) {
       return
     }
     const requestId = ++commentRequestId
+    commentAbortController?.abort()
+    const controller = new AbortController()
+    commentAbortController = controller
     const query = buildShareCredentialQuery(buildCommentParams(ctx, { path }), getShareCredential(ctx))
     try {
-      const { data } = await api.get(`/api/comments${query}`)
+      const { data } = await api.get(`/api/comments${query}`, { signal: controller.signal })
       if (requestId !== commentRequestId || path !== getCommentPath(ctx)) return
       comments.value = nestCommentThreads(data)
       scheduleVoiceTranscriptRefresh()
     } catch (error) {
       if (requestId !== commentRequestId || path !== getCommentPath(ctx)) return
+      if (isCanceledRequest(error, controller.signal)) return
       console.error('Failed to load comments')
       comments.value = []
+    } finally {
+      if (commentAbortController === controller) commentAbortController = null
     }
   }
 
@@ -428,7 +517,7 @@ export function useMediaComments(ctx) {
     })
   }
 
-  async function requestCommentPreviews(targets) {
+  async function requestCommentPreviews(targets, signal = null) {
     const body = { targets }
     const shareId = ctx.shareMode?.value ? ctx.pendingShareId?.value : null
     if (!shareId) {
@@ -439,7 +528,7 @@ export function useMediaComments(ctx) {
       shareId ? { share_id: shareId } : {},
       getShareCredential(ctx),
     )
-    const { data } = await api.post(`/api/comments/previews/batch${query}`, body)
+    const { data } = await api.post(`/api/comments/previews/batch${query}`, body, { signal })
     return data?.items || []
   }
 
@@ -468,12 +557,22 @@ export function useMediaComments(ctx) {
 
   async function notifyTrackerActivityChanged() {
     const target = getCurrentMediaPreviewTarget()
-    await refreshCurrentMediaPreview(target)
+    const tracker = getOptionalRefValue(ctx.currentTracker)
+    const trackerTargets = getTrackerPreviewTargets(tracker)
+    if (target?.key && trackerTargets.some(candidate => candidate.key === target.key)) {
+      await loadTrackerBriefPreviews(tracker)
+    } else {
+      await refreshCurrentMediaPreview(target)
+    }
     if (typeof ctx.onTrackerActivityChanged !== 'function') return
-    await ctx.onTrackerActivityChanged({
-      target,
-      count: countCommentThreads(comments.value),
-    })
+    try {
+      await ctx.onTrackerActivityChanged({
+        target,
+        count: countCommentThreads(comments.value),
+      })
+    } catch (error) {
+      console.error('Failed to refresh tracker activity after comment update')
+    }
   }
 
   async function toggleResolve(id) {
@@ -519,7 +618,11 @@ export function useMediaComments(ctx) {
     const hasText = !!newComment.value.trim()
     const hasAnnotation = !!ctx.pendingAnnotation?.value
     const hasVoiceNote = !!voiceRecorder.pendingVoiceNote.value
-    const hasAttachments = pendingCommentAttachments.value.length > 0 || hasVoiceNote
+    const activeInlineMentions = mentionContext.value.enabled
+      ? pendingInlineMentions.value.filter(mention => textRendersMentionMarker(newComment.value, mention))
+      : []
+    pendingInlineMentions.value = activeInlineMentions
+    const hasAttachments = pendingCommentAttachments.value.length > 0 || activeInlineMentions.length > 0 || hasVoiceNote
     if (!hasText && !hasAnnotation && !hasAttachments) return
     if (!ctx.currentVideo?.value) return
 
@@ -537,6 +640,8 @@ export function useMediaComments(ctx) {
     const targetRefs = getCommentTargetRefs(ctx)
     const annotationTarget = getOptionalRefValue(ctx.pendingAnnotationTarget)
     const parentCommentId = replyTarget.value?.id || null
+    if (commentPosting.value) return
+    commentPosting.value = true
     try {
       if (hasAttachments) {
         const voiceNote = voiceRecorder.pendingVoiceNote.value
@@ -589,6 +694,11 @@ export function useMediaComments(ctx) {
         const references = pendingCommentAttachments.value
           .filter(att => att?.attachment_type === 'reference')
           .map(att => ({ target_type: att.target_type, target_id: att.target_id }))
+        references.push(...activeInlineMentions.map(mention => ({
+          target_type: mention.target_type,
+          target_id: mention.target_id,
+          marker: mention.marker,
+        })))
         if (references.length) {
           formData.append('linked_attachments', JSON.stringify(references))
         }
@@ -609,15 +719,20 @@ export function useMediaComments(ctx) {
           parent_comment_id: parentCommentId || undefined
         })
       }
-      resetCommentDraft()
-      await loadComments()
-      await notifyTrackerActivityChanged()
     } catch (e) {
       console.error('Failed to post comment')
       const status = e?.response?.status
       const msg = getApiErrorMessage(e)
       notify(`Failed to post comment${status ? ` (${status})` : ''}: ${msg}`)
+      return
+    } finally {
+      commentPosting.value = false
     }
+
+    resetCommentDraft()
+    notify(parentCommentId ? 'Reply posted.' : 'Comment posted.', { tone: 'success' })
+    await loadComments()
+    await notifyTrackerActivityChanged()
   }
 
   function handleCommentClick(comment) {
@@ -675,14 +790,18 @@ export function useMediaComments(ctx) {
     return getVersionPreviewTarget(getLatestMediaFile(shot))
   }
 
-  async function loadTrackerBriefPreviews(tracker) {
+  function getTrackerPreviewTargets(tracker) {
     const targetMap = new Map()
     for (const shot of tracker?.shots || []) {
       for (const target of [getBriefPreviewTarget(shot), getLatestPreviewTarget(shot)]) {
         if (target?.key && !targetMap.has(target.key)) targetMap.set(target.key, target)
       }
     }
-    const targets = Array.from(targetMap.values())
+    return Array.from(targetMap.values())
+  }
+
+  async function loadTrackerBriefPreviews(tracker) {
+    const targets = getTrackerPreviewTargets(tracker)
     if (!targets.length) return
 
     for (const target of targets) {
@@ -691,11 +810,16 @@ export function useMediaComments(ctx) {
 
     const requestId = ++briefPreviewRequestId
     const targetChunks = chunkCommentTargets(targets)
+    briefPreviewAbortController?.abort()
+    const controller = new AbortController()
+    briefPreviewAbortController = controller
     try {
       const merged = {}
-      for (const chunk of targetChunks) {
-        const items = await requestCommentPreviews(chunk)
-        if (requestId !== briefPreviewRequestId) return
+      const responses = await Promise.all(
+        targetChunks.map(chunk => requestCommentPreviews(chunk, controller.signal)),
+      )
+      if (requestId !== briefPreviewRequestId) return
+      for (const items of responses) {
         for (const item of items) {
           if (!item?.key) continue
           merged[item.key] = normalizeCommentPreview(item.preview)
@@ -705,12 +829,14 @@ export function useMediaComments(ctx) {
       for (const target of targets) {
         briefPreviewCache[target.key] = merged[target.key] || EMPTY_BRIEF_PREVIEW
       }
-    } catch {
+    } catch (error) {
+      if (isCanceledRequest(error, controller.signal)) return
       console.error('Failed to load tracker brief previews')
       for (const target of targets) {
         briefPreviewCache[target.key] = EMPTY_BRIEF_PREVIEW
       }
     } finally {
+      if (briefPreviewAbortController === controller) briefPreviewAbortController = null
       for (const target of targets) {
         delete briefPreviewLoading[target.key]
       }
@@ -745,14 +871,23 @@ export function useMediaComments(ctx) {
     return cached === undefined || cached === EMPTY_BRIEF_PREVIEW
   }
 
-  if (getCurrentScope()) onScopeDispose(clearVoiceTranscriptRefresh)
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      commentAbortController?.abort()
+      briefPreviewAbortController?.abort()
+      clearVoiceTranscriptRefresh()
+    })
+  }
 
   return {
     comments,
     newComment,
+    commentPosting,
     userNameInput,
     userName,
     pendingCommentAttachments,
+    pendingInlineMentions,
+    mentionContext,
     pendingVoiceNote: voiceRecorder.pendingVoiceNote,
     voiceRecorderState: voiceRecorder.state,
     voiceRecorderSupported: voiceRecorder.isSupported,
@@ -766,8 +901,10 @@ export function useMediaComments(ctx) {
     getCommentAttachmentUrl,
     handleCommentAttachmentChange,
     addPendingCommentReferences,
+    addPendingInlineMention,
     removePendingCommentAttachment,
     clearPendingCommentAttachments,
+    clearPendingInlineMentions,
     startVoiceRecording,
     stopVoiceRecording: voiceRecorder.stopRecording,
     cancelVoiceRecording: voiceRecorder.cancelRecording,

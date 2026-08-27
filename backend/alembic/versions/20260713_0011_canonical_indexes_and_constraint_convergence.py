@@ -26,6 +26,7 @@ EvidenceColumnSpec = tuple[str, str, bool, int, str]
 # convergence revision is replayed to repair a lost Alembic marker.
 KNOWN_LATER_INDEXES: tuple[IndexSpec, ...] = (
     ('ix_horizons_projects_storage_root', 'horizons_projects', ('storage_root',), False, None),
+    ('uq_tracker_events_undo_of_event_id', 'tracker_events', ('undo_of_event_id',), True, None),
     ('ix_transcodes_last_accessed', 'transcodes', ('last_accessed',), False, None),
     ('ix_upload_sessions_owner_user_id', 'upload_sessions', ('owner_user_id',), False, None),
 )

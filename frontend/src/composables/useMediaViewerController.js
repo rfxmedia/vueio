@@ -1,7 +1,7 @@
 import { computed, getCurrentScope, nextTick, onScopeDispose, ref, watch } from 'vue'
 
 import api, { buildShareCredentialQuery, resolveAccessEndpoint } from '../lib/api'
-import { getCanonicalMediaRefs, normalizeMediaEntity } from '../lib/mediaEntity'
+import { getCanonicalMediaRefs, getMediaKind, normalizeMediaEntity } from '../lib/mediaEntity'
 import { formatSizeBytes, formatTimecodeWithFrames } from '../utils/formatters'
 import { useMediaComments } from './useMediaComments'
 import { useViewerAnnotationOverlay } from './useViewerAnnotationOverlay'
@@ -91,6 +91,8 @@ export function useMediaViewerController({
   onMediaDismissed,
   onViewerClosed,
   onOpenProjectReference,
+  getCommentReferenceOriginContext = () => ({}),
+  onRestoreCommentReferenceOrigin,
   isCloseLocked = () => false,
   windowTarget = typeof window === 'undefined' ? null : window,
   documentTarget = typeof document === 'undefined' ? null : document,
@@ -104,10 +106,15 @@ export function useMediaViewerController({
   const videoInfo = ref(emptyMediaInfo())
   const sidebarTab = ref('comments')
   const activityFocusCommentId = ref(null)
+  const commentReferenceHistory = ref([])
+  const canReturnToCommentOrigin = computed(() => commentReferenceHistory.value.length > 0)
+  const commentReferenceOriginContext = computed(() => commentReferenceHistory.value.at(-1)?.context || null)
 
   let activityFocusCommentTimer = null
   let annotations = null
   let mediaComments = null
+  let preserveCommentReferenceHistory = false
+  let commentOriginRestoreBusy = false
 
   const reportError = (message, error) => onError?.(message, error)
 
@@ -141,12 +148,33 @@ export function useMediaViewerController({
     },
   })
 
-  async function openCommentProjectReference(reference) {
+  function createCommentReferenceOrigin(comment) {
+    if (!currentVideo.value) return null
+    return {
+      media: { ...currentVideo.value },
+      commentId: comment?.id || null,
+      context: getCommentReferenceOriginContext?.() || {},
+    }
+  }
+
+  function rememberCommentReferenceOrigin(origin) {
+    if (origin) commentReferenceHistory.value.push(origin)
+  }
+
+  async function openCommentProjectReference(reference, comment) {
     const projectId = readRef(currentProject)?.id
     if (!projectId || !reference?.target_id) return
-    if (reference.target_type === 'tracker' || reference.target_type === 'page') {
-      dismissCurrentMedia()
-      await onOpenProjectReference?.(reference)
+    if (['folder', 'shot', 'tracker', 'page'].includes(reference.target_type)) {
+      const origin = createCommentReferenceOrigin(comment)
+      rememberCommentReferenceOrigin(origin)
+      preserveCommentReferenceHistory = true
+      try {
+        dismissCurrentMedia({ preserveCommentHistory: true })
+        const opened = await onOpenProjectReference?.(reference)
+        if (opened === false) await returnToCommentOrigin()
+      } finally {
+        preserveCommentReferenceHistory = false
+      }
       return
     }
     if (reference.target_type !== 'media_asset') return
@@ -169,13 +197,22 @@ export function useMediaViewerController({
         file_path: data.file_path || data.path,
         media_asset_id: reference.target_id,
         horizons_media_asset_id: reference.target_id,
+        version_id: null,
+        horizons_shot_version_id: null,
+        media_entity_type: 'media_asset',
+        media_entity_id: reference.target_id,
+        media_entity_key: `asset:${reference.target_id}`,
         _projectId: projectId,
         _projectFile: true,
       })
-      if (item?.is_image) openImage(item)
-      else if (item?.is_pdf || String(item?.extension || '').toLowerCase() === 'pdf') openPdf(item)
-      else if (item?.is_video) await openVideo(item)
-      else windowTarget?.open?.(`/api/horizons/projects/${projectId}/media-assets/${reference.target_id}/file`, '_blank', 'noopener')
+      if (item?.is_image || item?.is_pdf || item?.is_video) {
+        rememberCommentReferenceOrigin(createCommentReferenceOrigin(comment))
+        if (item.is_image) openImage(item)
+        else if (item.is_pdf) openPdf(item)
+        else await openVideo(item)
+      } else {
+        windowTarget?.open?.(`/api/horizons/projects/${projectId}/media-assets/${reference.target_id}/file`, '_blank', 'noopener')
+      }
     } catch (error) {
       reportError('Failed to open project attachment', error)
     }
@@ -234,6 +271,7 @@ export function useMediaViewerController({
     pendingAnnotationTimestamp: annotations.pendingAnnotationTimestamp,
     pendingAnnotationTarget: annotations.pendingAnnotationTarget,
     currentProject: () => readRef(currentProject),
+    currentTracker: () => readRef(currentTracker),
     currentUser: () => readRef(currentUser),
     getShotVersions,
     handleError: reportError,
@@ -336,8 +374,10 @@ export function useMediaViewerController({
       if (currentVideo.value) {
         if (!currentVideo.value.media_asset_id && merged.media_asset_id) currentVideo.value.media_asset_id = merged.media_asset_id
         if (!currentVideo.value.horizons_media_asset_id && merged.media_asset_id) currentVideo.value.horizons_media_asset_id = merged.media_asset_id
-        if (!currentVideo.value.version_id && merged.horizons_shot_version_id) currentVideo.value.version_id = merged.horizons_shot_version_id
-        if (!currentVideo.value.horizons_shot_version_id && merged.horizons_shot_version_id) currentVideo.value.horizons_shot_version_id = merged.horizons_shot_version_id
+        if (currentVideo.value.media_entity_type !== 'media_asset') {
+          if (!currentVideo.value.version_id && merged.horizons_shot_version_id) currentVideo.value.version_id = merged.horizons_shot_version_id
+          if (!currentVideo.value.horizons_shot_version_id && merged.horizons_shot_version_id) currentVideo.value.horizons_shot_version_id = merged.horizons_shot_version_id
+        }
       }
       videoInfo.value = merged
     } catch (error) {
@@ -395,7 +435,10 @@ export function useMediaViewerController({
     void mediaComments.loadComments()
   }
 
-  function dismissCurrentMedia() {
+  function dismissCurrentMedia({ preserveCommentHistory = false } = {}) {
+    if (!preserveCommentHistory && !preserveCommentReferenceHistory) {
+      commentReferenceHistory.value = []
+    }
     media.clearStreamPolling()
     media.streamPreparing.value = false
     media.streamProgress.value = 0
@@ -408,6 +451,36 @@ export function useMediaViewerController({
     annotations.resetPdfAnnotationState()
     mediaComments.resetMediaCommentState()
     onMediaDismissed?.()
+  }
+
+  async function returnToCommentOrigin() {
+    if (commentOriginRestoreBusy) return false
+    const origin = commentReferenceHistory.value.at(-1)
+    if (!origin?.media) return false
+
+    commentOriginRestoreBusy = true
+    preserveCommentReferenceHistory = true
+    try {
+      const restored = await onRestoreCommentReferenceOrigin?.(origin)
+      if (restored === false) throw new Error('The original review context is no longer available')
+
+      const kind = getMediaKind(origin.media)
+      if (kind === 'image') openImage(origin.media)
+      else if (kind === 'pdf') openPdf(origin.media)
+      else if (kind === 'video') await openVideo(origin.media)
+      else throw new Error('The original media can no longer be opened')
+
+      sidebarTab.value = 'comments'
+      if (origin.commentId) await focusMediaComment(origin.commentId)
+      commentReferenceHistory.value.pop()
+      return true
+    } catch (error) {
+      reportError('Failed to return to the original comment', error)
+      return false
+    } finally {
+      preserveCommentReferenceHistory = false
+      commentOriginRestoreBusy = false
+    }
   }
 
   function closeViewer() {
@@ -522,7 +595,15 @@ export function useMediaViewerController({
     frames.frameCaptureCommentId.value = null
     onMediaChanged?.(media.currentMedia.value)
   })
-  watch(transport.currentTime, frames.clearFrameCaptureCommentIfStale)
+  // The clock ticks 60×/s during playback and the staleness check walks the
+  // comment tree, so gate it to ~4Hz — the cadence timeupdate provides anyway.
+  let lastFrameCaptureStaleCheck = 0
+  watch(transport.currentTime, () => {
+    const now = Date.now()
+    if (now - lastFrameCaptureStaleCheck < 250) return
+    lastFrameCaptureStaleCheck = now
+    frames.clearFrameCaptureCommentIfStale()
+  })
 
   if (getCurrentScope()) onScopeDispose(cleanup)
 
@@ -539,8 +620,10 @@ export function useMediaViewerController({
       mediaUnavailable,
       sidebarTab,
       sidebarTabs,
-      sidebarTabVariant: 'segmented',
+      sidebarTabVariant: 'rail',
       activityFocusCommentId,
+      canReturnToCommentOrigin,
+      commentReferenceOriginContext,
       canShowToolbar,
     }),
     media: Object.freeze({
@@ -565,6 +648,7 @@ export function useMediaViewerController({
       loadMediaInfo,
       dismissCurrentMedia,
       closeViewer,
+      returnToCommentOrigin,
     }),
     stream: Object.freeze({
       preparing: media.streamPreparing,

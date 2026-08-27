@@ -185,7 +185,6 @@ export function createFileBrowserStore(ctx) {
     getLatestShotFilePath: tracker.getLatestShotFilePath,
     formatTimecode: viewer.formatTimecode,
     refreshCurrentTrackerPreserveState: (...args) => tracker.refreshCurrentTrackerPreserveState(...args),
-    openTracker: (...args) => tracker.openTracker(...args),
     refreshProjectContents: workspace.refreshProjectContents,
     onPageResourcePicked: pageResources.handlePageResourcePicked,
     onThumbnailSourcePicked: thumbnails.selectThumbnailSource,

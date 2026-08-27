@@ -15,6 +15,7 @@ export function useAnnotationDrawing({
   let activePointerId = null
   let activePointerTarget = null
   let lastPoint = null
+  let drawingBounds = null
   let suppressViewerClickUntil = 0
 
   function setDrawingContext(context) {
@@ -34,6 +35,36 @@ export function useAnnotationDrawing({
 
   function isActivePointer(event) {
     return activePointerId === null || event.pointerId === activePointerId
+  }
+
+  function includeDrawnSegment(start, end, lineWidth) {
+    const canvas = annotationCanvas.value
+    if (!canvas?.width || !canvas?.height) return
+    const radius = Math.max(0, Number(lineWidth) || 0) / 2
+    const segment = {
+      left: Math.max(0, Math.min(start.x, end.x) - radius) / canvas.width,
+      top: Math.max(0, Math.min(start.y, end.y) - radius) / canvas.height,
+      right: Math.min(canvas.width, Math.max(start.x, end.x) + radius) / canvas.width,
+      bottom: Math.min(canvas.height, Math.max(start.y, end.y) + radius) / canvas.height,
+    }
+    drawingBounds = drawingBounds
+      ? {
+          left: Math.min(drawingBounds.left, segment.left),
+          top: Math.min(drawingBounds.top, segment.top),
+          right: Math.max(drawingBounds.right, segment.right),
+          bottom: Math.max(drawingBounds.bottom, segment.bottom),
+        }
+      : segment
+  }
+
+  function getDrawingBounds() {
+    if (!drawingBounds) return null
+    return {
+      x: drawingBounds.left,
+      y: drawingBounds.top,
+      width: Math.max(0, drawingBounds.right - drawingBounds.left),
+      height: Math.max(0, drawingBounds.bottom - drawingBounds.top),
+    }
   }
 
   function capturePointer(event) {
@@ -84,6 +115,7 @@ export function useAnnotationDrawing({
     drawingContext.moveTo(lastPoint.x, lastPoint.y)
     drawingContext.lineTo(point.x, point.y)
     drawingContext.stroke()
+    includeDrawnSegment(lastPoint, point, drawingContext.lineWidth)
     lastPoint = point
     return true
   }
@@ -98,7 +130,7 @@ export function useAnnotationDrawing({
     releasePointer()
 
     if (!wasDrawing || !isDrawingMode.value) return false
-    onDrawingFinished?.()
+    onDrawingFinished?.(getDrawingBounds())
     suppressViewerClickUntil = now() + clickSuppressionMs
     return true
   }
@@ -113,6 +145,7 @@ export function useAnnotationDrawing({
     const canvas = annotationCanvas.value
     if (!drawingContext || !canvas) return false
     drawingContext.clearRect(0, 0, canvas.width, canvas.height)
+    drawingBounds = null
     return true
   }
 
@@ -130,6 +163,7 @@ export function useAnnotationDrawing({
     finishPointerDrawing,
     resetDrawingInput,
     clearCanvasPixels,
+    getDrawingBounds,
     consumeViewerClickSuppression,
   }
 }

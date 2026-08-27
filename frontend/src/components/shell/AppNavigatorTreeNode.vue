@@ -9,8 +9,13 @@
       :expandable="isFolder"
       :expanded="isFolder && isOpen"
       :loading="isFolder && tree.isLoading(node.path)"
-      @select="tree.select(node)"
+      :selected="tree.isSelected(node.path)"
+      :draggable="tree.canDrag(node)"
+      :dragging="tree.isDragging(node.path)"
+      @select="tree.select(node, $event)"
       @toggle="tree.toggle(node.path)"
+      @dragstart="tree.startDrag(node, $event)"
+      @dragend="tree.finishDrag"
     />
 
     <div v-if="isFolder" class="nav-tree-branch" :class="{ 'is-open': isOpen }" :inert="isOpen ? undefined : ''">
@@ -79,15 +84,19 @@ const metaLabel = computed(() => (
 .nav-tree-branch-inner {
   overflow: hidden;
   opacity: 0;
-  transition: opacity var(--v-duration-normal) var(--v-ease-soft);
+  transform: translateY(-3px);
+  transition:
+    opacity var(--v-duration-normal) var(--v-ease-soft),
+    transform var(--v-duration-normal) var(--v-ease-emphasized);
 }
 
 .nav-tree-branch.is-open .nav-tree-branch-inner {
   opacity: 1;
+  transform: translateY(0);
 }
 
 .nav-tree-children {
-  margin-left: 7px;
+  margin-left: calc(var(--navigator-disclosure-width, 22px) / 2);
   padding-left: 5px;
   border-left: 1px solid color-mix(in srgb, var(--v-divider) 62%, transparent);
   transition: border-color var(--v-duration-fast) var(--v-ease-soft);
@@ -133,6 +142,10 @@ const metaLabel = computed(() => (
   .nav-tree-branch,
   .nav-tree-branch-inner {
     transition: none;
+  }
+
+  .nav-tree-branch-inner {
+    transform: none;
   }
 }
 </style>

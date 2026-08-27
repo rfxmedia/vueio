@@ -309,10 +309,10 @@ onBeforeUnmount(() => {
   width: 100%;
   min-width: 0;
   max-width: 100%;
-  padding: 6px 7px;
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 68%, transparent);
-  border-radius: var(--v-radius-sm);
-  background: var(--v-surface-tint-hover);
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--v-control-border) 74%, transparent);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
   box-shadow: none;
 }
 
@@ -466,9 +466,9 @@ onBeforeUnmount(() => {
 .voice-note__transcript-body {
   margin-top: 4px;
   padding: 6px 8px;
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 68%, transparent);
+  border: 0;
   border-radius: var(--v-radius-sm);
-  background: var(--v-surface-tint-strong);
+  background: color-mix(in srgb, var(--v-surface-inline) 60%, transparent);
 }
 
 .voice-note__transcript {

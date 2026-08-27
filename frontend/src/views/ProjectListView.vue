@@ -5,7 +5,14 @@
         <header class="v-page-header v-page-header-compact project-browser-header">
           <div class="project-browser-heading">
             <h1 class="v-page-title">Projects</h1>
-            <p class="project-browser-summary">{{ projectLibrarySummary }}</p>
+            <p class="project-browser-summary">
+              <span>{{ projectCountLabel }}</span>
+              <span class="project-browser-summary__divider" aria-hidden="true"></span>
+              <span class="project-browser-summary__active">
+                <span class="v-project-status-dot"></span>
+                {{ activeProjectCount }} active
+              </span>
+            </p>
           </div>
 
           <div class="v-page-actions project-browser-actions">
@@ -20,6 +27,7 @@
                   :aria-pressed="!projectsListView"
                 >
                   <svg class="icon"><use href="#icon-grid"/></svg>
+                  <span class="project-view-label">Grid</span>
                 </button>
                 <button
                   class="v-view-toggle-btn"
@@ -30,6 +38,7 @@
                   :aria-pressed="projectsListView"
                 >
                   <svg class="icon"><use href="#icon-list"/></svg>
+                  <span class="project-view-label">List</span>
                 </button>
               </div>
 
@@ -44,31 +53,41 @@
                 <template #trigger="{ triggerProps }">
                   <button
                     class="v-filter project-sort-trigger"
+                    :class="{ 'has-view-options': activeViewOptionCount > 0 }"
                     aria-label="Sort and filter projects"
                     v-bind="triggerProps"
                     @click="toggleSortMenu()"
                   >
                     <svg class="icon project-sort-icon"><use href="#icon-sort"/></svg>
                     <span class="project-sort-label">{{ projectSortLabel }}</span>
+                    <span v-if="activeViewOptionCount" class="project-view-option-count">{{ activeViewOptionCount }}</span>
                     <svg class="icon project-sort-chevron"><use href="#icon-chevron-down"/></svg>
                   </button>
                 </template>
-                <button class="v-dropdown-item" @click="setProjectSort('updated')">Last Updated</button>
-                <button class="v-dropdown-item" @click="setProjectSort('created')">Created Date</button>
-                <button class="v-dropdown-item" @click="setProjectSort('title')">Title</button>
-                <button class="v-dropdown-item" @click="setProjectSort('due_date')">Due Date</button>
+                <div class="project-menu-label">Sort projects</div>
+                <button
+                  v-for="option in projectSortOptions"
+                  :key="option.value"
+                  class="v-dropdown-item project-sort-option"
+                  :class="{ 'is-selected': projectSort === option.value }"
+                  @click="setProjectSort(option.value)"
+                >
+                  <span>{{ option.label }}</span>
+                  <svg v-if="projectSort === option.value" class="icon project-sort-check"><use href="#icon-check"/></svg>
+                </button>
                 <div class="v-dropdown-divider"></div>
-                <button class="v-dropdown-item" @click="toggleGroupByStatus()">
+                <div class="project-menu-label">Organize view</div>
+                <button class="v-dropdown-item project-view-option" :aria-pressed="groupByStatus" @click="toggleGroupByStatus()">
                   <span class="project-menu-check" :class="{ 'is-checked': groupByStatus }">
                     <svg v-if="groupByStatus" class="icon"><use href="#icon-check"/></svg>
                   </span>
-                  Group by Status
+                  <span>Group by status</span>
                 </button>
-                <button class="v-dropdown-item" @click="toggleHideDoneProjects()">
+                <button class="v-dropdown-item project-view-option" :aria-pressed="hideDoneProjects" @click="toggleHideDoneProjects()">
                   <span class="project-menu-check" :class="{ 'is-checked': hideDoneProjects }">
                     <svg v-if="hideDoneProjects" class="icon"><use href="#icon-check"/></svg>
                   </span>
-                  Hide Done Projects
+                  <span>Hide completed</span>
                 </button>
               </VMenu>
 
@@ -101,9 +120,13 @@
             :key="section.key"
             class="project-group"
           >
-            <header v-if="section.grouped" class="v-section-label v-section-label--ruled project-group-header">
+            <header
+              v-if="section.grouped"
+              class="v-section-label v-section-label--ruled project-group-header"
+              :class="`is-${projectStatusVariant(section.status)}`"
+            >
               <span class="v-dot" :class="`v-dot-${section.status.replace('_', '-')}`"></span>
-              <span class="project-group-label">{{ section.label }}</span>
+              <h2 class="project-group-label">{{ section.label }}</h2>
               <span class="v-section-count project-group-count">{{ section.count }}</span>
             </header>
 
@@ -112,7 +135,7 @@
                 v-for="p in section.projects"
                 :key="p.id"
                 class="v-card v-card-interactive file-card v-project-card"
-                :class="{ 'has-thumb': !!p.thumbnail_path, 'has-open-menu': projectMenuOpen === p.id, 'is-opening': openingProjectId === p.id }"
+                :class="{ 'has-open-menu': projectMenuOpen === p.id, 'is-opening': openingProjectId === p.id }"
                 role="link"
                 tabindex="0"
                 :aria-label="`Open project ${p.title}`"
@@ -121,21 +144,21 @@
                 @keydown.space.prevent.self="openProject(p.id)"
               >
                 <div class="v-project-thumb">
-                  <div class="v-project-thumb-blank" :style="blankThumbStyle(p)">
+                  <div class="v-project-thumb-blank" :style="identityColorStyle(p.id)">
                     <span class="v-project-thumb-initials">{{ projectInitials(p) }}</span>
                   </div>
                   <img
-                    v-if="p.thumbnail_path"
                     :src="getProjectThumbnailUrl(p.id, p.thumbnail_path)"
+                    alt=""
                     loading="lazy"
                     decoding="async"
-                    @load="$event.target.classList.add('loaded')"
+                    @load="showProjectThumbnail"
                     @error="$event.target.style.display='none'"
                   />
 
                   <span
                     v-if="p.storage_read_only"
-                    class="v-media-badge is-accent v-project-readonly-badge"
+                    class="v-project-capability-badge v-project-readonly-badge"
                     :title="readOnlyExplanation"
                     :aria-label="readOnlyExplanation"
                   >
@@ -143,16 +166,16 @@
                     <span>Read-only</span>
                     <svg class="icon v-project-readonly-badge__info"><use href="#icon-info" /></svg>
                   </span>
-                  <span
-                    class="v-status v-project-status-chip"
-                    :class="`is-${projectStatusVariant(p.status)}`"
-                  >
-                    <span class="v-project-status-dot"></span>
-                    <span class="v-project-status-label">{{ formatStatus(p.status || 'not_started') }}</span>
-                  </span>
                 </div>
 
                 <div class="v-project-body">
+                  <span
+                    class="v-project-status-inline v-project-card-status"
+                    :class="`is-${projectStatusVariant(p.status)}`"
+                  >
+                    <span class="v-project-status-dot"></span>
+                    {{ projectStatusLabel(p.status) }}
+                  </span>
                   <div class="v-project-title">{{ p.title }}</div>
 
                   <div class="v-project-meta">
@@ -166,13 +189,22 @@
                       </svg>
                       {{ p.shot_count }}<span class="v-project-meta-word"> shot{{ p.shot_count !== 1 ? 's' : '' }}</span>
                     </span>
-                    <span v-if="p.due_date" class="v-project-meta-sep" aria-hidden="true">·</span>
-                    <span v-if="p.due_date" class="v-project-meta-item" :title="`Due ${formatDate(p.due_date)}`">
+                    <span class="v-project-meta-sep" aria-hidden="true">·</span>
+                    <span
+                      v-if="p.due_date"
+                      class="v-project-meta-item"
+                      :class="projectDueClass(p)"
+                      :title="`Due ${formatDate(p.due_date)}`"
+                    >
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>
                         <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
                       </svg>
-                      {{ formatDate(p.due_date) }}
+                      {{ projectDueLabel(p) }}
+                    </span>
+                    <span v-else class="v-project-meta-item is-updated" :title="projectActivityTitle(p)">
+                      <svg class="icon"><use href="#icon-clock" /></svg>
+                      {{ formatProjectDate(p.updated_at) }}
                     </span>
                   </div>
                 </div>
@@ -200,11 +232,11 @@
         <!-- Flat View - List -->
         <div v-else class="v-projects-list-view">
           <div class="v-column-header v-project-list-header">
-            <span class="v-list-col-thumb"></span>
-            <span class="v-list-col-title">Project</span>
-            <span class="v-list-col-shots">Shots</span>
+            <span class="v-list-col-project">Project</span>
             <span class="v-list-col-status">Status</span>
+            <span class="v-list-col-shots">Shots</span>
             <span class="v-list-col-due">Due</span>
+            <span class="v-list-col-updated">Updated</span>
             <span class="v-list-col-actions"></span>
           </div>
 
@@ -223,15 +255,15 @@
             >
               <!-- Thumbnail -->
               <div class="v-project-list-thumb">
-                <div class="v-project-thumb-blank v-project-thumb-blank-sm" :style="blankThumbStyle(p)">
+                <div class="v-project-thumb-blank v-project-thumb-blank-sm" :style="identityColorStyle(p.id)">
                   <span class="v-project-thumb-initials">{{ projectInitials(p) }}</span>
                 </div>
                 <img
-                  v-if="p.thumbnail_path"
                   :src="getProjectThumbnailUrl(p.id, p.thumbnail_path)"
+                  alt=""
                   loading="lazy"
                   decoding="async"
-                  @load="$event.target.classList.add('loaded')"
+                  @load="showProjectThumbnail"
                   @error="$event.target.style.display='none'"
                 />
               </div>
@@ -245,16 +277,19 @@
                     Read-only
                     <svg class="icon v-project-readonly-info"><use href="#icon-info" /></svg>
                   </span>
-                  <span class="v-project-status-inline" :class="`is-${projectStatusVariant(p.status)}`">
+                  <span class="v-project-status-inline v-project-status-mobile" :class="`is-${projectStatusVariant(p.status)}`">
                     <span class="v-project-status-dot"></span>
-                    {{ formatStatus(p.status || 'not_started') }}
+                    {{ projectStatusLabel(p.status) }}
+                  </span>
+                  <span v-if="shouldFlagOfflineMedia(p)" class="v-project-capability-inline is-warning">
+                    <svg class="icon"><use href="#icon-alert" /></svg>
+                    Media offline
                   </span>
                   <span class="v-project-list-meta-mobile">
-                    <span class="v-project-meta-sep" aria-hidden="true">·</span>
                     <span>{{ p.shot_count }} shot{{ p.shot_count !== 1 ? 's' : '' }}</span>
                     <template v-if="p.due_date">
                       <span class="v-project-meta-sep" aria-hidden="true">·</span>
-                      <span>Due {{ formatDate(p.due_date) }}</span>
+                      <span :class="projectDueClass(p)">{{ projectDueSummary(p) }}</span>
                     </template>
                   </span>
                 </div>
@@ -272,9 +307,9 @@
 
               <!-- Status -->
               <div class="v-project-list-status" @click.stop>
-                <span class="v-status v-project-status-chip is-list" :class="`is-${projectStatusVariant(p.status)}`">
+                  <span class="v-status v-project-status-chip is-list" :class="`is-${projectStatusVariant(p.status)}`">
                   <span class="v-project-status-dot"></span>
-                  <span class="v-project-status-label">{{ formatStatus(p.status || 'not_started') }}</span>
+                  <span class="v-project-status-label">{{ projectStatusLabel(p.status) }}</span>
                 </span>
               </div>
 
@@ -285,9 +320,13 @@
                     <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/>
                     <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
                   </svg>
-                  <span>{{ formatDate(p.due_date) }}</span>
+                  <span :class="projectDueClass(p)">{{ projectDueLabel(p) }}</span>
                 </template>
-                <span v-else class="v-project-list-due-empty" aria-label="No due date">&mdash;</span>
+                <span v-else class="v-project-list-due-empty">Not set</span>
+              </div>
+
+              <div class="v-project-list-updated" :title="projectActivityTitle(p)">
+                {{ formatProjectDate(p.updated_at) }}
               </div>
 
               <!-- More Actions -->
@@ -313,9 +352,8 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../components/primitives'
-import { useOutsideClick } from '../composables/useOutsideClick'
 import { getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
 import { useProjectSettingsStore } from '../ownership/projectSettings'
 import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSelection'
@@ -323,6 +361,7 @@ import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useViewerStore } from '../ownership/viewer'
 import { formatDateMMDDYYYY as formatDate } from '../utils/formatters'
+import { identityColorStyle } from '../utils/semanticColors'
 
 const {
   projects,
@@ -332,6 +371,7 @@ const {
   setProjectsListView,
   showSortMenu,
   toggleSortMenu,
+  projectSort,
   projectSortLabel,
   setProjectSort,
   groupByStatus,
@@ -391,19 +431,36 @@ function canShareProjectItem(project) {
 
 const readOnlyExplanation = 'Project files are on read-only storage. Change its permissions or relocate the project to make changes.'
 
-const projectLibrarySummary = computed(() => {
+const projectSortOptions = [
+  { value: 'updated', label: 'Last updated' },
+  { value: 'created', label: 'Created date' },
+  { value: 'title', label: 'Project title' },
+  { value: 'due_date', label: 'Due date' },
+]
+
+function normalizeProjectStatus(status) {
+  return status === 'active' ? 'in_progress' : (status || 'not_started')
+}
+
+const activeProjectCount = computed(() => (
+  projects.value.filter((project) => normalizeProjectStatus(project.status) === 'in_progress').length
+))
+
+const projectCountLabel = computed(() => {
   const visibleCount = sortedProjects.value.length
   const totalCount = projects.value.length
-  const activeCount = projects.value.filter((project) => project.status === 'in_progress').length
   const projectWord = totalCount === 1 ? 'project' : 'projects'
 
   if (hideDoneProjects.value && visibleCount !== totalCount) {
-    const hiddenCount = totalCount - visibleCount
-    return `${visibleCount} visible · ${hiddenCount} hidden`
+    return `${visibleCount} visible of ${totalCount} ${projectWord}`
   }
 
-  return `${totalCount} ${projectWord} · ${activeCount} active`
+  return `${totalCount} ${projectWord}`
 })
+
+const activeViewOptionCount = computed(() => (
+  Number(groupByStatus.value) + Number(hideDoneProjects.value)
+))
 
 const projectSections = computed(() => {
   if (projectsListView.value) {
@@ -412,7 +469,7 @@ const projectSections = computed(() => {
   if (groupByStatus.value) {
     return projectGroups.value.map((group) => ({
       key: group.status,
-      label: formatStatus(group.status),
+      label: projectStatusLabel(group.status),
       status: group.status,
       count: group.projects.length,
       projects: group.projects,
@@ -432,36 +489,92 @@ const projectSections = computed(() => {
 })
 
 function projectStatusVariant(status) {
-  if (status === 'in_progress') return 'active'
+  if (normalizeProjectStatus(status) === 'in_progress') return 'active'
   if (status === 'waiting_review') return 'review'
   if (status === 'edits_requested') return 'hold'
   if (status === 'not_started') return 'draft'
   return status || 'draft'
 }
 
-const BLANK_THUMB_COLORS = [
-  '#65c995',
-  '#6caee4',
-  '#c99a64',
-  '#c97891',
-  '#9383d3',
-  '#59aaa3',
-]
-
-function projectSeed(p) {
-  const source = String(p?.id ?? p?.title ?? 'project')
-  let hash = 0
-  for (let i = 0; i < source.length; i++) {
-    hash = (hash * 31 + source.charCodeAt(i)) >>> 0
-  }
-  return hash
+function projectStatusLabel(status) {
+  return formatStatus(normalizeProjectStatus(status))
 }
 
-function blankThumbStyle(p) {
-  const accent = BLANK_THUMB_COLORS[projectSeed(p) % BLANK_THUMB_COLORS.length]
-  return {
-    '--project-accent': accent,
+const projectDateFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+})
+
+const projectCompactDateFormatter = new Intl.DateTimeFormat('en-US', {
+  month: 'short',
+  day: 'numeric',
+})
+
+function parsedProjectDate(value) {
+  if (!value) return null
+  if (typeof value === 'number') {
+    const milliseconds = value < 1e12 ? value * 1000 : value
+    const date = new Date(milliseconds)
+    return Number.isNaN(date.getTime()) ? null : date
   }
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value
+  const date = new Date(normalizedValue)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
+function formatProjectDate(value) {
+  const date = parsedProjectDate(value)
+  return date ? projectDateFormatter.format(date) : 'Not recorded'
+}
+
+function formatCompactProjectDate(value) {
+  const date = parsedProjectDate(value)
+  return date ? projectCompactDateFormatter.format(date) : 'Not set'
+}
+
+function isProjectOverdue(project) {
+  if (!project?.due_date || normalizeProjectStatus(project.status) === 'done') return false
+  const dueDate = parsedProjectDate(project.due_date)
+  if (!dueDate) return false
+  dueDate.setHours(23, 59, 59, 999)
+  return dueDate.getTime() < Date.now()
+}
+
+function isProjectDueSoon(project) {
+  if (!project?.due_date || normalizeProjectStatus(project.status) === 'done' || isProjectOverdue(project)) return false
+  const dueDate = parsedProjectDate(project.due_date)
+  if (!dueDate) return false
+  dueDate.setHours(23, 59, 59, 999)
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() + 7)
+  cutoff.setHours(23, 59, 59, 999)
+  return dueDate.getTime() <= cutoff.getTime()
+}
+
+function projectDueClass(project) {
+  return {
+    'is-overdue': isProjectOverdue(project),
+    'is-due-soon': isProjectDueSoon(project),
+  }
+}
+
+function projectDueLabel(project, includeOverdue = true) {
+  const label = formatCompactProjectDate(project?.due_date)
+  return includeOverdue && isProjectOverdue(project) ? `Overdue ${label}` : label
+}
+
+function projectDueSummary(project) {
+  return isProjectOverdue(project) ? projectDueLabel(project) : `Due ${projectDueLabel(project, false)}`
+}
+
+function projectActivityTitle(project) {
+  const activityDate = formatProjectDate(project?.updated_at)
+  return activityDate === 'Not recorded' ? activityDate : `Updated ${activityDate}`
+}
+
+function shouldFlagOfflineMedia(project) {
+  return Boolean(project?.has_offline_media && normalizeProjectStatus(project.status) !== 'done')
 }
 
 function projectInitials(p) {
@@ -471,6 +584,11 @@ function projectInitials(p) {
   const letters = parts.map((part) => part.charAt(0)).join('')
   return (letters || title.charAt(0)).toUpperCase()
 }
+
+function showProjectThumbnail(event) {
+  event.target.style.removeProperty('display')
+  event.target.classList.add('loaded')
+}
 </script>
 
 <style>
@@ -479,6 +597,7 @@ function projectInitials(p) {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  background: var(--v-bg);
 }
 
 .projects-sort-menu {
@@ -487,24 +606,29 @@ function projectInitials(p) {
 .project-groups {
   display: flex;
   flex-direction: column;
-  gap: 30px;
-  padding: 22px 24px 36px;
+  gap: 34px;
+  padding: 24px 24px 44px;
 }
 
 .project-group {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-3);
+  gap: 12px;
   margin: 0;
   min-width: 0;
 }
 
 .project-group-header {
-  min-height: 20px;
+  min-height: 22px;
+  padding-inline: 1px;
 }
 
 .project-group-label {
   white-space: nowrap;
+}
+
+.project-group-header.is-active {
+  color: color-mix(in srgb, var(--v-status-active) 76%, var(--v-text));
 }
 
 
@@ -516,22 +640,20 @@ function projectInitials(p) {
   flex-direction: column;
   isolation: isolate;
   overflow: hidden;
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-panel);
+  border-radius: var(--v-radius-lg);
+  background: color-mix(in srgb, var(--v-surface-panel) 94%, black);
   border-color: var(--v-surface-border-soft);
   box-shadow: none;
   content-visibility: auto;
   contain-intrinsic-size: 250px 210px;
   transition:
     border-color var(--v-duration-fast) var(--v-ease-emphasized),
-    transform var(--v-duration-normal) var(--v-ease-soft),
     background var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
 .v-project-card:hover {
-  transform: translateY(-1px);
   border-color: var(--v-surface-border-strong);
-  background: color-mix(in srgb, var(--v-surface-panel) 96%, white);
+  background: color-mix(in srgb, var(--v-surface-panel) 97%, white);
 }
 
 .v-project-card:focus-visible,
@@ -552,7 +674,7 @@ function projectInitials(p) {
 .v-project-thumb {
   position: relative;
   aspect-ratio: 16 / 9;
-  border-radius: var(--v-radius-md) var(--v-radius-md) 0 0;
+  border-radius: var(--v-radius-lg) var(--v-radius-lg) 0 0;
   overflow: hidden;
   background: var(--v-surface-panel-soft);
 }
@@ -565,7 +687,7 @@ function projectInitials(p) {
   object-fit: cover;
   z-index: 1;
   opacity: 0;
-  transform: scale(1.01);
+  transform: scale(1.005);
   transition: opacity var(--v-duration-normal) var(--v-ease-emphasized),
               transform var(--v-duration-slow) var(--v-ease-emphasized);
 }
@@ -573,7 +695,7 @@ function projectInitials(p) {
 .v-project-thumb img.loaded { opacity: 1; }
 
 .v-project-card:hover .v-project-thumb img {
-  transform: scale(1.025);
+  transform: scale(1.018);
 }
 
 /* Soft inner vignette to anchor the status pill regardless of image content */
@@ -582,57 +704,58 @@ function projectInitials(p) {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(180deg, rgba(8, 10, 16, 0.18) 0%, transparent 32%, transparent 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025);
   z-index: 2;
 }
 
 .v-project-thumb-blank {
+  --v-identity-color: var(--v-accent);
   position: absolute;
   inset: 0;
   z-index: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: color-mix(in srgb, var(--project-accent, var(--v-accent)) 24%, var(--v-surface-panel));
-  color: color-mix(in srgb, var(--project-accent, var(--v-accent)) 42%, white);
+  background: color-mix(in srgb, var(--v-identity-color) 8%, var(--v-surface-panel-soft));
+  color: color-mix(in srgb, var(--v-identity-color) 38%, var(--v-text-muted));
 }
 
 .v-project-thumb-blank::before {
   content: "";
   position: absolute;
   inset: 0 0 auto;
-  height: 2px;
-  background: var(--project-accent, var(--v-accent));
-  opacity: 0.6;
+  height: 1px;
+  background: color-mix(in srgb, var(--v-identity-color) 35%, transparent);
+  opacity: 1;
   pointer-events: none;
 }
 
 .v-project-thumb-initials {
   position: relative;
   font-family: var(--v-font);
-  font-size: 30px;
-  font-weight: 600;
-  letter-spacing: 0;
+  font-size: 28px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
   color: inherit;
 }
 
 /* Storage capability stays left; workflow status stays right. */
-.v-project-readonly-badge {
+.v-project-capability-badge {
   position: absolute;
   top: 8px;
   bottom: auto;
   left: 8px;
   z-index: 3;
+  display: inline-flex;
+  align-items: center;
   gap: var(--v-space-1);
   min-height: 22px;
   height: 22px;
   padding: 0 7px;
-  border: 1px solid color-mix(in srgb, var(--v-accent) 28%, rgba(255, 255, 255, 0.1));
+  border: 1px solid color-mix(in srgb, var(--v-accent) 25%, rgba(255, 255, 255, 0.12));
   border-radius: var(--v-radius-full);
-  color: var(--v-accent);
-  background: rgba(8, 12, 15, 0.76);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  color: color-mix(in srgb, var(--v-accent) 86%, white);
+  background: rgba(11, 13, 13, 0.9);
   font-size: var(--v-text-2xs);
   font-weight: 600;
   line-height: 1.5;
@@ -659,8 +782,6 @@ function projectInitials(p) {
   text-transform: none;
   color: rgba(255, 255, 255, 0.9);
   background: rgba(8, 12, 15, 0.72);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   box-shadow: none;
   white-space: nowrap;
@@ -673,8 +794,7 @@ function projectInitials(p) {
   border: 1px solid var(--v-control-border);
   box-shadow: none;
   color: var(--v-text);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  font-weight: 650;
 }
 
 .v-project-status-inline.is-readonly {
@@ -712,7 +832,7 @@ function projectInitials(p) {
   gap: 6px;
   font-family: var(--v-font);
   font-size: var(--v-text-xs);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--v-text-secondary);
 }
 
@@ -722,17 +842,17 @@ function projectInitials(p) {
   flex: 1;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 5px;
-  min-height: 58px;
-  padding: 11px 42px 12px 12px;
+  justify-content: flex-start;
+  gap: 7px;
+  min-height: 94px;
+  padding: 12px 42px 13px 13px;
   min-width: 0;
 }
 
 .v-project-title {
   font-family: var(--v-font);
-  font-size: var(--v-text-base);
-  font-weight: 600;
+  font-size: var(--v-text-md);
+  font-weight: 650;
   letter-spacing: 0;
   color: var(--v-text);
   white-space: nowrap;
@@ -745,7 +865,7 @@ function projectInitials(p) {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 3px 6px;
+  gap: 3px 7px;
   font-family: var(--v-font);
   font-size: var(--v-text-xs);
   color: var(--v-text-secondary);
@@ -767,6 +887,32 @@ function projectInitials(p) {
   opacity: 0.48;
 }
 
+.v-project-card-status {
+  align-self: flex-start;
+  font-size: var(--v-text-2xs);
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.v-project-meta-item.is-overdue,
+.v-project-list-due .is-overdue,
+.v-project-list-meta-mobile .is-overdue {
+  color: var(--v-danger);
+  font-weight: 600;
+}
+
+.v-project-meta-item.is-due-soon,
+.v-project-list-due .is-due-soon,
+.v-project-list-meta-mobile .is-due-soon {
+  color: var(--v-status-review-text);
+}
+
+.v-project-meta-item.is-updated {
+  color: var(--v-text-muted);
+}
+
 .v-project-meta-sep {
   opacity: 0.4;
 }
@@ -775,8 +921,8 @@ function projectInitials(p) {
 
 .v-projects-grid {
   isolation: isolate;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 260px));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(272px, 1fr));
+  gap: 16px;
 }
 
 /* Project card menu positioning */
@@ -822,22 +968,32 @@ function projectInitials(p) {
 .v-projects-list-view {
   display: flex;
   flex-direction: column;
-  margin: 22px 24px 36px;
-  border-top: 1px solid var(--v-border);
-  border-bottom: 1px solid var(--v-border);
+  margin: 24px 24px 44px;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: color-mix(in srgb, var(--v-surface-panel) 72%, transparent);
   overflow: visible;
 }
 
 .v-project-list-header {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 88px 136px 132px 40px;
-  gap: var(--v-space-4);
+  grid-template-columns: 68px minmax(0, 1fr) 76px 126px 126px 118px 36px;
+  gap: 14px;
   align-items: center;
-  padding: 10px 12px;
+  min-height: 38px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--v-surface-border-soft);
+  background: var(--v-surface-panel-soft);
+  border-radius: var(--v-radius-lg) var(--v-radius-lg) 0 0;
 }
 
-.v-list-col-shots,
-.v-list-col-due { text-align: left; }
+.v-project-list-header > * { grid-row: 1; }
+.v-list-col-project { grid-column: 2; }
+.v-list-col-status { grid-column: 4; }
+.v-list-col-shots { grid-column: 3; }
+.v-list-col-due { grid-column: 5; }
+.v-list-col-updated { grid-column: 6; }
+.v-list-col-actions { grid-column: 7; }
 
 .v-projects-list-body {
   display: flex;
@@ -846,11 +1002,11 @@ function projectInitials(p) {
 
 .v-project-list-item {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) 88px 136px 132px 40px;
-  gap: var(--v-space-4);
+  grid-template-columns: 68px minmax(0, 1fr) 76px 126px 126px 118px 36px;
+  gap: 14px;
   align-items: center;
-  min-height: 70px;
-  padding: 10px 12px;
+  min-height: 64px;
+  padding: 9px 10px;
   background: transparent;
   cursor: pointer;
   transition: background var(--v-duration-fast) var(--v-ease-emphasized);
@@ -858,7 +1014,7 @@ function projectInitials(p) {
 }
 
 .v-project-list-item + .v-project-list-item {
-  border-top: 1px solid var(--v-border);
+  border-top: 1px solid var(--v-surface-border-soft);
 }
 
 .v-project-list-item:hover {
@@ -873,8 +1029,8 @@ function projectInitials(p) {
 
 .v-project-list-thumb {
   position: relative;
-  width: 72px;
-  height: 44px;
+  width: 68px;
+  height: 42px;
   border-radius: var(--v-radius-md);
   overflow: hidden;
   background: var(--v-surface-panel-soft);
@@ -900,14 +1056,14 @@ function projectInitials(p) {
 .v-project-list-main {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .v-project-list-title {
   font-family: var(--v-font);
   font-size: var(--v-text-md);
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0;
   color: var(--v-text);
   white-space: nowrap;
@@ -916,9 +1072,33 @@ function projectInitials(p) {
 }
 
 .v-project-list-subtitle {
-  display: none;
-  font-size: var(--v-text-sm);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 14px;
+  font-size: var(--v-text-xs);
   color: var(--v-text-secondary);
+}
+
+.v-project-status-mobile {
+  display: none;
+}
+
+.v-project-capability-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--v-text-secondary);
+  white-space: nowrap;
+}
+
+.v-project-capability-inline .icon {
+  width: 11px;
+  height: 11px;
+}
+
+.v-project-capability-inline.is-warning {
+  color: var(--v-status-hold);
 }
 
 .v-project-list-shots {
@@ -942,6 +1122,15 @@ function projectInitials(p) {
   min-width: 0;
 }
 
+.v-project-list-status .v-project-status-chip {
+  justify-content: flex-start;
+  min-width: 0;
+  max-width: 118px;
+  height: 26px;
+  padding: 0 9px;
+  background: transparent;
+}
+
 .v-project-list-due {
   display: inline-flex;
   align-items: center;
@@ -949,6 +1138,13 @@ function projectInitials(p) {
   font-family: var(--v-font);
   font-size: var(--v-text-sm);
   color: var(--v-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.v-project-list-updated {
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -962,6 +1158,13 @@ function projectInitials(p) {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  opacity: 0.58;
+  transition: opacity var(--v-duration-fast) var(--v-ease-emphasized);
+}
+
+.v-project-list-item:hover .project-card-actions,
+.v-project-list-item:focus-within .project-card-actions,
+.v-project-list-item.has-open-menu .project-card-actions {
   opacity: 1;
 }
 
@@ -976,6 +1179,27 @@ function projectInitials(p) {
 
 /* Hide the mobile-only inline subtitle row on desktop */
 .v-project-list-meta-mobile { display: none; }
+
+@media (max-width: 1200px) and (min-width: 769px) {
+  .v-project-list-header,
+  .v-project-list-item {
+    grid-template-columns: 60px minmax(0, 1fr) 66px 118px 114px 36px;
+    gap: 12px;
+  }
+
+  .v-project-list-thumb {
+    width: 60px;
+    height: 38px;
+  }
+
+  .v-list-col-project { grid-column: 2; }
+  .v-list-col-shots { grid-column: 3; }
+  .v-list-col-status { grid-column: 4; }
+  .v-list-col-due { grid-column: 5; }
+  .v-list-col-actions { grid-column: 6; }
+  .v-list-col-updated,
+  .v-project-list-updated { display: none; }
+}
 
 /* ─── Mobile Responsive ───────────────────────────────────────────────────── */
 
@@ -1027,13 +1251,17 @@ function projectInitials(p) {
   .projects-list .v-view-toggle-btn {
     padding: var(--v-space-3);
   }
+
+  .v-project-status-mobile {
+    display: inline-flex;
+  }
 }
 
 /* ── Projects List View — collapses to rich card-rows at narrow widths ── */
 
 @media (max-width: 768px) {
   .v-projects-list-view {
-    margin: 10px 12px 14px;
+    margin: 16px 14px 28px;
     border-radius: var(--v-radius-lg);
   }
 
@@ -1089,7 +1317,8 @@ function projectInitials(p) {
   /* Hide redundant columns on mobile — info is in the subtitle row */
   .v-project-list-shots,
   .v-project-list-status,
-  .v-project-list-due { display: none; }
+  .v-project-list-due,
+  .v-project-list-updated { display: none; }
 
   .v-project-list-item .project-card-actions {
     grid-area: actions;
@@ -1170,7 +1399,9 @@ function projectInitials(p) {
   align-items: center;
   justify-content: space-between;
   gap: var(--v-space-5);
-  padding: 20px 24px 17px;
+  min-height: 88px;
+  padding: 19px 24px 18px;
+  border-bottom: 1px solid var(--v-surface-border-soft);
 }
 
 .project-browser-heading {
@@ -1182,17 +1413,40 @@ function projectInitials(p) {
 
 .project-browser-heading .v-page-title {
   margin: 0;
-  font-size: 24px;
+  font-size: 25px;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
 .project-browser-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
+}
+
+.project-browser-summary__divider {
+  width: 1px;
+  height: 11px;
+  background: var(--v-surface-border-strong);
+}
+
+.project-browser-summary__active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--v-text-secondary);
+}
+
+.project-browser-summary__active .v-project-status-dot {
+  width: 5px;
+  height: 5px;
+  background: var(--v-status-active);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-active) 18%, transparent);
 }
 
 .project-browser-actions {
@@ -1217,11 +1471,15 @@ function projectInitials(p) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: auto;
+  min-width: 65px;
   height: 28px;
   min-height: 0;
-  padding: 0;
+  padding: 0 9px;
+  gap: 6px;
   border-radius: var(--v-button-radius);
+  font-size: var(--v-text-xs);
+  font-weight: 650;
 }
 
 .project-browser-header .v-view-toggle-btn .icon,
@@ -1237,6 +1495,25 @@ function projectInitials(p) {
   gap: 7px;
   border-radius: var(--v-button-radius);
   box-sizing: border-box;
+}
+
+.project-view-label {
+  line-height: 1;
+}
+
+.project-view-option-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: var(--v-radius-full);
+  background: var(--v-accent-muted);
+  color: var(--v-accent);
+  font-size: var(--v-text-2xs);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
 
 .project-sort-label {
@@ -1283,6 +1560,41 @@ function projectInitials(p) {
   height: 12px;
 }
 
+.projects-sort-dropdown {
+  min-width: 220px;
+  padding-block: 7px;
+}
+
+.project-menu-label {
+  padding: 6px 11px 5px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.project-sort-option,
+.project-view-option {
+  gap: 9px;
+}
+
+.project-sort-option {
+  justify-content: space-between;
+}
+
+.project-sort-option.is-selected {
+  color: var(--v-text);
+  background: var(--v-surface-tint-hover);
+}
+
+.project-sort-check {
+  width: 14px;
+  height: 14px;
+  color: var(--v-accent);
+}
+
 @media (max-width: 768px) {
   .v-page-header.project-browser-header {
     --project-control-size: 44px;
@@ -1314,8 +1626,15 @@ function projectInitials(p) {
 
   .project-browser-header .v-view-toggle-btn {
     width: 36px;
+    min-width: 36px;
     height: 36px;
+    padding: 0;
     border-radius: var(--v-button-radius);
+  }
+
+  .project-browser-header .project-view-label,
+  .project-browser-header .project-view-option-count {
+    display: none;
   }
 
   .project-browser-header .projects-sort-menu {
@@ -1326,8 +1645,8 @@ function projectInitials(p) {
 
   .project-browser-header .project-sort-trigger {
     width: 100%;
-    height: 100%;
-    min-height: 0;
+    height: var(--project-control-size);
+    min-height: var(--project-control-size);
     padding: 0;
     justify-content: center;
     border-radius: var(--v-button-radius);
@@ -1375,7 +1694,7 @@ function projectInitials(p) {
   }
 
   .v-project-body {
-    min-height: 60px;
+    min-height: 86px;
     padding: 10px 38px 11px 10px;
   }
 
@@ -1392,6 +1711,10 @@ function projectInitials(p) {
 }
 
 @media (max-width: 420px) {
+  .v-project-card .v-project-meta-sep {
+    display: none;
+  }
+
   .v-project-status-chip {
     width: 22px;
     padding: 0;

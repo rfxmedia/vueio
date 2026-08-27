@@ -4,6 +4,7 @@ import time
 import uuid
 
 from fastapi import HTTPException
+from sqlalchemy import and_, exists, or_
 from sqlalchemy.orm import Session, object_session
 
 from app.models import (
@@ -135,6 +136,20 @@ def get_horizon_shot_assignee_ids(shot: HorizonShot, db: Session | None = None) 
         if user_ids:
             return _dedupe_ordered(user_ids)
     return _dedupe_ordered([shot.assignee_user_id] if shot.assignee_user_id else [])
+
+
+def _horizon_shot_assignment_clause(subject_ids: set[str]):
+    """Match current assignee rows, falling back to the legacy primary assignee."""
+    normalized_ids = tuple(value for value in subject_ids if value)
+    matching_assignee = exists().where(and_(
+        HorizonShotAssignee.shot_id == HorizonShot.id,
+        HorizonShotAssignee.user_id.in_(normalized_ids),
+    ))
+    any_assignee = exists().where(HorizonShotAssignee.shot_id == HorizonShot.id)
+    return or_(
+        matching_assignee,
+        and_(~any_assignee, HorizonShot.assignee_user_id.in_(normalized_ids)),
+    )
 
 
 def serialize_horizon_shot_assignees(shot: HorizonShot, db: Session | None = None) -> list[dict]:

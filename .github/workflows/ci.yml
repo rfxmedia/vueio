@@ -171,6 +171,8 @@ jobs:
           trap cleanup EXIT
           version=v0.0.0-alpha.0
           mkdir -p "$assets/download/$version" "$storage"
+          sed "s/^VERSION=.*/VERSION=\${VUEIO_VERSION:-$version}/" \
+            install.sh >"$assets/install.sh"
           cp ops/vueioctl compose.release.yml LICENSE.md "$assets/download/$version/"
           (
             cd "$assets/download/$version"
@@ -178,22 +180,22 @@ jobs:
           )
           python -m http.server "$port" --bind 127.0.0.1 --directory "$assets" >/dev/null 2>&1 &
           server_pid=$!
-          sudo env \
+          curl -fsSL "http://127.0.0.1:$port/install.sh" | sudo env \
             "PATH=$PATH" \
             VUEIO_HOME="$home" \
             VUEIO_BIN_DIR="$bin" \
             VUEIO_RELEASE_ROOT_URL="http://127.0.0.1:$port" \
-            VUEIO_VERSION="$version" \
             VUEIO_NONINTERACTIVE=1 \
             VUEIO_INITIAL_STORAGE_PATH="$storage" \
             VUEIO_INITIAL_STORAGE_LABEL=CI \
             VUEIO_COMPOSE_PROJECT="$project" \
             VUEIO_SKIP_START=1 \
-            sh install.sh
+            sh
           sudo test -x "$bin/vueioctl"
           sudo test -f "$home/.installed"
           sudo test ! -e "$home/.installing"
           sudo test -f "$home/LICENSE.md"
+          sudo grep -qx "VUEIO_VERSION=$version" "$home/.env"
           sudo cmp -s "$home/LICENSE.md" "$GITHUB_WORKSPACE/LICENSE.md"
           sudo docker compose \
             --env-file "$home/.env" \
@@ -219,6 +221,10 @@ jobs:
         run: |
           docker build --pull -t vueio-engine-release-ci:local ./backend
           docker build --pull -t vueio-ui-release-ci:local ./frontend
+          docker run --rm vueio-engine-release-ci:local sh -c \
+            'test -s /app/moonshine-models/MOONSHINE_LICENSE.txt && find /usr/share/doc -name copyright -type f -print -quit | grep -q .'
+          docker run --rm --entrypoint sh vueio-ui-release-ci:local -c \
+            'test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && find /usr/share/licenses -type f -print -quit | grep -q .'
       - name: Report all high and critical release-image findings
         shell: bash
         run: |

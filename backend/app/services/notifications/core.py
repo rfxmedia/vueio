@@ -32,6 +32,7 @@ from app.services.auth import load_users
 from app.services.external_urls import normalize_external_http_url, normalize_http_origin
 from app.services.horizons_fresh import (
     get_horizon_project_access_role,
+    is_restricted_horizon_artist,
     list_visible_horizon_projects,
 )
 from app.services.tracker_events import serialize_tracker_event, tracker_activity_visible_shot_ids
@@ -73,6 +74,10 @@ DEFAULT_CHANNELS = {
 _dispatcher_started = False
 _dispatcher_lock = threading.Lock()
 DISCORD_BOT_PERMISSIONS = 84992
+
+
+def _event_audience(user: dict, access_role: str | None) -> str:
+    return 'restricted' if is_restricted_horizon_artist(user, access_role) else 'internal'
 
 
 def _provider_settings_path():
@@ -237,6 +242,8 @@ def notification_bucket_for_event(event_type: str | None) -> str:
 
 
 def _event_filter_matches(event_type: str, filter_value: str | None) -> bool:
+    if event_type == 'tracker_checkpoint':
+        return False
     value = (filter_value or 'all').strip()
     if value in {'', 'all'}:
         return True
@@ -497,7 +504,11 @@ def _notification_event_is_feed_visible(
     )
     if scope == 'related_to_me' and not _event_has_related_target(event, visible_shot_ids):
         return False
-    return serialize_tracker_event(event, visible_shot_ids=visible_shot_ids) is not None
+    return serialize_tracker_event(
+        event,
+        visible_shot_ids=visible_shot_ids,
+        audience=_event_audience(user, access_role),
+    ) is not None
 
 
 def _cursor_filter(query, before_created_at: float | None, before_id: int | None):
@@ -671,7 +682,11 @@ def list_notification_feed(
             event_visible_shot_ids = visible_shot_ids(event.project_id, event.tracker_id)
             if normalized_scope == 'related_to_me' and not _event_has_related_target(event, event_visible_shot_ids):
                 continue
-            serialized = serialize_tracker_event(event, visible_shot_ids=event_visible_shot_ids)
+            serialized = serialize_tracker_event(
+                event,
+                visible_shot_ids=event_visible_shot_ids,
+                audience=_event_audience(user, access_roles.get(event.project_id)),
+            )
             if serialized is None:
                 continue
             event_day = notification_calendar_day_key(event.created_at)
@@ -801,7 +816,11 @@ def _event_visible_for_subscription(db: Session, *, subscription: NotificationSu
     )
     if scope == 'related_to_me' and not _event_has_related_target(event, visible_shot_ids):
         return None
-    serialized = serialize_tracker_event(event, visible_shot_ids=visible_shot_ids)
+    serialized = serialize_tracker_event(
+        event,
+        visible_shot_ids=visible_shot_ids,
+        audience=_event_audience(user, access_role),
+    )
     if serialized is None:
         return None
     return _add_notification_metadata(serialized, project, tracker)

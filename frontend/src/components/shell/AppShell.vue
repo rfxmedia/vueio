@@ -126,7 +126,7 @@
         <section class="mobile-nav-section mobile-nav-account" v-if="currentUser">
           <div class="mobile-nav-section-label">Signed In</div>
           <div class="mobile-nav-account-card">
-            <span class="mobile-nav-account-mark">{{ userInitial }}</span>
+            <span class="mobile-nav-account-mark" :style="userIdentityStyle">{{ userInitial }}</span>
             <div class="mobile-nav-account-copy">
               <strong>{{ currentUser.display_name }}</strong>
               <span>{{ userRoleLabel }}</span>
@@ -140,6 +140,7 @@
   <div class="main-wrapper">
     <header
       class="unified-nav"
+      aria-label="Workspace navigation"
       :class="{
         'no-sidebar': !showDesktopSidebar,
         'in-tracker': currentTracker && !currentMedia,
@@ -235,13 +236,12 @@
         <slot name="search" />
       </div>
 
-      <div class="nav-right">
+      <div class="nav-right" role="group" aria-label="Workspace utilities">
         <slot v-if="showMediaSequenceNav && !isMobile" name="nav-center" />
-        <slot name="nav-right-trailing" />
 
         <button
           v-if="canShareFromNav && !shareMode"
-          class="v-btn v-btn-quiet v-btn-icon"
+          class="v-btn v-btn-quiet v-btn-icon nav-share-action"
           type="button"
           aria-label="Share"
           @click="shareFromNav"
@@ -259,40 +259,47 @@
           <svg class="icon"><use href="#icon-download"/></svg>
         </button>
 
-        <VMenu
+        <GlobalActivityTray
           v-if="currentUser && !shareMode"
-          :open="userMenuOpen"
-          min-width="220"
-          panel-class="user-dropdown"
-          :close-on-select="false"
-          @update:open="(open) => { if (open !== userMenuOpen) toggleUserMenu() }"
+          class="nav-account-activity"
         >
-          <template #trigger="{ triggerProps }">
+          <template #trigger="{ open, unreadCount, unreadLabel, triggerAriaLabel, panelId, toggle }">
             <button
-              v-bind="triggerProps"
               class="v-btn v-btn-quiet v-btn-icon user-avatar-btn"
+              :class="{ 'has-unread': unreadCount > 0 }"
+              :style="userIdentityStyle"
               type="button"
-              aria-label="Account menu"
-              @click="toggleUserMenu"
+              aria-haspopup="dialog"
+              :aria-expanded="open ? 'true' : 'false'"
+              :aria-controls="open ? panelId : undefined"
+              :aria-label="`Account and ${triggerAriaLabel.toLowerCase()}`"
+              title="Account and notifications"
+              @click.stop="toggle"
             >
-              {{ currentUser.display_name?.charAt(0)?.toUpperCase() || 'U' }}
+              <span aria-hidden="true">{{ userInitial }}</span>
+              <span v-if="unreadCount > 0" class="user-activity-badge" aria-hidden="true">{{ unreadLabel }}</span>
             </button>
           </template>
-          <div>
-            <div class="user-dropdown-header" role="presentation">
-              <strong>{{ currentUser.display_name }}</strong>
-              <span class="v-text-muted">{{ userRoleLabel }}</span>
-            </div>
-            <div class="v-dropdown-divider"></div>
-            <button class="v-dropdown-item" type="button" role="menuitem" @click="openChangePassword">
-              <svg class="icon"><use href="#icon-edit"/></svg> Change Password
-            </button>
-            <div class="v-dropdown-divider"></div>
-            <button class="v-dropdown-item" type="button" role="menuitem" @click="logout">
-              <svg class="icon"><use href="#icon-back"/></svg> Sign Out
-            </button>
-          </div>
-        </VMenu>
+
+          <template #footer="{ close }">
+            <footer class="nav-account-panel-footer">
+              <div class="nav-account-panel-identity">
+                <strong class="v-truncate">{{ currentUser.display_name }}</strong>
+                <span>{{ userRoleLabel }}</span>
+              </div>
+              <div class="nav-account-panel-actions">
+                <button class="v-btn v-btn-quiet v-btn-sm" type="button" @click="openChangePassword(close)">
+                  <svg class="icon"><use href="#icon-edit"/></svg>
+                  <span>Change password</span>
+                </button>
+                <button class="v-btn v-btn-quiet v-btn-sm" type="button" @click="signOut(close)">
+                  <svg class="icon"><use href="#icon-back"/></svg>
+                  <span>Sign out</span>
+                </button>
+              </div>
+            </footer>
+          </template>
+        </GlobalActivityTray>
 
       </div>
     </header>
@@ -304,7 +311,7 @@
 <script setup>
 import { computed, watch } from 'vue'
 import AppNavigator from './AppNavigator.vue'
-import { VMenu } from '../primitives'
+import GlobalActivityTray from './GlobalActivityTray.vue'
 import { useContextNavigator } from '../../composables/useContextNavigator'
 import { useProjectTrackerSelectionStore } from '../../ownership/projectTrackerSelection'
 import { useSessionAuthStore } from '../../ownership/sessionAuth'
@@ -316,6 +323,7 @@ import { useShareManagementStore } from '../../ownership/shareManagement'
 import { useTrackerStore } from '../../ownership/tracker'
 import { useViewerStore } from '../../ownership/viewer'
 import { useUpdateStatusStore } from '../../ownership/updateStatus'
+import { identityColorStyle } from '../../utils/semanticColors'
 
 const { currentProject, currentTracker } = useProjectTrackerSelectionStore()
 const { currentUser, canAccessFileBrowser, openChangePassword: openSessionChangePassword, logout } = useSessionAuthStore()
@@ -326,12 +334,10 @@ const {
   showMainContent,
   isMobile,
   mobileNavOpen,
-  userMenuOpen,
   showDesktopSidebar,
   showMobileNavigation,
   closeMobileNav,
   toggleMobileNav,
-  toggleUserMenu,
   goToHome,
   goToProjects,
   goToSettings,
@@ -342,7 +348,15 @@ const { breadcrumbs, currentPath, navigateTo, goToFiles } = fileBrowser
 const viewerStore = useViewerStore()
 const { currentMedia } = viewerStore.media.state
 const { downloadCurrentMedia } = viewerStore.presentation
-const { trackerSaving, hasPendingChanges, showTrackerViewerStepper: showMediaSequenceNav } = useTrackerStore()
+const {
+  trackerSaving,
+  hasPendingChanges,
+  showTrackerViewerStepper,
+  showTrackerViewerKeyboardGuide,
+} = useTrackerStore()
+const showMediaSequenceNav = computed(() => (
+  showTrackerViewerStepper.value || (!isMobile.value && showTrackerViewerKeyboardGuide.value)
+))
 const { canShareFromNav, shareFromNav } = useShareManagementStore()
 const { updateAvailable, latestVersion, check: checkForUpdates } = useUpdateStatusStore()
 
@@ -352,6 +366,9 @@ const showNavigatorToggle = computed(() => showDesktopSidebar.value && hasNaviga
 const breadcrumbTrail = computed(() => breadcrumbs.value.slice(-3))
 const userRoleLabel = computed(() => currentUser.value?.role === 'admin' ? 'Administrator' : 'Artist')
 const userInitial = computed(() => currentUser.value?.display_name?.charAt(0)?.toUpperCase() || 'U')
+const userIdentityStyle = computed(() => identityColorStyle(
+  currentUser.value?.id || currentUser.value?.username || currentUser.value?.display_name,
+))
 const navItems = computed(() => {
   const items = [{
     key: 'home',
@@ -396,9 +413,14 @@ function activateNav(action) {
   closeMobileNav()
 }
 
-function openChangePassword() {
+function openChangePassword(closeActivityTray) {
+  closeActivityTray?.()
   openSessionChangePassword()
-  if (userMenuOpen.value) toggleUserMenu()
+}
+
+function signOut(closeActivityTray) {
+  closeActivityTray?.()
+  logout()
 }
 
 function openUpdates() {
@@ -418,7 +440,7 @@ watch(
 <style>
 .mini-sidebar {
   width: var(--v-sidebar-width);
-  background: var(--v-shell-topbar-bg);
+  background: color-mix(in srgb, var(--v-shell-topbar-bg) 88%, var(--v-bg-base));
   border-right: 1px solid var(--v-divider);
   display: flex;
   flex-direction: column;
@@ -436,11 +458,39 @@ watch(
   cursor: pointer;
   border: 0;
   background: transparent;
-  transition: background var(--v-transition-fast);
+  color: var(--v-accent);
 }
 
-.sidebar-logo:hover {
-  background: var(--v-surface-inline);
+.sidebar-logo .logo-mark {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: var(--v-button-radius);
+  background: transparent;
+  transition:
+    transform var(--v-duration-fast) var(--v-ease-soft),
+    border-color var(--v-duration-fast) var(--v-ease-soft),
+    background var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.sidebar-logo:hover .logo-mark {
+  border-color: color-mix(in srgb, var(--v-accent) 18%, var(--v-divider));
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-inline));
+}
+
+.sidebar-logo:active .logo-mark {
+  transform: scale(0.96);
+}
+
+.sidebar-logo:focus-visible {
+  outline: none;
+}
+
+.sidebar-logo:focus-visible .logo-mark {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: 1px;
 }
 
 .logo-mark {
@@ -454,17 +504,17 @@ watch(
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: var(--v-space-2);
-  gap: var(--v-space-1);
+  padding: 10px 8px;
+  gap: 5px;
   width: 100%;
 }
 
 .sidebar-item {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   margin: 0 auto;
-  border: 0;
+  border: 1px solid transparent;
   border-radius: var(--v-button-radius);
   background: transparent;
   cursor: pointer;
@@ -472,18 +522,33 @@ watch(
   align-items: center;
   justify-content: center;
   color: var(--v-text-muted);
-  transition: background var(--v-transition-fast), color var(--v-transition-fast);
+  transition:
+    transform var(--v-duration-fast) var(--v-ease-soft),
+    border-color var(--v-duration-fast) var(--v-ease-soft),
+    background var(--v-duration-fast) var(--v-ease-soft),
+    color var(--v-duration-fast) var(--v-ease-soft);
 }
 
 .sidebar-item:hover {
   color: var(--v-text);
-  background: var(--v-bg-hover);
+  border-color: color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
+  background: color-mix(in srgb, var(--v-bg-hover) 78%, transparent);
+}
+
+.sidebar-item:active {
+  transform: scale(0.96);
+}
+
+.sidebar-item:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: 1px;
 }
 
 .sidebar-item.active {
-  color: var(--v-text);
-  background: var(--v-surface-raised-strong);
-  box-shadow: var(--v-surface-shadow-raised);
+  color: var(--v-accent);
+  border-color: color-mix(in srgb, var(--v-accent) 20%, var(--v-divider));
+  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-raised-strong));
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 4%, transparent);
 }
 
 .sidebar-item .icon {
@@ -501,7 +566,7 @@ watch(
   left: calc(100% + 8px);
   top: 50%;
   transform: translateY(-50%);
-  background: var(--v-surface-panel);
+  background: var(--v-surface-raised-strong);
   color: var(--v-text);
   padding: 6px 10px;
   border-radius: var(--v-radius-tight);
@@ -509,6 +574,7 @@ watch(
   font-weight: 500;
   white-space: nowrap;
   border: 1px solid var(--v-surface-border-soft);
+  box-shadow: var(--v-surface-shadow-raised);
   z-index: 100;
   pointer-events: none;
   opacity: 0;
@@ -520,18 +586,18 @@ watch(
 }
 
 .sidebar-bottom {
-  padding: var(--v-space-2);
+  padding: 8px 8px 10px;
   width: 100%;
 }
 
 .sidebar-update {
-  color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 8%, transparent);
+  color: var(--v-info);
+  background: var(--v-info-bg);
 }
 
 .sidebar-update:hover {
-  color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 14%, var(--v-bg-hover));
+  color: color-mix(in srgb, var(--v-info) 82%, white);
+  background: color-mix(in srgb, var(--v-info) 14%, var(--v-bg-hover));
 }
 
 .sidebar-update-dot {
@@ -541,7 +607,7 @@ watch(
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--v-accent);
+  background: var(--v-info);
   box-shadow: 0 0 0 2px var(--v-shell-topbar-bg);
 }
 
@@ -560,6 +626,8 @@ watch(
 }
 
 .main-wrapper {
+  --v-tracker-masthead-bg: color-mix(in srgb, var(--v-surface-panel) 36%, var(--v-shell-topbar-bg));
+  --v-tracker-masthead-divider: var(--v-divider);
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -574,24 +642,36 @@ watch(
   align-items: center;
   justify-content: space-between;
   height: var(--v-shell-header-height);
-  padding: 0 16px;
+  padding: 0 18px;
   flex-shrink: 0;
   z-index: 40;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  background: var(--v-shell-topbar-bg);
-  border-bottom: 1px solid var(--v-divider);
+  background: color-mix(in srgb, var(--v-surface-panel) 42%, var(--v-shell-topbar-bg));
+  border-bottom: 1px solid var(--v-surface-border-strong);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.026);
+}
+
+.unified-nav.in-tracker {
+  background: var(--v-tracker-masthead-bg);
+  border-bottom-color: var(--v-tracker-masthead-divider);
+  box-shadow: none;
 }
 
 .nav-left,
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 3px;
   min-width: 0;
 }
 
+.nav-left {
+  flex: 1 1 0;
+}
+
 .nav-right {
+  flex: 1 1 0;
   justify-content: flex-end;
 }
 
@@ -600,7 +680,10 @@ watch(
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding-left: var(--v-space-1);
+  margin-left: 5px;
+  padding-left: 12px;
+  border-left: 1px solid var(--v-divider-subtle);
+  overflow: hidden;
 }
 
 .nav-left-trailing {
@@ -622,11 +705,16 @@ watch(
 }
 
 .nav-center-search {
-  flex: 1 1 auto;
+  width: min(400px, 34vw);
+  flex: 0 1 min(400px, 34vw);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 24px;
+  padding: 0 18px;
+}
+
+.nav-center-search:empty {
+  display: none;
 }
 
 .nav-center-search > * {
@@ -648,19 +736,49 @@ watch(
 }
 
 .nav-menu-toggle,
-.nav-back {
+.nav-back,
+.nav-navigator-toggle {
   color: var(--v-text-muted);
+}
+
+.unified-nav .nav-left > .v-btn-icon,
+.unified-nav .nav-right > .v-btn-icon,
+.unified-nav .nav-account-activity > .v-btn-icon {
+  width: var(--v-btn-height);
+  min-width: var(--v-btn-height);
+  height: var(--v-btn-height);
+  min-height: var(--v-btn-height);
+  border: 1px solid transparent;
+  border-radius: var(--v-button-radius);
+  background: transparent;
+  color: var(--v-text-muted);
+}
+
+.unified-nav .nav-left > .v-btn-icon:hover:not(:disabled),
+.unified-nav .nav-right > .v-btn-icon:hover:not(:disabled),
+.unified-nav .nav-account-activity > .v-btn-icon:hover:not(:disabled) {
+  border-color: var(--v-control-border);
+  background: var(--v-surface-inline);
+  color: var(--v-text);
+}
+
+.unified-nav .nav-left > .v-btn-icon:active:not(:disabled),
+.unified-nav .nav-right > .v-btn-icon:active:not(:disabled),
+.unified-nav .nav-account-activity > .v-btn-icon:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .nav-menu-toggle.active {
   color: var(--v-accent);
+  border-color: var(--v-control-border-active);
+  background: var(--v-control-bg-active);
 }
 
 .nav-title {
   margin: 0;
   font-size: var(--v-text-md);
-  font-weight: 600;
-  letter-spacing: 0;
+  font-weight: 680;
+  letter-spacing: -0.01em;
   color: var(--v-text);
   white-space: nowrap;
   overflow: hidden;
@@ -669,10 +787,10 @@ watch(
 
 .unified-nav.in-tracker .nav-title,
 .unified-nav.in-media .nav-title {
-  font-size: var(--v-text-base);
-  font-weight: 600;
-  color: var(--v-text-secondary);
-  letter-spacing: 0;
+  font-size: var(--v-text-md);
+  font-weight: 680;
+  color: var(--v-text);
+  letter-spacing: -0.012em;
 }
 
 .save-indicator {
@@ -689,7 +807,7 @@ watch(
 
 .save-indicator.saving .icon {
   animation: v-spin 1s linear infinite;
-  color: var(--v-accent);
+  color: var(--v-info);
 }
 
 .save-indicator.pending .icon {
@@ -788,9 +906,13 @@ watch(
 }
 
 .user-avatar-btn {
-  background: var(--v-control-bg);
+  --v-identity-color: var(--v-accent);
+  position: relative;
+  overflow: visible;
+  background: color-mix(in srgb, var(--v-identity-color) 10%, var(--v-surface-inline)) !important;
+  border-color: color-mix(in srgb, var(--v-identity-color) 24%, var(--v-control-border)) !important;
   box-shadow: var(--v-surface-shadow-inset);
-  color: var(--v-text-secondary);
+  color: color-mix(in srgb, var(--v-identity-color) 72%, white) !important;
   font-size: var(--v-text-sm);
   font-weight: 600;
   line-height: 1;
@@ -799,29 +921,94 @@ watch(
 }
 
 .user-avatar-btn:hover:not(:disabled) {
-  background: var(--v-control-bg-hover);
-  color: var(--v-text);
+  background: color-mix(in srgb, var(--v-identity-color) 16%, var(--v-surface-inline-strong)) !important;
+  border-color: color-mix(in srgb, var(--v-identity-color) 36%, var(--v-control-border-hover)) !important;
+  color: var(--v-text) !important;
 }
 
-.user-dropdown {
-  right: 0;
+.nav-account-activity {
+  margin-left: 5px;
+  padding-left: 8px;
+  border-left: 1px solid var(--v-divider-subtle);
 }
 
-.user-dropdown-header {
-  padding: var(--v-space-3);
+.nav-account-activity.is-open .user-avatar-btn {
+  background: color-mix(in srgb, var(--v-identity-color) 16%, var(--v-surface-inline-strong)) !important;
+  border-color: color-mix(in srgb, var(--v-accent) 45%, var(--v-control-border-hover)) !important;
+  box-shadow: 0 0 0 2px var(--v-accent-muted), var(--v-surface-shadow-inset);
+  color: var(--v-text) !important;
+}
+
+.user-activity-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--v-radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--v-accent);
+  box-shadow: 0 0 0 2px var(--v-shell-topbar-bg);
+  color: var(--v-on-accent);
+  font-size: var(--v-text-3xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.nav-account-panel-footer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  padding: 10px 12px;
+  flex: 0 0 auto;
+  border-top: 1px solid var(--v-divider-subtle);
+  background: color-mix(in srgb, var(--v-surface-panel) 88%, var(--v-bg-base));
+}
+
+.nav-account-panel-identity {
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
-.user-dropdown-header strong {
-  font-size: var(--v-text-md);
+.nav-account-panel-identity strong {
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+  font-weight: 650;
+}
+
+.nav-account-panel-identity span {
+  font-size: var(--v-text-sm);
+  color: var(--v-text-muted);
+}
+
+.nav-account-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--v-space-1);
+}
+
+.nav-account-panel-actions .v-btn {
+  padding-inline: 9px;
+  color: var(--v-text-muted);
+  white-space: nowrap;
+}
+
+.nav-account-panel-actions .v-btn:hover {
   color: var(--v-text);
 }
 
-.user-dropdown-header span {
-  font-size: var(--v-text-sm);
-  color: var(--v-text-dim);
+.nav-account-panel-actions .icon {
+  width: 13px;
+  height: 13px;
 }
 
 @media (max-width: 768px) {
@@ -836,8 +1023,6 @@ watch(
     border: 0;
     padding: 0;
     background: var(--v-overlay-scrim-strong);
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
     z-index: 88;
   }
 
@@ -1026,13 +1211,13 @@ watch(
 
   .mobile-nav-update {
     color: var(--v-text);
-    border-color: color-mix(in srgb, var(--v-accent) 22%, var(--v-control-border));
-    background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface-raised));
+    border-color: color-mix(in srgb, var(--v-info) 22%, var(--v-control-border));
+    background: color-mix(in srgb, var(--v-info) 7%, var(--v-surface-raised));
   }
 
   .mobile-nav-update .mobile-nav-item-icon {
-    color: var(--v-accent);
-    background: color-mix(in srgb, var(--v-accent) 10%, var(--v-surface-inset));
+    color: var(--v-info);
+    background: color-mix(in srgb, var(--v-info) 10%, var(--v-surface-inset));
   }
 
   .mobile-nav-update-arrow {
@@ -1115,6 +1300,7 @@ watch(
   }
 
   .mobile-nav-account-mark {
+    --v-identity-color: var(--v-accent);
     width: 40px;
     height: 40px;
     flex-shrink: 0;
@@ -1122,9 +1308,9 @@ watch(
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: var(--v-accent-muted);
-    border: 1px solid color-mix(in srgb, var(--v-accent-muted) 97%, white);
-    color: var(--v-accent-hover);
+    background: color-mix(in srgb, var(--v-identity-color) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--v-identity-color) 24%, transparent);
+    color: color-mix(in srgb, var(--v-identity-color) 72%, white);
     font-size: var(--v-text-md);
     font-weight: 700;
   }
@@ -1150,7 +1336,23 @@ watch(
   }
 
   .unified-nav {
-    padding: 0 14px;
+    padding: 0 12px;
+    gap: 2px;
+  }
+
+  .unified-nav:not(.in-media) .nav-left {
+    flex: 1 1 auto;
+    max-width: none;
+  }
+
+  .unified-nav:not(.in-media) .nav-right {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+
+  .nav-context {
+    margin-left: 2px;
+    padding-left: 8px;
   }
 
   .unified-nav.in-media .nav-left {
@@ -1172,9 +1374,9 @@ watch(
   }
 
   .nav-title {
-    font-size: var(--v-text-md);
-    font-weight: 500;
-    color: var(--v-text-dim);
+    font-size: var(--v-text-base);
+    font-weight: 650;
+    color: var(--v-text-secondary);
   }
 
   .nav-brand {
@@ -1225,21 +1427,21 @@ watch(
   }
 
   .user-avatar-btn {
-    width: 32px !important;
-    height: 32px !important;
-    min-width: 32px !important;
-    min-height: 32px !important;
+    width: var(--v-btn-height-lg) !important;
+    height: var(--v-btn-height-lg) !important;
+    min-width: var(--v-btn-height-lg) !important;
+    min-height: var(--v-btn-height-lg) !important;
     font-size: var(--v-text-sm);
   }
 
   header.in-tracker .v-dropdown-wrapper > .v-btn-icon,
   header.in-media .v-dropdown-wrapper > .v-btn-icon {
-    width: 32px !important;
-    height: 32px !important;
-    min-width: 32px !important;
-    min-height: 32px !important;
-    background: var(--v-control-bg) !important;
-    border: 1px solid var(--v-control-border) !important;
+    width: var(--v-btn-height-lg) !important;
+    height: var(--v-btn-height-lg) !important;
+    min-width: var(--v-btn-height-lg) !important;
+    min-height: var(--v-btn-height-lg) !important;
+    background: transparent !important;
+    border: 1px solid transparent !important;
     border-radius: var(--v-button-radius) !important;
     padding: 0 !important;
     display: flex !important;
@@ -1252,6 +1454,62 @@ watch(
   header.in-media .v-dropdown-wrapper > .v-btn-icon .icon {
     width: 14px !important;
     height: 14px !important;
+  }
+
+  .unified-nav .nav-left > .v-btn-icon,
+  .unified-nav .nav-right > .v-btn-icon {
+    width: var(--v-btn-height-lg);
+    min-width: var(--v-btn-height-lg);
+    height: var(--v-btn-height-lg);
+    min-height: var(--v-btn-height-lg);
+  }
+
+  .nav-account-activity {
+    margin-left: 1px;
+    padding-left: 3px;
+  }
+}
+
+@media (max-width: 430px) {
+  .unified-nav {
+    padding-inline: 8px;
+  }
+
+  .nav-left,
+  .nav-right {
+    gap: 0;
+  }
+
+  .nav-context {
+    margin-left: 0;
+    padding-left: 6px;
+    border-left: 0;
+  }
+
+  .unified-nav.in-tracker .nav-title,
+  .unified-nav.in-media .nav-title {
+    font-size: var(--v-text-base);
+  }
+
+  .nav-account-activity {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
+  }
+
+  .nav-account-panel-footer {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--v-space-2);
+  }
+
+  .nav-account-panel-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .nav-account-panel-actions .v-btn {
+    min-height: 40px;
+    justify-content: center;
   }
 }
 </style>

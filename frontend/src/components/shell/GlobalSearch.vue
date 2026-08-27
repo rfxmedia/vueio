@@ -18,7 +18,7 @@
         :aria-expanded="String(searchOpen && globalSearchQuery.length >= 2)"
         :aria-controls="searchResultsId"
         :aria-activedescendant="activeResultId"
-        :placeholder="variant === 'drawer' ? 'Search projects, Vue Trackers, files' : 'Search...'"
+        :placeholder="variant === 'drawer' ? 'Search projects, Vue Trackers, files' : 'Search workspace'"
         @focus="openSearch"
         @blur="handleSearchBlur"
         @input="debouncedSearch"
@@ -286,18 +286,20 @@ defineExpose({ focusInput, closeSearch })
 .v-search-container {
   position: relative;
   flex: 1;
-  max-width: 320px;
-  margin: 0 16px;
+  max-width: 400px;
+  margin: 0;
 }
 
 .v-search {
   display: flex;
   align-items: center;
   gap: var(--v-space-2);
-  padding: var(--v-space-2) var(--v-space-3);
-  background: var(--v-bg-field);
+  min-height: 38px;
+  padding: 0 12px;
+  background: var(--v-surface-inset);
   border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-lg);
+  border-radius: var(--v-button-radius);
+  box-shadow: var(--v-surface-shadow-inset);
   transition: border-color var(--v-transition-fast), background var(--v-transition-fast), box-shadow var(--v-transition-fast);
 }
 
@@ -306,7 +308,8 @@ defineExpose({ focusInput, closeSearch })
 }
 
 .v-search-focused {
-  border-color: var(--v-control-border-hover);
+  border-color: var(--v-control-border-active);
+  background: var(--v-surface-inset-hover);
   box-shadow: 0 0 0 3px var(--v-accent-muted);
 }
 
@@ -335,8 +338,8 @@ defineExpose({ focusInput, closeSearch })
   font-family: var(--v-font);
   font-size: var(--v-text-2xs);
   color: var(--v-text-muted);
-  background: var(--v-surface-inline);
-  padding: 2px 5px;
+  background: var(--v-surface-raised);
+  padding: 2px 6px;
   border-radius: var(--v-radius-sm);
   border: 1px solid var(--v-control-border);
   flex-shrink: 0;

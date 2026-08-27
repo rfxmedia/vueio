@@ -391,6 +391,9 @@ function getCommentCount(item) {
   display: flex;
   justify-content: space-between;
   gap: var(--v-space-3);
+  border: 1px solid var(--v-info-border);
+  background: var(--v-info-bg);
+  color: color-mix(in srgb, var(--v-info) 74%, white);
 }
 
 .file-request-privacy {

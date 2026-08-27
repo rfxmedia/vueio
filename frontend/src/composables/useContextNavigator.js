@@ -6,11 +6,23 @@ import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSele
 import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useShareAccessContext } from '../ownership/shareAccessContext'
+import { useTrackerStore } from '../ownership/tracker'
 import { getMediaKind } from '../lib/mediaEntity'
 import { isFileBrowserEntry } from '../utils/fileBrowserItems'
+import {
+  readWorkspacePayload,
+  requestWorkspacePayload,
+  workspaceCacheKey,
+  writeWorkspacePayload,
+} from '../lib/workspacePayloadCache'
 
 const NAVIGATOR_OPEN_STORAGE_KEY = 'vueio.navigator.open'
 const NAVIGATOR_GROUPS_STORAGE_KEY = 'vueio.navigator.collapsedGroups'
+const NAVIGATOR_WIDTH_STORAGE_KEY = 'vueio.navigator.width'
+
+export const NAVIGATOR_DEFAULT_WIDTH = 236
+export const NAVIGATOR_MIN_WIDTH = 196
+export const NAVIGATOR_MAX_WIDTH = 420
 
 const PROJECT_STATUS_GROUPS = [
   { status: 'in_progress', label: 'Active', variant: 'active' },
@@ -38,8 +50,24 @@ function readCollapsedGroups() {
   }
 }
 
+export function clampNavigatorWidth(value) {
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric)) return NAVIGATOR_DEFAULT_WIDTH
+  return Math.round(Math.min(NAVIGATOR_MAX_WIDTH, Math.max(NAVIGATOR_MIN_WIDTH, numeric)))
+}
+
+function readStoredWidth() {
+  try {
+    const stored = globalThis.localStorage?.getItem(NAVIGATOR_WIDTH_STORAGE_KEY)
+    return stored === null ? NAVIGATOR_DEFAULT_WIDTH : clampNavigatorWidth(stored)
+  } catch {
+    return NAVIGATOR_DEFAULT_WIDTH
+  }
+}
+
 // Shared across every mount point so the rail and the mobile drawer agree.
 const navigatorOpen = ref(readStoredOpen())
+const navigatorWidth = ref(readStoredWidth())
 const collapsedGroups = reactive(new Set(readCollapsedGroups()))
 
 function persistOpen(value) {
@@ -53,6 +81,14 @@ function persistOpen(value) {
 function persistCollapsedGroups() {
   try {
     globalThis.localStorage?.setItem(NAVIGATOR_GROUPS_STORAGE_KEY, JSON.stringify([...collapsedGroups]))
+  } catch {
+    // Preference persistence is best effort.
+  }
+}
+
+function persistWidth(value) {
+  try {
+    globalThis.localStorage?.setItem(NAVIGATOR_WIDTH_STORAGE_KEY, String(value))
   } catch {
     // Preference persistence is best effort.
   }
@@ -169,15 +205,34 @@ export function useContextNavigator() {
     currentProjectHeaderThumbnailUrl,
   } = useProjectWorkspaceStore()
   const { currentPath, handleClick, navigateTo, goToFiles } = useFileBrowserStore().browser
+  const trackerStore = useTrackerStore()
 
   async function loadProjectItems(path) {
     const projectId = currentProject.value?.id
     if (!projectId) return []
-    const query = buildShareCredentialQuery({ path: path || '', include_counts: true })
-    const { data } = await api.get(`/api/projects/${projectId}/contents${query}`)
-    return (data?.items || [])
+    const cacheKey = workspaceCacheKey('contents', currentUser.value?.id || 'session', projectId, path || '')
+    const cached = readWorkspacePayload(cacheKey)
+    const toItems = snapshot => (snapshot?.items || [])
       .filter(isFileBrowserEntry)
       .map(toNavigatorNode)
+    const query = buildShareCredentialQuery({ path: path || '', include_counts: true })
+    const request = requestWorkspacePayload(cacheKey, async () => {
+      const { data } = await api.get(`/api/projects/${projectId}/contents${query}`)
+      const snapshot = {
+        items: data?.items || [],
+        projectId,
+        path: path || '',
+        breadcrumbs: data?.breadcrumbs || [],
+        folderContext: data?.folder_context || {},
+      }
+      writeWorkspacePayload(cacheKey, snapshot)
+      return snapshot
+    })
+    if (cached) {
+      void request.catch(() => {})
+      return toItems(cached)
+    }
+    return toItems(await request)
   }
 
   async function loadStorageItems(path) {
@@ -186,6 +241,76 @@ export function useContextNavigator() {
     return (data?.items || [])
       .filter(isFileBrowserEntry)
       .map(toNavigatorNode)
+  }
+
+  function shotRef(shot) {
+    return shot?.id || shot?._originalId || shot?.shot_id || ''
+  }
+
+  function trackerRef(tracker) {
+    return tracker?.id || tracker?.slug || tracker?.path || tracker?.name || ''
+  }
+
+  function shotIcon(shot) {
+    const versions = shot?.versions || []
+    const latest = versions.at(-1)
+    const kind = getMediaKind(latest || {})
+    if (kind === 'image') return '#icon-image'
+    if (kind === 'pdf') return '#icon-pdf'
+    return '#icon-video'
+  }
+
+  async function openTrackerShot(tracker, shot) {
+    await openTracker(trackerRef(tracker))
+    const selected = (currentTracker.value?.shots || []).find((item) => (
+      shotRef(item) === shotRef(shot) || item?.shot_id === shot?.shot_id
+    ))
+    if (selected) trackerStore.openShotVideo(selected)
+  }
+
+  function toShotNavigatorItem(tracker, shot) {
+    return {
+      key: `shot:${trackerRef(tracker)}:${shotRef(shot)}`,
+      label: shot.shot_id || shot.name || 'Untitled shot',
+      meta: countLabel(shot.versions?.length),
+      icon: shotIcon(shot),
+      tone: 'accent',
+      active: trackerStore.currentTrackerViewerShot?.value && (
+        shotRef(trackerStore.currentTrackerViewerShot.value) === shotRef(shot)
+      ),
+      run: () => openTrackerShot(tracker, shot),
+    }
+  }
+
+  async function loadTrackerShots(tracker) {
+    const projectId = currentProject.value?.id
+    if (!projectId) return { items: [], archived: [] }
+    const ref = trackerRef(tracker)
+    const cacheKey = workspaceCacheKey('tracker', currentUser.value?.id || 'session', projectId, ref)
+    const cached = readWorkspacePayload(cacheKey)
+    const request = requestWorkspacePayload(cacheKey, async () => {
+      const { data } = await api.get(
+        `/api/projects/${encodeURIComponent(projectId)}/trackers/${encodeURIComponent(ref)}`,
+      )
+      const refs = new Set([ref, data?.id, data?.slug, data?.name].filter(Boolean))
+      for (const alias of refs) {
+        writeWorkspacePayload(
+          workspaceCacheKey('tracker', currentUser.value?.id || 'session', projectId, alias),
+          data,
+        )
+      }
+      return data
+    })
+    if (cached) void request.catch(() => {})
+    const data = cached || await request
+    const shots = data?.shots || []
+    return {
+      items: shots.filter((shot) => !shot?.archived_at).map((shot) => toShotNavigatorItem(tracker, shot)),
+      archived: shots
+        .filter((shot) => shot?.archived_at)
+        .sort((left, right) => String(right.archived_at).localeCompare(String(left.archived_at)))
+        .map((shot) => toShotNavigatorItem(tracker, shot)),
+    }
   }
 
   const projectRootPath = computed(() => (
@@ -220,12 +345,17 @@ export function useContextNavigator() {
         || (item.slug && currentTracker.value.slug === item.slug)
         || currentTracker.value.name === item.name
       ),
+      loadChildren: () => loadTrackerShots(item),
       run: () => openTracker(item.id || item.slug || item.name),
     }))
 
     const groups = []
-    if (dashboards.length) groups.push({ key: 'dashboards', label: 'Dashboards', tone: 'page', items: dashboards })
-    if (trackers.length) groups.push({ key: 'trackers', label: 'Trackers', tone: 'accent', items: trackers })
+    if (dashboards.length) {
+      groups.push({ key: 'dashboards', label: 'Dashboards', icon: '#icon-layout', tone: 'page', items: dashboards })
+    }
+    if (trackers.length) {
+      groups.push({ key: 'trackers', label: 'Trackers', icon: '#icon-project', tone: 'accent', items: trackers })
+    }
 
     const rootPath = projectRootPath.value
     return {
@@ -239,6 +369,7 @@ export function useContextNavigator() {
       groups,
       tree: {
         label: 'Files',
+        icon: '#icon-folder',
         rootLabel: 'Project files',
         rootPath,
         activePath: currentTracker.value || currentPage.value ? null : projectPath.value || rootPath,
@@ -246,6 +377,7 @@ export function useContextNavigator() {
         openFolder: navigateProjectFolder,
         openFile: openFileFromProject,
         emptyLabel: 'No files or folders yet',
+        dragScope: { projectId: project.id },
       },
     }
   })
@@ -276,6 +408,7 @@ export function useContextNavigator() {
     groups: [],
     tree: {
       label: 'Files',
+      icon: '#icon-folder',
       rootLabel: 'All files',
       rootPath: '',
       activePath: currentPath.value || '',
@@ -304,6 +437,15 @@ export function useContextNavigator() {
     setNavigatorOpen(!navigatorOpen.value)
   }
 
+  function setNavigatorWidth(value) {
+    navigatorWidth.value = clampNavigatorWidth(value)
+    persistWidth(navigatorWidth.value)
+  }
+
+  function resetNavigatorWidth() {
+    setNavigatorWidth(NAVIGATOR_DEFAULT_WIDTH)
+  }
+
   function isGroupOpen(key, defaultOpen = true) {
     return defaultOpen ? !collapsedGroups.has(key) : collapsedGroups.has(key)
   }
@@ -318,8 +460,11 @@ export function useContextNavigator() {
     navigatorContext,
     hasNavigator,
     navigatorOpen,
+    navigatorWidth,
     setNavigatorOpen,
     toggleNavigator,
+    setNavigatorWidth,
+    resetNavigatorWidth,
     isGroupOpen,
     toggleGroup,
   }

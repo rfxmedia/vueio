@@ -66,6 +66,7 @@
                   :key="option.value"
                   type="button"
                   class="status-option tracker-select-option v-dropdown-item"
+                  role="menuitem"
                   @click="selectBulkValue('status', option.value)"
                 >
                   <span class="status-dot" :class="`dot-${option.value}`"></span>
@@ -102,6 +103,7 @@
                   :key="option.value"
                   type="button"
                   class="category-option tracker-select-option v-dropdown-item"
+                  role="menuitem"
                   @click="selectBulkValue('category', option.value)"
                 >
                   <span class="category-color-indicator" :style="{ backgroundColor: getBulkCategoryColor(option.value) }"></span>
@@ -135,6 +137,7 @@
                   :key="option.value"
                   type="button"
                   class="assignee-option tracker-select-option v-dropdown-item"
+                  role="menuitem"
                   @click="selectBulkValue('assignee', option.value)"
                 >
                   <span class="tracker-select-option-label">{{ option.label }}</span>
@@ -143,6 +146,19 @@
             </template>
           </TrackerInlineSelect>
         </div>
+        <button
+          v-if="canArchive"
+          type="button"
+          class="v-btn v-btn-secondary v-btn-sm tracker-bulk-action tracker-bulk-archive"
+          :disabled="bulkActionBusy"
+          title="Move selected shots to Archived"
+          @click="archiveSelected"
+        >
+          <span class="tracker-bulk-action-icon" aria-hidden="true">
+            <svg class="icon"><use href="#icon-inbox" /></svg>
+          </span>
+          <span>Archive</span>
+        </button>
         <button
           v-if="canRestore"
           type="button"
@@ -160,12 +176,14 @@
           type="button"
           class="v-btn v-btn-danger v-btn-sm tracker-bulk-action tracker-bulk-delete"
           :disabled="bulkActionBusy"
+          title="Permanently delete selected archived shots"
           @click="deleteSelected"
         >
           <span class="tracker-bulk-action-icon" aria-hidden="true">
             <svg class="icon"><use href="#icon-trash" /></svg>
           </span>
-          <span>Delete</span>
+          <span class="tracker-bulk-delete-label-desktop">Delete permanently</span>
+          <span class="tracker-bulk-delete-label-mobile">Delete</span>
         </button>
       </div>
     </div>
@@ -224,6 +242,7 @@ const props = defineProps({
   canBulkUpdateAssignee: { type: Boolean, default: false },
   canDownload: { type: Boolean, default: false },
   canDownloadSelected: { type: Boolean, default: false },
+  canArchive: { type: Boolean, default: false },
   canDelete: { type: Boolean, default: false },
   canRestore: { type: Boolean, default: false },
   bulkStatusOptions: { type: Array, default: () => [] },
@@ -237,6 +256,7 @@ const props = defineProps({
   bulkUpdateStatus: { type: Function, default: async () => {} },
   bulkUpdateCategory: { type: Function, default: async () => {} },
   bulkUpdateAssignee: { type: Function, default: async () => {} },
+  archiveSelected: { type: Function, default: async () => {} },
   deleteSelected: { type: Function, default: async () => {} },
   restoreSelected: { type: Function, default: async () => {} },
 })
@@ -401,6 +421,10 @@ async function selectBulkValue(type, value) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tracker-bulk-delete-label-mobile {
+  display: none;
 }
 
 .tracker-bulk-menu {
@@ -666,6 +690,14 @@ async function selectBulkValue(type, value) {
 
   .tracker-bulk-delete .tracker-bulk-action-icon {
     color: var(--v-danger-text);
+  }
+
+  .tracker-bulk-delete-label-desktop {
+    display: none;
+  }
+
+  .tracker-bulk-delete-label-mobile {
+    display: inline;
   }
 }
 </style>

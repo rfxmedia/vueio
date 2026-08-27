@@ -6,7 +6,8 @@ coverage
 src/**/__tests__
 src/**/*.spec.js
 src/test
-scripts
+scripts/*
+!scripts/generate-third-party-notices.mjs
 eslint.config.js
 jsconfig.json
 vitest.config.js

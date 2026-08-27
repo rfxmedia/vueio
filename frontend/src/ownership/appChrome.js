@@ -16,7 +16,6 @@ export function createAppChromeStore({
   const enableLowFx = ref(false)
   const isMobile = ref(false)
   const mobileNavOpen = ref(false)
-  const userMenuOpen = ref(false)
 
   function updateLowFxMode() {
     if (!windowTarget) return
@@ -38,17 +37,12 @@ export function createAppChromeStore({
   function openMobileNav({ focusSearch = false } = {}) {
     if (!isMobile.value || share.shareMode.value || !showMainContent.value || !session.currentUser.value) return
     mobileNavOpen.value = true
-    userMenuOpen.value = false
     if (focusSearch) focusGlobalSearch?.()
   }
 
   function toggleMobileNav() {
     if (mobileNavOpen.value) closeMobileNav()
     else openMobileNav()
-  }
-
-  function toggleUserMenu() {
-    userMenuOpen.value = !userMenuOpen.value
   }
 
   function handleGlobalKeydown(event) {
@@ -100,7 +94,6 @@ export function createAppChromeStore({
     enableLowFx,
     isMobile,
     mobileNavOpen,
-    userMenuOpen,
     showDesktopSidebar,
     showMobileNavigation,
     updateLowFxMode,
@@ -108,7 +101,6 @@ export function createAppChromeStore({
     closeMobileNav,
     openMobileNav,
     toggleMobileNav,
-    toggleUserMenu,
     handleGlobalKeydown,
     goToHome,
     goToProjects,

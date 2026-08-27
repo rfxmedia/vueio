@@ -112,10 +112,12 @@
                 type="button"
                 class="media-version-switcher-publication-btn is-primary"
                 :disabled="Boolean(publicationSavingId)"
+                :aria-label="publicationPublishAriaLabel(version, index)"
+                :title="publicationPublishAriaLabel(version, index)"
                 @click.stop="updatePublication(version, 'published')"
               >
                 <svg class="icon" aria-hidden="true"><use href="#icon-eye" /></svg>
-                {{ publicationActionLabel(version, 'published', 'Publish') }}
+                {{ publicationPublishLabel(version) }}
               </button>
             </div>
             <div
@@ -171,15 +173,15 @@
 
 <script setup>
 import { computed, ref } from 'vue'
+import { mediaEntitiesMatch } from '../../lib/mediaEntity'
 import { notify } from '../../utils/toasts'
 import VMediaThumbnail from './VMediaThumbnail.vue'
 
 const props = defineProps({
   shotId: { type: String, default: '' },
   versions: { type: Array, default: () => [] },
-  currentVersionId: { type: String, default: '' },
-  currentMediaAssetId: { type: String, default: '' },
-  currentMediaPath: { type: String, default: '' },
+  latestVersionId: { type: String, default: '' },
+  currentMedia: { type: Object, default: null },
   sheet: { type: Boolean, default: false },
   canDeleteVersions: { type: Boolean, default: false },
   canDownloadVersions: { type: Boolean, default: false },
@@ -214,11 +216,7 @@ function resolveVersionFallback(version, index) {
 }
 
 function isCurrentVersion(version) {
-  if (!version) return false
-  if (props.currentVersionId && version.id === props.currentVersionId) return true
-  if (props.currentMediaAssetId && version.media_asset_id === props.currentMediaAssetId) return true
-  const versionPath = version.path || version.file_path || ''
-  return !!props.currentMediaPath && versionPath === props.currentMediaPath
+  return mediaEntitiesMatch(version, props.currentMedia)
 }
 
 function selectVersion(version) {
@@ -240,9 +238,13 @@ function getPublicationState(version) {
 function getPublicationLabel(version) {
   return {
     published: 'Published',
-    pending: 'Pending review',
+    pending: 'Awaiting publication',
     internal: 'Internal',
   }[getPublicationState(version)] || ''
+}
+
+function isLatestVersion(version) {
+  return Boolean(version?.id && version.id === (props.latestVersionId || props.versions[0]?.id))
 }
 
 function hasRowUtility(version) {
@@ -270,14 +272,26 @@ function publicationActionLabel(version, state, fallback) {
 function publicationToggleLabel(version) {
   const state = getPublicationState(version)
   if (state === 'published') return publicationActionLabel(version, 'internal', 'Unpublish')
-  return publicationActionLabel(version, 'published', 'Publish')
+  return publicationPublishLabel(version)
+}
+
+function publicationPublishLabel(version) {
+  const fallback = isLatestVersion(version) ? 'Publish to Review' : 'Publish older version'
+  return publicationActionLabel(version, 'published', fallback)
+}
+
+function publicationPublishAriaLabel(version, index) {
+  const label = getVersionLabel(version, index)
+  return isLatestVersion(version)
+    ? `Publish ${label} and move ${props.shotId || 'shot'} to Review`
+    : `Publish ${label} to shares. Shot status will not change because a newer version exists`
 }
 
 function publicationToggleAriaLabel(version, index) {
   const label = getVersionLabel(version, index)
   return getPublicationState(version) === 'published'
     ? `Unpublish ${label} from shares`
-    : `Publish ${label} to shares`
+    : publicationPublishAriaLabel(version, index)
 }
 
 async function updatePublication(version, state) {
@@ -511,14 +525,13 @@ function getSizeLabel(version) {
   padding: 0 7px;
   border-radius: var(--v-radius-full);
   border: 1px solid color-mix(in srgb, var(--v-accent) 28%, transparent);
-  background: color-mix(in srgb, var(--v-bg-black) 76%, transparent);
+  background: color-mix(in srgb, var(--v-bg-black) 88%, transparent);
   color: var(--v-accent);
   font-size: var(--v-text-3xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   box-shadow: var(--v-surface-shadow-inset);
-  backdrop-filter: blur(8px);
 }
 
 .media-version-switcher-unavailable-state {
@@ -907,6 +920,29 @@ function getSizeLabel(version) {
     width: 96px;
   }
 
+  .media-version-switcher-list-shell.is-sheet .media-version-switcher-row {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 10px;
+  }
+
+  .media-version-switcher-list-shell.is-sheet .media-version-switcher-row-body {
+    display: contents;
+  }
+
+  .media-version-switcher-list-shell.is-sheet .media-version-switcher-row-main {
+    grid-column: 2;
+  }
+
+  .media-version-switcher-list-shell.is-sheet .media-version-switcher-row-utility {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
   .media-version-switcher-row-action {
     width: 32px;
     min-width: 32px;
@@ -938,11 +974,14 @@ function getSizeLabel(version) {
   }
 
   .media-version-switcher-list-shell.is-sheet .media-version-switcher-publication-actions {
-    flex-wrap: wrap;
-    justify-content: flex-end;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    flex: 1 1 240px;
+    min-width: 0;
   }
 
   .media-version-switcher-list-shell.is-sheet .media-version-switcher-publication-btn {
+    width: 100%;
     min-height: 32px;
     padding-inline: 10px;
   }

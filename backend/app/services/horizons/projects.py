@@ -324,21 +324,24 @@ def create_horizon_project(
     requested_root = str(storage_root or 'data').strip().lower()
     final_storage_path = project_id
     target: Path
+    use_existing_project_folder = False
     if requested_root != 'data':
         configured_roots = configured_project_storage_roots()
         if requested_root not in configured_roots:
             raise HTTPException(status_code=400, detail='Choose a configured project storage location')
         if not configured_roots[requested_root].is_dir():
             raise HTTPException(status_code=409, detail='Selected storage location is unavailable')
-        parent_path = normalize_project_storage_path(storage_path, allow_empty=True)
-        folder_name = ''.join(char if char not in '/\\' else '-' for char in (title or '').strip()).strip(' .') or normalized_slug
-        final_storage_path = '/'.join(part for part in (parent_path, folder_name) if part)
+        final_storage_path = normalize_project_storage_path(storage_path)
         target = resolve_storage_location(requested_root, final_storage_path)
-        suffix = 2
-        while target.exists():
-            final_storage_path = '/'.join(part for part in (parent_path, f'{folder_name} {suffix}') if part)
-            target = resolve_storage_location(requested_root, final_storage_path)
-            suffix += 1
+        if target.exists() and not target.is_dir():
+            raise HTTPException(status_code=409, detail='Selected project folder is not a folder')
+        use_existing_project_folder = target.is_dir()
+        claimed = db.query(HorizonProject.id).filter(
+            HorizonProject.storage_root == requested_root,
+            HorizonProject.storage_path == final_storage_path,
+        ).first()
+        if claimed:
+            raise HTTPException(status_code=409, detail='This folder is already used by another project')
     else:
         target = resolve_storage_location(requested_root, final_storage_path)
 
@@ -364,8 +367,9 @@ def create_horizon_project(
         raise HTTPException(status_code=409, detail='Selected storage location is read-only')
     created_project_dir = False
     try:
-        target.mkdir(parents=True, exist_ok=False)
-        created_project_dir = True
+        if not use_existing_project_folder:
+            target.mkdir(parents=True, exist_ok=False)
+            created_project_dir = True
         make_project_path_smb_mutable(target)
     except FileExistsError:
         # A concurrent creator won the same external folder name after the

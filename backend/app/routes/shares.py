@@ -63,6 +63,7 @@ from app.services.share_access import create_share_link_with_retry, get_shared_c
 from app.services.share_management import apply_share_management_update, serialize_share_for_management
 from app.services.tracker_downloads import build_tracker_latest_versions_zip, start_tracker_latest_versions_zip_job
 from app.services.tracker_events import build_tracker_event_actor, list_tracker_activity
+from app.services.tracker_views import TrackerViewRequest, record_tracker_view
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandService
 from app.services.uploads import (
     AuthorizedUploadScope,
@@ -950,6 +951,47 @@ def get_shared_tracker(share_id: str, tracker_name: str, share_token: str | None
     return apply_share_tracker_payload(serialize_horizon_tracker_detail(db, tracker), share)
 
 
+@router.post('/api/projects/shared/{share_id}/tracker/{tracker_name}/views')
+def record_shared_tracker_view(
+    share_id: str,
+    tracker_name: str,
+    data: TrackerViewRequest,
+    request: Request,
+    share_token: str | None = None,
+    db: Session = Depends(get_db),
+):
+    enforce_rate_limit(request, settings.PUBLIC_TRACKER_VIEW_RATE_LIMIT, scope='public-tracker-view')
+    share = validate_share(
+        share_id,
+        None,
+        db,
+        ['project', 'tracker', 'page'],
+        share_token=share_token,
+        track_access=False,
+    )
+    if share.share_type in {'tracker', 'page'}:
+        project, tracker = _resolve_shared_horizon_tracker(share, tracker_name, db)
+    else:
+        project = _get_shared_horizon_project(share, db)
+        tracker = get_horizon_tracker_by_ref(db, project.id, tracker_name)
+    allowed_shot_ids = None
+    allowed_version_ids = None
+    if data.action == 'media':
+        allowed_shot_ids = published_shot_ids_for_tracker(db, project.id, tracker.id)
+        allowed_version_ids = published_version_ids_for_tracker(db, project.id, tracker.id)
+    return record_tracker_view(
+        db,
+        request=request,
+        project_id=project.id,
+        tracker_id=tracker.id,
+        data=data,
+        source='share',
+        share=share,
+        allowed_shot_ids=allowed_shot_ids,
+        allowed_version_ids=allowed_version_ids,
+    )
+
+
 @router.get('/api/projects/shared/{share_id}/tracker/{tracker_name}/delivery-logo')
 def get_shared_tracker_delivery_logo(share_id: str, tracker_name: str, share_token: str | None = None, db: Session = Depends(get_db)):
     share = validate_share(share_id, None, db, ['project', 'tracker', 'page'], share_token=share_token, track_access=False)
@@ -1085,6 +1127,7 @@ def get_shared_tracker_activity(
     tracker_name: str,
     limit: int = 40,
     before: float | None = None,
+    before_id: int | None = None,
     share_token: str | None = None,
     db: Session = Depends(get_db),
 ):
@@ -1102,8 +1145,10 @@ def get_shared_tracker_activity(
         tracker_id=tracker.id,
         limit=limit,
         before=before,
+        before_id=before_id,
         visible_shot_ids=published_shot_ids_for_tracker(db, tracker.project_id, tracker.id),
         visible_version_ids=published_version_ids_for_tracker(db, tracker.project_id, tracker.id),
+        audience='public',
     )
 
 

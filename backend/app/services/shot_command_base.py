@@ -5,8 +5,8 @@ import time
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import Comment, HorizonProject, HorizonShot, HorizonShotVersion, HorizonTracker, MediaAsset
-from app.services.comments import delete_comment_attachments
+from app.models import Comment, HorizonProject, HorizonShot, HorizonShotAssignee, HorizonShotVersion, HorizonTracker, MediaAsset
+from app.services.comments import preserve_comment_attachments
 from app.services.horizons.media import can_access_horizon_media_asset_id
 from app.services.horizons.projects import get_horizon_project
 from app.services.horizons.shots import get_horizon_shot_by_ref
@@ -27,6 +27,15 @@ from app.services.tracker_events import create_tracker_event
 class ShotCommandBase:
     def __init__(self, db: Session):
         self.db = db
+
+    def _lock_history(self, ctx: ShotCommandContext) -> HorizonTracker:
+        from app.services.tracker_history import prepare_tracker_history_mutation
+
+        return prepare_tracker_history_mutation(
+            self.db,
+            project_id=ctx.project_id,
+            tracker_id=ctx.tracker_id,
+        )
 
     def _emit_update_events(self, result: ShotCommandResult, ctx: ShotCommandContext, shot: HorizonShot, old: dict, fields: set[str], *, requested_status: str | None, requested_category: str | None) -> None:
         if 'shot_code' in fields and shot.shot_code != old['shot_code']:
@@ -191,7 +200,7 @@ class ShotCommandBase:
             return
         linked_comments = self.db.query(Comment).filter(Comment.horizons_shot_version_id.in_(version_ids)).all()
         for comment in linked_comments:
-            delete_comment_attachments(comment)
+            preserve_comment_attachments(comment)
             self.db.delete(comment)
         self.db.flush()
 
@@ -201,6 +210,10 @@ class ShotCommandBase:
         self._delete_comments_for_versions(version_ids)
         if version_ids:
             self.db.query(HorizonShotVersion).filter(HorizonShotVersion.project_id == ctx.project_id).filter(HorizonShotVersion.id.in_(version_ids)).delete(synchronize_session=False)
+        self.db.query(HorizonShotAssignee).filter(
+            HorizonShotAssignee.project_id == ctx.project_id,
+            HorizonShotAssignee.shot_id == shot.id,
+        ).delete(synchronize_session=False)
         self.db.delete(shot)
         self.db.flush()
         return deleted

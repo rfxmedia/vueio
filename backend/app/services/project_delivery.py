@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import mimetypes
+import os
 import shutil
 import uuid
 from pathlib import Path
@@ -97,6 +98,18 @@ def delete_delivery_logo_upload(upload_name: str | None) -> None:
     try:
         path.unlink()
     except FileNotFoundError:
+        pass
+
+
+def preserve_delivery_logo_upload(upload_name: str | None) -> None:
+    name = normalize_delivery_logo_upload_name(upload_name)
+    if not name:
+        return
+    try:
+        path = delivery_logo_upload_path(name)
+        if path.is_file():
+            os.utime(path, None)
+    except OSError:
         pass
 
 

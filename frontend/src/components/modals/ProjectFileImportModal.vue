@@ -159,8 +159,8 @@ function openFolderPicker() {
 }
 
 .v-upload-zone-active {
-  border-color: color-mix(in srgb, var(--v-accent-subtle) 97%, white);
-  background: var(--v-accent-subtle);
+  border-color: var(--v-info-border);
+  background: var(--v-info-bg);
 }
 
 .v-upload-zone-hint {
@@ -212,13 +212,45 @@ function openFolderPicker() {
 }
 
 .v-upload-item {
+  --upload-state-color: var(--v-text-muted);
   background: var(--v-modal-list-item-bg);
   border: 1px solid color-mix(in srgb, var(--v-modal-list-item-bg) 97%, white);
+  border-left: 2px solid var(--upload-state-color);
   border-radius: var(--v-radius-lg);
   padding: var(--v-space-3);
   display: flex;
   flex-direction: column;
   gap: var(--v-space-2);
+}
+
+.v-upload-pending {
+  --upload-state-color: var(--v-warning);
+}
+
+.v-upload-uploading,
+.v-upload-retrying {
+  --upload-state-color: var(--v-info);
+}
+
+.v-upload-done {
+  --upload-state-color: var(--v-accent);
+}
+
+.v-upload-error {
+  --upload-state-color: var(--v-danger);
+}
+
+.v-upload-canceled {
+  --upload-state-color: var(--v-text-muted);
+}
+
+.v-upload-uploading .v-progress-fill,
+.v-upload-retrying .v-progress-fill {
+  background: var(--v-info);
+}
+
+.v-upload-done .v-upload-actions span {
+  color: var(--v-accent);
 }
 
 .v-upload-main {

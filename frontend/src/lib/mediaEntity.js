@@ -110,6 +110,30 @@ export function getCanonicalMediaRefs(input) {
   }
 }
 
+function getShotVersionId(input) {
+  return input?.horizons_shot_version_id
+    || input?.version_id
+    || (input?.media_entity_type === 'shot_version' ? input.media_entity_id : null)
+    || ((input?.label !== undefined || input?.version !== undefined) ? input?.id : null)
+    || null
+}
+
+export function mediaEntitiesMatch(left, right) {
+  if (!left || !right) return false
+
+  const leftVersionId = getShotVersionId(left)
+  const rightVersionId = getShotVersionId(right)
+  if (leftVersionId && rightVersionId) return leftVersionId === rightVersionId
+
+  const leftAssetId = left.horizons_media_asset_id || left.media_asset_id || null
+  const rightAssetId = right.horizons_media_asset_id || right.media_asset_id || null
+  if (leftAssetId && rightAssetId) return leftAssetId === rightAssetId
+
+  const leftPath = left.path || left.file_path || ''
+  const rightPath = right.path || right.file_path || ''
+  return Boolean(leftPath && rightPath && leftPath === rightPath)
+}
+
 export function appendCanonicalMediaRefs(params, input) {
   const { mediaAssetId, shotVersionId } = getCanonicalMediaRefs(input)
   if (mediaAssetId) params.set('horizons_media_asset_id', mediaAssetId)
