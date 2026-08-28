@@ -243,7 +243,7 @@
                     @click="chooseDeliveryLogoFromNas"
                   >
                     <svg class="icon"><use href="#icon-folder" /></svg>
-                    <span>NAS</span>
+                    <span>Storage</span>
                   </button>
                   <button
                     v-if="hasCustomDeliveryLogo"

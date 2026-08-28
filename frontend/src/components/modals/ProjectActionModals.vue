@@ -175,12 +175,12 @@
     </template>
 
     <div class="v-modal-stack thumb-modal-body">
-      <p class="v-inline-note">Choose from NAS or upload an image directly. NAS videos use their generated thumbnail.</p>
+      <p class="v-inline-note">Choose from connected storage or upload an image directly. Videos use their generated thumbnail.</p>
 
       <div class="v-modal-choice-grid thumb-upload-options">
         <button class="v-btn v-btn-secondary thumb-source-btn" @click="props.openThumbFromNas">
           <svg class="icon"><use href="#icon-folder"/></svg>
-          <span>Choose from NAS</span>
+          <span>Choose from storage</span>
         </button>
         <label class="v-modal-upload-zone upload-zone">
           <input type="file" accept="image/*" hidden @change="props.handleThumbUpload"/>

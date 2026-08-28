@@ -65,7 +65,7 @@ sudo vueioctl doctor
 sudo vueioctl update <release-tag>
 ```
 
-Keep a separate NAS/storage backup of the authorized project folders. See
+Keep a separate backup of the authorized project folders on independent storage. See
 [Backups and restores](docs/SELF_HOSTING.md#backups-and-restores) for the exact
 boundary. Once an update may have run a database migration, Vue.io does not
 automatically start older application code. Follow that release's recovery

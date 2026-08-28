@@ -53,6 +53,7 @@ def _release_matches_channel(release: dict, channel: str) -> bool:
 
 def _clean_release_notes(value: object) -> str:
     text = str(value or '').replace('\r\n', '\n').replace('\r', '\n')
+    text = text.partition('\n---\n')[0]
     return ''.join(character for character in text if character in {'\n', '\t'} or ord(character) >= 32).strip()
 
 
@@ -67,21 +68,29 @@ def _truncate_utf8(text: str, limit: int) -> tuple[str, int]:
     return result, len(result.encode('utf-8'))
 
 
+def _release_note(release: dict, *, limit: int | None = None) -> dict:
+    version = str(release.get('tag_name') or '')
+    notes, _ = _truncate_utf8(
+        _clean_release_notes(release.get('body')),
+        MAX_RELEASE_NOTES_BYTES if limit is None else limit,
+    )
+    return {
+        'version': version,
+        'published_at': release.get('published_at'),
+        'notes': notes,
+        'nightly': is_nightly_version(version),
+    }
+
+
 def _releases_between(candidates: list[tuple[tuple[int, ...], dict]], current: tuple[int, ...], latest: tuple[int, ...]) -> list[dict]:
     remaining = MAX_RELEASE_NOTES_BYTES
     result = []
     for parsed, release in sorted(candidates, key=lambda candidate: candidate[0], reverse=True):
         if not current < parsed <= latest:
             continue
-        notes, used = _truncate_utf8(_clean_release_notes(release.get('body')), remaining)
-        remaining = max(0, remaining - used)
-        version = str(release.get('tag_name') or '')
-        result.append({
-            'version': version,
-            'published_at': release.get('published_at'),
-            'notes': notes,
-            'nightly': is_nightly_version(version),
-        })
+        note = _release_note(release, limit=remaining)
+        remaining = max(0, remaining - len(note['notes'].encode('utf-8')))
+        result.append(note)
     return result
 
 
@@ -102,6 +111,7 @@ def _base_status(current_version: str, repository: str, channel: str) -> dict:
         'published_at': None,
         'checked_at': None,
         'releases_between': [],
+        'current_release': None,
     }
 
 
@@ -174,6 +184,7 @@ def get_update_status(*, force_refresh: bool = False) -> dict:
                     'status': (
                         'development' if current_parsed is None
                         else 'available' if update_available
+                        else 'ahead' if current_parsed > latest_parsed
                         else 'current'
                     ),
                     'release_url': (
@@ -188,6 +199,10 @@ def get_update_status(*, force_refresh: bool = False) -> dict:
                     'releases_between': (
                         _releases_between(candidates, current_parsed, latest_parsed)
                         if update_available else []
+                    ),
+                    'current_release': (
+                        _release_note(latest_release)
+                        if current_parsed == latest_parsed else None
                     ),
                 })
         except (OSError, ValueError, json.JSONDecodeError, urllib.error.URLError):

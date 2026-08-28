@@ -64,7 +64,7 @@ export function useProjectCreateMenu() {
         title: uploadDisabledReason || '',
         run: openUpload,
       },
-      { label: 'Link from NAS', icon: '#icon-link', show: !isArtist, run: openLinkPicker },
+      { label: 'Link from storage', icon: '#icon-link', show: !isArtist, run: openLinkPicker },
     ]
   })
 

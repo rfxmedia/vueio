@@ -79,7 +79,7 @@ export function createFileBrowserStore(ctx) {
     if (!selection.currentProject.value) return 'Select a project before uploading files.'
     if (selection.currentProject.value.storage_read_only) return 'This project storage location is read-only.'
     if (workspace.projectFolderContext.value?.is_linked_folder) {
-      return workspace.projectFolderContext.value?.upload_disabled_reason || 'Uploads are disabled inside linked NAS folders.'
+      return workspace.projectFolderContext.value?.upload_disabled_reason || 'Uploads are disabled inside linked storage folders.'
     }
     if (workspace.projectFolderContext.value?.can_upload) return ''
     if (!session.canEditProject.value) return 'You can only upload inside your workspace on this project.'

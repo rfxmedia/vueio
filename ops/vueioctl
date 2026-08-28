@@ -468,12 +468,17 @@ set_channel() {
   current=${current:-stable}
   if [[ $current == "$next" ]]; then
     note "Vueio is already on the $next channel."
-    return 0
+  else
+    set_env VUEIO_CHANNEL "$next"
   fi
-  set_env VUEIO_CHANNEL "$next"
+  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+    step "Applying the $next channel…"
+    compose up -d --no-deps vueio_engine
+    wait_for_engine || die "Vueio did not become ready after changing the update channel"
+  fi
   if [[ $current == stable && $next == nightly ]]; then
     note "Vueio now follows the nightly channel. Check Updates or run the suggested update command when a newer nightly is available."
-  else
+  elif [[ $current == nightly && $next == stable ]]; then
     note "Vueio now follows the stable channel. Your installed nightly will stay in place until a newer stable release is published. Database migrations are one-way, so switching channels never downgrades the running version."
   fi
 }

@@ -90,16 +90,16 @@ export function useFilePickerModal({
     if (!canUseProjectPicker.value) return []
     if (pickerMode.value === 'comment-reference') return [{ value: 'project', label: 'Project Files' }]
     const tabs = [{ value: 'project', label: 'Project Files' }]
-    if (canUseNasPicker.value) tabs.push({ value: 'nas', label: 'NAS' })
+    if (canUseNasPicker.value) tabs.push({ value: 'nas', label: 'Storage' })
     return tabs
   })
 
   const filePickerTitle = computed(() => {
     if (showTrackerImportModeToggle.value || pickerMode.value === 'bulk-version-update' || pickerMode.value === 'shot-import') return 'Import'
     if (pickerMode.value === 'delivery-logo-source') return 'Choose Delivery Logo'
-    if (pickerMode.value === 'thumbnail-source') return 'Choose from NAS'
-    if (pickerMode.value === 'page-resource') return 'Add Resource from NAS'
-    if (pickerMode.value === 'project-link') return 'Link from NAS'
+    if (pickerMode.value === 'thumbnail-source') return 'Choose from storage'
+    if (pickerMode.value === 'page-resource') return 'Add resource from storage'
+    if (pickerMode.value === 'project-link') return 'Link from storage'
     if (pickerMode.value === 'comment-reference') return 'Add attachment'
     return 'Add Version'
   })

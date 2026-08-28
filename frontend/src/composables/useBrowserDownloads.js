@@ -126,7 +126,7 @@ export function useBrowserDownloads({
   async function downloadAllFilesInCurrentFolder() {
     const targetPath = currentPath.value || (shareMode.value ? shareRoot.value : '')
     if (!targetPath) {
-      notify('Open a folder first, then use Download All. Root-level NAS downloads are intentionally disabled.')
+      notify('Open a folder first, then use Download All. Root-level storage downloads are intentionally disabled.')
       return
     }
     if (downloadAllFilesBusy.value) return

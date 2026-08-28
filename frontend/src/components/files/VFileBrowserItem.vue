@@ -37,7 +37,7 @@
           <div v-if="commentCount" class="comment-badge v-media-badge is-accent"><svg class="icon"><use href="#icon-comment" /></svg>{{ commentCount }}</div>
         </template>
 
-        <div v-if="showLinkedState && item.is_linked && !isFolder" class="link-badge v-media-badge" title="Linked from NAS"><svg class="icon"><use href="#icon-link" /></svg></div>
+        <div v-if="showLinkedState && item.is_linked && !isFolder" class="link-badge v-media-badge" title="Linked from storage"><svg class="icon"><use href="#icon-link" /></svg></div>
       </div>
 
       <div class="file-info">

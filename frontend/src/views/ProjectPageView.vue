@@ -335,7 +335,7 @@
                 </div>
                 <div v-else-if="!isPublicPresentation && !(canEditDashboard && activeLinkBlockId === block.id)" class="dash-block-empty">
                   <svg class="icon"><use href="#icon-link"/></svg>
-                  <span>{{ canEditDashboard ? 'Add a link, NAS file, or upload to start curating.' : 'No resources selected.' }}</span>
+                  <span>{{ canEditDashboard ? 'Add a link, storage file, or upload to start curating.' : 'No resources selected.' }}</span>
                 </div>
 
                 <div v-if="canEditDashboard && activeLinkBlockId !== block.id" class="dash-resource-toolbar">
@@ -345,7 +345,7 @@
                   </button>
                   <button type="button" class="dash-add-pill" @click="openPageResourcePicker(block.id)">
                     <svg class="icon"><use href="#icon-folder"/></svg>
-                    <span>Choose from NAS</span>
+                    <span>Choose from storage</span>
                   </button>
                   <button type="button" class="dash-add-pill" @click="openPageResourceUpload(block.id, getUploadTarget())">
                     <svg class="icon"><use href="#icon-upload"/></svg>
@@ -536,7 +536,7 @@ const isPublicPresentation = computed(() => shareMode.value || sharedPreviewMode
 const addBlockOptions = [
   { type: 'text', label: 'Text', hint: 'Notes, briefs, or context.', icon: '#icon-file' },
   { type: 'tracker_list', label: 'Vue Trackers', hint: 'Spotlight project trackers.', icon: '#icon-project' },
-  { type: 'resource_list', label: 'Resources', hint: 'Links, NAS files, uploads.', icon: '#icon-link' },
+  { type: 'resource_list', label: 'Resources', hint: 'Links, storage files, uploads.', icon: '#icon-link' },
   { type: 'upload_inbox', label: 'Client Uploads', hint: 'A drop zone for partners.', icon: '#icon-upload' },
 ]
 

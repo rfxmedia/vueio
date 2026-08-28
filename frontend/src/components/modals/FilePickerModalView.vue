@@ -466,7 +466,7 @@ const selectedVersionPickerCurrentMediaInput = computed(() => {
 })
 
 const pickerRootLabel = computed(() => (
-  props.canUseProjectPicker ? 'Root' : 'NAS'
+  props.canUseProjectPicker ? 'Root' : 'Storage'
 ))
 
 const filePickerSubtitle = computed(() => {
@@ -552,8 +552,8 @@ function getSourceMeta(source) {
   }
   return {
     icon: '#icon-cloud',
-    title: 'NAS',
-    hint: 'Browse network-attached storage.',
+    title: 'Storage',
+    hint: 'Browse connected storage.',
   }
 }
 

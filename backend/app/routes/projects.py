@@ -85,7 +85,7 @@ router = APIRouter(tags=['projects'])
 
 MEDIA_ROOT = settings.MEDIA_ROOT
 PDF_EXTENSIONS = {'.pdf'}
-LINKED_FOLDER_UPLOAD_DISABLED_REASON = 'Uploads are disabled inside linked NAS folders. Upload into a project-owned folder or use Link from NAS.'
+LINKED_FOLDER_UPLOAD_DISABLED_REASON = 'Uploads are disabled inside linked storage folders. Upload into a project-owned folder or use Link from storage.'
 
 
 # Project browser permission model:
@@ -759,7 +759,7 @@ def _append_project_link(links_data: dict, source_path: str, target_folder: str 
 def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot link NAS files to projects')
+        raise HTTPException(status_code=403, detail='Artists cannot link storage files to projects')
     ensure_horizon_project_runtime_dir(db, project_id)
     require_user_file_browser_read_access(user, data.source_path)
     links_data = load_project_links(project_id)
@@ -773,7 +773,7 @@ def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = C
 def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot link NAS files to projects')
+        raise HTTPException(status_code=403, detail='Artists cannot link storage files to projects')
     ensure_horizon_project_runtime_dir(db, project_id)
 
     source_paths = []
@@ -800,7 +800,7 @@ def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str =
 def unlink_nas_file(project_id: str, source_path: str, target_folder: str = None, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot unlink NAS files from projects')
+        raise HTTPException(status_code=403, detail='Artists cannot unlink storage files from projects')
     ensure_horizon_project_runtime_dir(db, project_id)
     links_data = load_project_links(project_id)
     original_count = len(links_data.get('links', []))

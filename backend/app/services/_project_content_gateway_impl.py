@@ -44,7 +44,7 @@ from app.services.zip_utils import ZipDiscoveryBudget, ZipEntry, ZipFileIdentity
 settings = get_settings()
 PDF_EXTENSIONS = {'.pdf'}
 HIDDEN_SHARED_FOLDERS = settings.hidden_storage_folders
-LINKED_FOLDER_UPLOAD_DISABLED_REASON = 'Uploads are disabled inside linked NAS folders. Upload into a project-owned folder or use Link from NAS.'
+LINKED_FOLDER_UPLOAD_DISABLED_REASON = 'Uploads are disabled inside linked storage folders. Upload into a project-owned folder or use Link from storage.'
 
 normalize_content_path = normalize_virtual_path
 

@@ -678,7 +678,7 @@ class ShotCommandService(ShotCommandBase):
             raise HTTPException(status_code=400, detail='source_path is required')
         source_file = get_safe_path(normalized_source_path)
         if not source_file.exists() or not source_file.is_file():
-            raise HTTPException(status_code=400, detail='NAS file not found')
+            raise HTTPException(status_code=400, detail='Storage file not found')
         self._enforce_restricted_artist_media_path(ctx, normalized_source_path, storage_scope='media_root')
         shot = self._maybe_shot(ctx, shot_ref) if shot_ref else None
         if shot is None and shot_code:
@@ -697,7 +697,7 @@ class ShotCommandService(ShotCommandBase):
                 raise HTTPException(status_code=409, detail='shot_ref and shot_code refer to different shots')
         asset = register_media_asset(self.db, ctx.project_id, normalized_source_path, storage_scope='media_root', commit=False)
         if asset is None:
-            raise HTTPException(status_code=400, detail='Failed to declare media asset from NAS path')
+            raise HTTPException(status_code=400, detail='Failed to register media from the selected storage path')
         existing_versions = list_horizon_shot_versions(self.db, ctx.project_id, shot.id)
         normalized_label = str(version_label or '').strip() or next_version_label(existing_versions)
         normalized_notes = str(notes or '').strip() or None

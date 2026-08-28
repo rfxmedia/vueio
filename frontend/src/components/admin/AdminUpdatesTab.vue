@@ -32,7 +32,7 @@
           target="_blank"
           rel="noreferrer"
         >
-          Release notes
+          View on GitHub
           <svg class="icon"><use href="#icon-external-link" /></svg>
         </a>
       </section>
@@ -50,10 +50,31 @@
         </section>
       </div>
 
+      <section class="updates-channel-card" aria-labelledby="updates-channel-title">
+        <div class="updates-channel-copy">
+          <p class="settings-eyebrow">Release channel</p>
+          <h3 id="updates-channel-title">Following {{ channelLabel }}</h3>
+          <p>{{ channelDescription }}</p>
+          <p class="updates-channel-note">{{ channelSwitchNote }}</p>
+        </div>
+        <div class="updates-command-row">
+          <code>{{ channelSwitchCommand }}</code>
+          <button
+            class="v-btn v-btn-secondary v-btn-sm"
+            type="button"
+            :aria-label="`Copy command to switch to ${otherChannelLabel}`"
+            @click="copyCommand(channelSwitchCommand, 'Channel command copied.')"
+          >
+            <svg class="icon"><use href="#icon-copy" /></svg>
+            Copy
+          </button>
+        </div>
+      </section>
+
       <section v-if="releaseNotes.length" class="updates-notes-card" aria-labelledby="updates-notes-title">
         <div class="updates-notes-heading">
-          <p class="settings-eyebrow">Release history</p>
-          <h3 id="updates-notes-title">What’s new</h3>
+          <p class="settings-eyebrow">Release notes</p>
+          <h3 id="updates-notes-title">{{ releaseNotesTitle }}</h3>
         </div>
         <article v-for="release in releaseNotes" :key="release.version" class="updates-release-note">
           <header>
@@ -61,7 +82,19 @@
             <span v-if="release.nightly" class="updates-nightly-badge">Nightly</span>
             <time v-if="release.published_at" :datetime="release.published_at">{{ formatReleaseDate(release.published_at) }}</time>
           </header>
-          <p>{{ release.notes || 'Maintenance and reliability improvements.' }}</p>
+          <div class="updates-release-note-content">
+            <section v-for="(section, sectionIndex) in release.sections" :key="`${release.version}-${sectionIndex}`">
+              <h4 v-if="section.title">{{ section.title }}</h4>
+              <ul v-if="section.items.length">
+                <li v-for="(item, itemIndex) in section.items" :key="`${release.version}-${sectionIndex}-${itemIndex}`">
+                  {{ item }}
+                </li>
+              </ul>
+              <p v-for="(paragraph, paragraphIndex) in section.paragraphs" :key="`${release.version}-${sectionIndex}-p-${paragraphIndex}`">
+                {{ paragraph }}
+              </p>
+            </section>
+          </div>
         </article>
       </section>
 
@@ -75,7 +108,12 @@
         </div>
         <div class="updates-command-row">
           <code>{{ status.update_command }}</code>
-          <button class="v-btn v-btn-primary v-btn-sm" type="button" @click="copyCommand">
+          <button
+            class="v-btn v-btn-primary v-btn-sm"
+            type="button"
+            aria-label="Copy update command"
+            @click="copyCommand(status.update_command, 'Update command copied.')"
+          >
             <svg class="icon"><use href="#icon-copy" /></svg>
             Copy
           </button>
@@ -106,28 +144,50 @@ const { status, loading, check } = useUpdateStatusStore()
 
 const state = computed(() => status.value?.status || (loading.value ? 'checking' : 'unavailable'))
 const channelLabel = computed(() => status.value?.channel === 'nightly' ? 'Nightly' : 'Stable')
-const releaseNotes = computed(() => Array.isArray(status.value?.releases_between) ? status.value.releases_between : [])
+const otherChannelLabel = computed(() => status.value?.channel === 'nightly' ? 'Stable' : 'Nightly')
+const channelSwitchCommand = computed(() => `sudo vueioctl channel ${otherChannelLabel.value.toLowerCase()}`)
+const channelDescription = computed(() => status.value?.channel === 'nightly'
+  ? 'Nightly includes early development builds as well as Stable releases.'
+  : 'Stable includes reviewed releases only. Switch to Nightly to receive development builds earlier.')
+const channelSwitchNote = computed(() => status.value?.channel === 'nightly'
+  ? 'Returning to Stable never downgrades Vue.io. If Nightly is ahead, Vue.io stays on it until a newer Stable release is available.'
+  : state.value === 'ahead'
+    ? 'Vue.io is following Stable now. The installed Nightly stays in place until Stable catches up.'
+  : 'Switching channels changes which releases Vue.io offers. It does not install an update by itself.')
+const releaseNotes = computed(() => {
+  const pending = Array.isArray(status.value?.releases_between) ? status.value.releases_between : []
+  const releases = pending.length ? pending : status.value?.current_release ? [status.value.current_release] : []
+  return releases.map(release => ({
+    ...release,
+    sections: parseReleaseNotes(release.notes),
+  }))
+})
+const releaseNotesTitle = computed(() => state.value === 'available' ? 'What’s new' : 'Current release')
 const statusIcon = computed(() => ({
   available: '#icon-download',
   current: '#icon-check',
+  ahead: '#icon-clock',
   development: '#icon-zap',
   error: '#icon-alert',
 }[state.value] || '#icon-info'))
 const statusEyebrow = computed(() => ({
   available: 'Update available',
   current: 'Up to date',
+  ahead: `${channelLabel.value} catching up`,
   development: 'Development build',
   error: 'Check unavailable',
 }[state.value] || 'Version status'))
 const statusTitle = computed(() => ({
   available: `${status.value?.latest_version} is ready`,
   current: 'You are running the latest release',
+  ahead: `This version is ahead of ${channelLabel.value}`,
   development: 'This installation is on a development build',
   error: 'Vue.io could not reach the release service',
 }[state.value] || (loading.value ? 'Checking for updates' : 'Update checks are not configured')))
 const statusDescription = computed(() => ({
   available: 'A newer tested self-hosted release is available when you are ready.',
   current: 'No action is needed.',
+  ahead: `Vue.io will stay on this version until a newer ${channelLabel.value} release is published.`,
   development: 'Tagged release comparisons begin when this installation runs an immutable alpha version.',
   error: 'Your installation is still running normally. Try again when the server has internet access.',
 }[state.value] || 'Update notifications will activate after the public release repository is configured.'))
@@ -140,12 +200,42 @@ function formatReleaseDate(value) {
   return new Date(value).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-async function copyCommand() {
+function parseReleaseNotes(value) {
+  const sections = []
+  let section = { title: '', items: [], paragraphs: [] }
+  const commitSection = () => {
+    if (section.title || section.items.length || section.paragraphs.length) sections.push(section)
+  }
+
+  for (const rawLine of String(value || 'Maintenance and reliability improvements.').split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const heading = line.match(/^#{1,6}\s+(.+)$/)
+    if (heading) {
+      commitSection()
+      section = { title: cleanMarkdownText(heading[1]), items: [], paragraphs: [] }
+      continue
+    }
+    const item = line.match(/^[-*]\s+(.+)$/)
+    if (item) section.items.push(cleanMarkdownText(item[1]))
+    else section.paragraphs.push(cleanMarkdownText(line))
+  }
+  commitSection()
+  return sections
+}
+
+function cleanMarkdownText(value) {
+  return String(value || '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+}
+
+async function copyCommand(command, successMessage) {
   try {
-    await navigator.clipboard.writeText(status.value.update_command)
-    notify('Update command copied.')
+    await navigator.clipboard.writeText(command)
+    notify(successMessage)
   } catch {
-    notify('Could not copy the update command.')
+    notify('Could not copy the command.')
   }
 }
 
@@ -185,6 +275,7 @@ onMounted(() => check())
   --updates-status-color: var(--v-accent);
 }
 
+.updates-status-card.is-ahead,
 .updates-status-card.is-development {
   --updates-status-color: var(--v-warning);
 }
@@ -195,6 +286,7 @@ onMounted(() => check())
 
 .updates-status-card.is-available,
 .updates-status-card.is-current,
+.updates-status-card.is-ahead,
 .updates-status-card.is-development,
 .updates-status-card.is-error {
   border-color: color-mix(in srgb, var(--updates-status-color) 28%, var(--v-surface-border-soft));
@@ -214,6 +306,7 @@ onMounted(() => check())
 
 .updates-status-card.is-available .updates-status-mark,
 .updates-status-card.is-current .updates-status-mark,
+.updates-status-card.is-ahead .updates-status-mark,
 .updates-status-card.is-development .updates-status-mark,
 .updates-status-card.is-error .updates-status-mark {
   color: var(--updates-status-color);
@@ -257,6 +350,7 @@ onMounted(() => check())
 }
 
 .updates-status-copy h3,
+.updates-channel-card h3,
 .updates-command-card h3 {
   margin: 2px 0 4px;
   color: var(--v-text);
@@ -264,6 +358,7 @@ onMounted(() => check())
 }
 
 .updates-status-copy p:last-child,
+.updates-channel-card p,
 .updates-command-card p:last-child,
 .updates-fact > span:last-child,
 .updates-safety-note {
@@ -321,6 +416,26 @@ onMounted(() => check())
   box-shadow: var(--v-surface-shadow-raised);
 }
 
+.updates-channel-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  align-items: center;
+  gap: 18px;
+  padding: 16px;
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-well);
+  box-shadow: var(--v-surface-well-ring);
+}
+
+.updates-channel-card h3 {
+  margin: 2px 0 4px;
+}
+
+.updates-channel-card .updates-channel-note {
+  margin-top: 7px;
+  color: var(--v-text-secondary);
+}
+
 .updates-notes-card {
   overflow: hidden;
   border: 1px solid var(--v-surface-border-soft);
@@ -359,12 +474,36 @@ onMounted(() => check())
   font-size: var(--v-text-xs);
 }
 
-.updates-release-note p {
-  margin: 8px 0 0;
+.updates-release-note-content {
+  display: grid;
+  gap: var(--v-space-3);
+  margin-top: 10px;
+}
+
+.updates-release-note-content section {
+  display: grid;
+  gap: 6px;
+}
+
+.updates-release-note-content h4 {
+  margin: 0;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+}
+
+.updates-release-note-content ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.updates-release-note-content li,
+.updates-release-note-content p {
+  margin: 0;
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
   line-height: 1.55;
-  white-space: pre-wrap;
 }
 
 .updates-nightly-badge {
@@ -459,10 +598,12 @@ onMounted(() => check())
   }
 
   .updates-facts,
+  .updates-channel-card,
   .updates-command-card {
     grid-template-columns: 1fr;
   }
 
+  .updates-channel-card,
   .updates-command-card {
     gap: 13px;
     padding: 13px;
