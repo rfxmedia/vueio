@@ -173,7 +173,17 @@ jobs:
           mkdir -p "$assets/download/$version" "$storage"
           sed "s/^VERSION=.*/VERSION=\${VUEIO_VERSION:-$version}/" \
             install.sh >"$assets/install.sh"
-          cp ops/vueioctl compose.release.yml LICENSE.md "$assets/download/$version/"
+          awk '
+            NR == 1 {
+              print
+              print "if [[ ${1:-} == install ]]; then"
+              print "  while IFS= read -r _; do :; done"
+              print "fi"
+              next
+            }
+            { print }
+          ' ops/vueioctl >"$assets/download/$version/vueioctl"
+          cp compose.release.yml LICENSE.md "$assets/download/$version/"
           (
             cd "$assets/download/$version"
             sha256sum vueioctl compose.release.yml LICENSE.md >SHA256SUMS

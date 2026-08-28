@@ -132,7 +132,7 @@ if [ "${VUEIO_NONINTERACTIVE:-0}" = 1 ]; then
   VUEIO_RELEASE_COMPOSE="$STAGE/compose.release.yml" \
   VUEIO_RELEASE_LICENSE="$STAGE/LICENSE.md" \
   VUEIO_RELEASE_ROOT_URL="$RELEASE_ROOT_URL" \
-  bash "$STAGE/vueioctl" install
+  bash "$STAGE/vueioctl" install </dev/null
 else
   [ -r /dev/tty ] || {
     echo "Interactive setup needs a terminal. Set VUEIO_NONINTERACTIVE=1 and provide VUEIO_INITIAL_STORAGE_PATH for automation." >&2
