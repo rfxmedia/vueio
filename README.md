@@ -13,6 +13,13 @@ review, comments, share links, file requests, and browser playback.
 > software. Vue.io is not open-source software under the OSI definition. The
 > project name and brand are covered by the [trademark policy](TRADEMARKS.md).
 
+## AI-forward by design
+
+Vueio is designed for agentic workflows and media-pipeline automation. It uses
+human-directed, AI-assisted engineering, with repeated adversarial review from
+frontier systems such as Fable 5 and GPT-5.6 Sol. Every release also passes
+automated tests, security scans, recovery checks, and human approval.
+
 ## Install on Linux
 
 Before installing, prepare a 64-bit Linux server with Docker Engine and Docker

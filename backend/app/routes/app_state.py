@@ -59,7 +59,7 @@ def get_home_assigned_edits(
         )
         .filter(HorizonShot.project_id.in_(visible_project_ids))
         .filter(HorizonProject.status.notin_(('done', 'completed')))
-        .filter(HorizonShot.status == 'edits_requested')
+        .filter(HorizonShot.status.in_(('edits_requested', 'in_progress')))
         .filter(HorizonShot.archived_at.is_(None))
         .filter(or_(
             HorizonShotAssignee.user_id == user_id,
@@ -67,8 +67,9 @@ def get_home_assigned_edits(
         ))
         .order_by(
             HorizonProject.title.asc(),
-            HorizonTracker.name.asc(),
+            HorizonShot.status.asc(),
             HorizonShot.updated_at.desc(),
+            HorizonTracker.name.asc(),
             HorizonShot.shot_code.asc(),
         )
         .all()
@@ -107,6 +108,7 @@ def get_home_assigned_edits(
             'shot_id': shot.shot_code,
             'description': shot.description,
             'category': shot.category,
+            'status': shot.status,
             'tracker_id': tracker.id,
             'tracker_name': tracker.name,
             'latest_version_label': shot.latest_version_label,

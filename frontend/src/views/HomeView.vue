@@ -16,178 +16,196 @@
     </header>
 
     <main class="home-content">
-      <section class="home-section home-attention" aria-labelledby="home-attention-title">
-        <header class="home-section-header home-attention-header">
-          <div class="home-title-cluster">
-            <span class="home-attention-icon" aria-hidden="true">
-              <svg class="icon"><use href="#icon-edit" /></svg>
-            </span>
-            <div>
-              <h2 id="home-attention-title">Edits requested</h2>
-              <p>Assigned to you and ready for another pass.</p>
+      <div class="home-primary">
+        <section class="home-section home-attention" aria-labelledby="home-attention-title">
+          <header class="home-section-header home-attention-header">
+            <div class="home-title-cluster">
+              <span class="home-attention-icon" aria-hidden="true">
+                <svg class="icon"><use href="#icon-project" /></svg>
+              </span>
+              <div>
+                <h2 id="home-attention-title">Your work</h2>
+                <p>Assigned shots that need changes or are already in progress.</p>
+              </div>
+            </div>
+            <div v-if="assignedWorkTotal" class="home-work-summary" aria-label="Assigned work summary">
+              <span v-if="requestedEditCount" class="v-status v-status-hold">
+                {{ requestedEditCount }} edit{{ requestedEditCount === 1 ? '' : 's' }} requested
+              </span>
+              <span v-if="inProgressCount" class="v-status v-status-active">
+                {{ inProgressCount }} in progress
+              </span>
+            </div>
+          </header>
+
+          <div v-if="assignedWorkLoading" class="home-edit-skeleton" aria-label="Loading assigned work">
+            <div class="v-surface-panel home-edit-skeleton-group">
+              <span class="home-skeleton-thumb"></span>
+              <span class="home-skeleton-bar is-title"></span>
+              <span class="home-skeleton-bar is-meta"></span>
+              <span class="home-skeleton-row"></span>
+              <span class="home-skeleton-row is-short"></span>
             </div>
           </div>
-          <span v-if="assignedEditTotal" class="home-section-summary">
-            <strong>{{ assignedEditTotal }}</strong>
-            shot{{ assignedEditTotal === 1 ? '' : 's' }} across
-            {{ assignedEditProjectCount }} project{{ assignedEditProjectCount === 1 ? '' : 's' }}
-          </span>
-        </header>
 
-        <div v-if="assignedEditsLoading" class="home-edit-skeleton" aria-label="Loading assigned edit requests">
-          <div v-for="index in 2" :key="index" class="v-surface-panel home-edit-skeleton-group">
-            <span class="home-skeleton-thumb"></span>
-            <span class="home-skeleton-bar is-title"></span>
-            <span class="home-skeleton-bar is-meta"></span>
-            <span class="home-skeleton-row"></span>
-            <span class="home-skeleton-row is-short"></span>
-          </div>
-        </div>
-
-        <div v-else-if="assignedEditsError" class="v-surface-panel home-attention-state is-error" role="status">
-          <span class="home-state-icon" aria-hidden="true">
-            <svg class="icon"><use href="#icon-alert" /></svg>
-          </span>
-          <div>
-            <strong>Assigned edits could not be loaded</strong>
-            <span>Your projects and activity are still available below.</span>
-          </div>
-          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="loadAssignedEdits">
-            Try again
-          </button>
-        </div>
-
-        <div v-else-if="assignedEditProjects.length" class="home-edit-groups">
-          <article
-            v-for="project in assignedEditProjects"
-            :key="project.id"
-            class="v-surface-panel home-edit-project"
-          >
-            <button
-              type="button"
-              class="home-edit-project-header"
-              :aria-label="`Open project ${project.title}`"
-              @click="openProject(project.id)"
-            >
-              <span class="home-edit-project-thumb" aria-hidden="true">
-                <svg class="icon"><use href="#icon-project" /></svg>
-                <img
-                  :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  @load="showLoadedImage"
-                  @error="hideBrokenImage"
-                >
-              </span>
-              <span class="home-edit-project-copy">
-                <strong>{{ project.title }}</strong>
-                <span>
-                  {{ project.shots.length }} edit request{{ project.shots.length === 1 ? '' : 's' }}
-                  <template v-if="project.due_date"> due {{ formatProjectDate(project.due_date) }}</template>
-                </span>
-              </span>
-              <span class="home-open-label">Open project</span>
-              <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+          <div v-else-if="assignedWorkError" class="v-surface-panel home-attention-state is-error" role="status">
+            <span class="home-state-icon" aria-hidden="true">
+              <svg class="icon"><use href="#icon-alert" /></svg>
+            </span>
+            <div>
+              <strong>Assigned work could not be loaded</strong>
+              <span>Your projects and activity are still available.</span>
+            </div>
+            <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="loadAssignedWork">
+              Try again
             </button>
+          </div>
 
-            <div class="home-edit-shot-list">
+          <div v-else-if="assignedWorkProjects.length" class="home-edit-groups">
+            <article
+              v-for="project in assignedWorkProjects"
+              :key="project.id"
+              class="v-surface-panel home-edit-project"
+            >
               <button
-                v-for="shot in project.shots"
-                :key="shot.id"
                 type="button"
-                class="home-edit-shot"
-                :aria-label="`Open edit request ${shot.shot_id}`"
-                @click="openAssignedEdit(project, shot)"
+                class="home-edit-project-header"
+                :aria-label="`Open project ${project.title}`"
+                @click="openProject(project.id)"
               >
-                <span class="home-edit-shot-copy">
-                  <strong>{{ shot.shot_id }}</strong>
-                  <span>{{ shot.description || 'No shot description' }}</span>
+                <span class="home-edit-project-thumb" aria-hidden="true">
+                  <svg class="icon"><use href="#icon-project" /></svg>
+                  <img
+                    :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    @load="showLoadedImage"
+                    @error="hideBrokenImage"
+                  >
                 </span>
-                <span class="home-edit-shot-meta">
-                  <span>{{ shot.tracker_name }}</span>
-                  <span v-if="shot.latest_version_label">{{ formatVersionLabel(shot.latest_version_label) }}</span>
-                  <time v-if="shot.updated_at" :datetime="editDateTime(shot.updated_at)">
-                    Updated {{ formatActivityRelativeTimestamp(shot.updated_at) }}
-                  </time>
+                <span class="home-edit-project-copy">
+                  <strong>{{ project.title }}</strong>
+                  <span>
+                    {{ project.shots.length }} assigned shot{{ project.shots.length === 1 ? '' : 's' }}
+                    <template v-if="project.due_date"> due {{ formatProjectDate(project.due_date) }}</template>
+                  </span>
+                </span>
+                <span class="home-open-label">Open project</span>
+                <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+              </button>
+
+              <div class="home-edit-shot-list">
+                <button
+                  v-for="shot in project.shots"
+                  :key="shot.id"
+                  type="button"
+                  class="home-edit-shot"
+                  :aria-label="`Open assigned shot ${shot.shot_id}`"
+                  @click="openAssignedEdit(project, shot)"
+                >
+                  <span class="home-edit-shot-copy">
+                    <strong>{{ shot.shot_id }}</strong>
+                    <span>{{ shot.description || 'No shot description' }}</span>
+                  </span>
+                  <span class="v-status home-work-status" :class="statusClass(shot.status)">
+                    {{ formatStatus(shot.status || 'in_progress') }}
+                  </span>
+                  <span class="home-edit-shot-meta">
+                    <span>{{ shot.tracker_name }}</span>
+                    <span v-if="shot.latest_version_label">{{ formatVersionLabel(shot.latest_version_label) }}</span>
+                    <time v-if="shot.updated_at" :datetime="editDateTime(shot.updated_at)">
+                      Updated {{ formatActivityRelativeTimestamp(shot.updated_at) }}
+                    </time>
+                  </span>
+                  <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+                </button>
+              </div>
+            </article>
+          </div>
+
+          <div v-else class="v-surface-panel home-attention-state is-clear">
+            <span class="home-state-icon" aria-hidden="true">
+              <svg class="icon"><use href="#icon-check" /></svg>
+            </span>
+            <div>
+              <strong>No assigned work</strong>
+              <span>Shots will appear here when they need changes or move into progress.</span>
+            </div>
+          </div>
+        </section>
+
+        <aside class="home-support" aria-label="Workspace shortcuts and overview">
+          <section class="home-section" aria-labelledby="home-recent-title">
+            <header class="home-section-header">
+              <div>
+                <h2 id="home-recent-title">Continue working</h2>
+                <p>Pick up where you left off.</p>
+              </div>
+            </header>
+
+            <div v-if="recentLoading" class="v-surface-panel home-recent-skeleton" aria-label="Loading recent work">
+              <span v-for="index in 3" :key="index" class="home-skeleton-row"></span>
+            </div>
+
+            <div v-else-if="continueItems.length" class="v-surface-panel home-recent-list">
+              <button
+                v-for="item in continueItems"
+                :key="`${item.type}-${item.projectId || ''}-${item.id}`"
+                type="button"
+                class="home-recent-row"
+                :aria-label="`Open ${item.title}`"
+                @click="openContinueItem(item)"
+              >
+                <span
+                  class="home-recent-icon"
+                  :style="identityColorStyle(item.projectId || item.id, '--home-signal-color')"
+                  aria-hidden="true"
+                >
+                  <svg class="icon"><use :href="item.type === 'tracker' ? '#icon-project' : '#icon-folder'" /></svg>
+                </span>
+                <span class="home-recent-copy">
+                  <strong>{{ item.title }}</strong>
+                  <span>{{ continueSubtitle(item) }}</span>
                 </span>
                 <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
               </button>
             </div>
-          </article>
-        </div>
 
-        <div v-else class="v-surface-panel home-attention-state is-clear">
-          <span class="home-state-icon" aria-hidden="true">
-            <svg class="icon"><use href="#icon-check" /></svg>
-          </span>
-          <div>
-            <strong>No edits requested</strong>
-            <span>You’re clear for now. New edit requests assigned to you will appear here.</span>
-          </div>
-        </div>
-      </section>
+            <div v-else class="v-surface-panel home-compact-empty">
+              <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
+              <span>Open a project or tracker and Vue will keep your place here.</span>
+              <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="goToProjects">
+                Browse projects
+              </button>
+            </div>
+          </section>
 
-      <section class="home-snapshot" aria-label="Workspace overview">
-        <div class="home-snapshot-item is-active">
-          <strong>{{ activeProjects.length }}</strong>
-          <span>Active project{{ activeProjects.length === 1 ? '' : 's' }}</span>
-        </div>
-        <div class="home-snapshot-item is-due" :class="{ 'has-value': dueSoonCount > 0 }">
-          <strong>{{ dueSoonCount }}</strong>
-          <span>Due this week</span>
-        </div>
-        <button type="button" class="home-snapshot-item is-unread" :class="{ 'has-value': globalActivityUnreadCount > 0 }" @click="toggleGlobalActivityTray">
-          <strong>{{ globalActivityUnreadCount }}</strong>
-          <span>Unread update{{ globalActivityUnreadCount === 1 ? '' : 's' }}</span>
-          <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
-        </button>
-      </section>
-
-      <section class="home-section" aria-labelledby="home-recent-title">
-        <header class="home-section-header">
-          <div>
-            <h2 id="home-recent-title">Continue working</h2>
-            <p>Your most recently opened projects and trackers.</p>
-          </div>
-        </header>
-
-        <div v-if="recentLoading" class="v-surface-panel home-recent-skeleton" aria-label="Loading recent work">
-          <span v-for="index in 3" :key="index" class="home-skeleton-row"></span>
-        </div>
-
-        <div v-else-if="continueItems.length" class="v-surface-panel home-recent-list">
-          <button
-            v-for="item in continueItems"
-            :key="`${item.type}-${item.projectId || ''}-${item.id}`"
-            type="button"
-            class="home-recent-row"
-            :aria-label="`Open ${item.title}`"
-            @click="openContinueItem(item)"
-          >
-            <span
-              class="home-recent-icon"
-              :style="identityColorStyle(item.projectId || item.id, '--home-signal-color')"
-              aria-hidden="true"
-            >
-              <svg class="icon"><use :href="item.type === 'tracker' ? '#icon-project' : '#icon-folder'" /></svg>
-            </span>
-            <span class="home-recent-copy">
-              <strong>{{ item.title }}</strong>
-              <span>{{ continueSubtitle(item) }}</span>
-            </span>
-            <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
-          </button>
-        </div>
-
-        <div v-else class="v-surface-panel home-compact-empty">
-          <svg class="icon" aria-hidden="true"><use href="#icon-play" /></svg>
-          <span>Open a project or tracker and Vue will keep your place here.</span>
-          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="goToProjects">
-            Browse projects
-          </button>
-        </div>
-      </section>
+          <section class="home-section home-overview" aria-labelledby="home-overview-title">
+            <header class="home-section-header">
+              <div>
+                <h2 id="home-overview-title">At a glance</h2>
+                <p>A quick pulse across your workspace.</p>
+              </div>
+            </header>
+            <div class="v-surface-panel home-snapshot">
+              <div class="home-snapshot-item is-active">
+                <strong>{{ activeProjectCount }}</strong>
+                <span>Active project{{ activeProjectCount === 1 ? '' : 's' }}</span>
+              </div>
+              <div class="home-snapshot-item is-due" :class="{ 'has-value': dueSoonCount > 0 }">
+                <strong>{{ dueSoonCount }}</strong>
+                <span>Due this week</span>
+              </div>
+              <button type="button" class="home-snapshot-item is-unread" :class="{ 'has-value': globalActivityUnreadCount > 0 }" @click="toggleGlobalActivityTray">
+                <strong>{{ globalActivityUnreadCount }}</strong>
+                <span>Unread update{{ globalActivityUnreadCount === 1 ? '' : 's' }}</span>
+                <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+              </button>
+            </div>
+          </section>
+        </aside>
+      </div>
 
       <div class="home-lower">
         <section class="home-section" aria-labelledby="home-projects-title">
@@ -332,9 +350,9 @@ const {
 } = useActivityStore()
 const { getProjectThumbnailUrl } = useViewerStore().media.core
 
-const assignedEditProjects = ref([])
-const assignedEditsLoading = ref(true)
-const assignedEditsError = ref(false)
+const assignedWorkProjects = ref([])
+const assignedWorkLoading = ref(true)
+const assignedWorkError = ref(false)
 const recentItems = ref([])
 const recentLoading = ref(true)
 const activityItems = ref([])
@@ -358,21 +376,29 @@ const todayLabel = computed(() => now.toLocaleDateString(undefined, {
   day: 'numeric',
 }))
 
-const assignedEditTotal = computed(() => assignedEditProjects.value.reduce(
+const assignedWorkTotal = computed(() => assignedWorkProjects.value.reduce(
   (total, project) => total + (project.shots?.length || 0),
   0,
 ))
-const assignedEditProjectCount = computed(() => assignedEditProjects.value.length)
+const assignedWorkProjectCount = computed(() => assignedWorkProjects.value.length)
+const requestedEditCount = computed(() => assignedWorkProjects.value.reduce(
+  (total, project) => total + (project.shots?.filter(shot => shot.status === 'edits_requested').length || 0),
+  0,
+))
+const inProgressCount = computed(() => assignedWorkProjects.value.reduce(
+  (total, project) => total + (project.shots?.filter(shot => shot.status === 'in_progress').length || 0),
+  0,
+))
 const homeIntro = computed(() => {
-  if (assignedEditsLoading.value) {
+  if (assignedWorkLoading.value) {
     return 'Your assigned work, active projects, and latest updates in one clear view.'
   }
-  if (assignedEditTotal.value) {
-    const shotLabel = assignedEditTotal.value === 1 ? 'edit needs' : 'edits need'
-    const projectLabel = assignedEditProjectCount.value === 1 ? 'project' : 'projects'
-    return `${assignedEditTotal.value} assigned ${shotLabel} attention across ${assignedEditProjectCount.value} ${projectLabel}.`
+  if (assignedWorkTotal.value) {
+    const shotLabel = assignedWorkTotal.value === 1 ? 'shot' : 'shots'
+    const projectLabel = assignedWorkProjectCount.value === 1 ? 'project' : 'projects'
+    return `${assignedWorkTotal.value} assigned ${shotLabel} across ${assignedWorkProjectCount.value} ${projectLabel}.`
   }
-  return 'No assigned edits are waiting. Your active projects and latest updates are below.'
+  return 'Your active projects, recent work, and latest updates are ready below.'
 })
 
 const visibleProjectIds = computed(() => new Set(projects.value.map(project => String(project.id))))
@@ -400,12 +426,13 @@ const continueItems = computed(() => (
     : fallbackRecentProjects.value
 ))
 
-const activeProjects = computed(() => (
+const allActiveProjects = computed(() => (
   projects.value
     .filter(project => project.status === 'in_progress')
     .sort((a, b) => Number(b.updated_at || 0) - Number(a.updated_at || 0))
-    .slice(0, 6)
 ))
+const activeProjects = computed(() => allActiveProjects.value.slice(0, 6))
+const activeProjectCount = computed(() => allActiveProjects.value.length)
 
 const dueSoonCount = computed(() => {
   const current = new Date()
@@ -480,17 +507,17 @@ function activityDateTime(item) {
   return editDateTime(item?.created_at)
 }
 
-async function loadAssignedEdits() {
-  assignedEditsLoading.value = true
-  assignedEditsError.value = false
+async function loadAssignedWork() {
+  assignedWorkLoading.value = true
+  assignedWorkError.value = false
   try {
     const { data } = await api.get('/api/home/assigned-edits')
-    assignedEditProjects.value = Array.isArray(data?.projects) ? data.projects : []
+    assignedWorkProjects.value = Array.isArray(data?.projects) ? data.projects : []
   } catch {
-    assignedEditProjects.value = []
-    assignedEditsError.value = true
+    assignedWorkProjects.value = []
+    assignedWorkError.value = true
   } finally {
-    assignedEditsLoading.value = false
+    assignedWorkLoading.value = false
   }
 }
 
@@ -568,7 +595,7 @@ function activityContext(item) {
 }
 
 onMounted(() => {
-  void Promise.all([loadAssignedEdits(), loadRecentItems(), loadActivity()])
+  void Promise.all([loadAssignedWork(), loadRecentItems(), loadActivity()])
 })
 </script>
 
@@ -611,6 +638,20 @@ onMounted(() => {
   flex-direction: column;
   gap: var(--v-space-6);
   padding: 0 var(--v-space-6);
+}
+
+.home-primary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.85fr);
+  align-items: start;
+  gap: var(--v-space-6);
+}
+
+.home-support {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: var(--v-space-6);
 }
 
 .home-section {
@@ -667,8 +708,8 @@ onMounted(() => {
 .home-attention-icon {
   width: 38px;
   height: 38px;
-  background: var(--v-danger-bg);
-  color: var(--v-status-hold-text);
+  background: var(--v-accent-subtle);
+  color: var(--v-accent);
 }
 
 .home-attention-icon .icon {
@@ -676,21 +717,18 @@ onMounted(() => {
   height: 17px;
 }
 
-.home-section-summary {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  white-space: nowrap;
-}
-
-.home-section-summary strong {
-  color: var(--v-text);
-  font-variant-numeric: tabular-nums;
+.home-work-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--v-space-2);
 }
 
 .home-edit-groups,
 .home-edit-skeleton {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: var(--v-space-4);
 }
@@ -704,21 +742,6 @@ onMounted(() => {
 .home-activity-skeleton {
   overflow: hidden;
   border-radius: var(--v-radius-lg);
-}
-
-.home-edit-project {
-  position: relative;
-}
-
-.home-edit-project::before {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  z-index: 1;
-  width: 2px;
-  background: var(--v-status-hold);
-  opacity: 0.72;
-  pointer-events: none;
 }
 
 .home-edit-project-header {
@@ -829,7 +852,7 @@ onMounted(() => {
 
 .home-edit-shot {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(160px, 1fr) auto auto auto;
   align-items: center;
   gap: var(--v-space-3);
   width: 100%;
@@ -850,6 +873,11 @@ onMounted(() => {
 
 .home-edit-shot:hover {
   background: var(--v-surface-inline-strong);
+}
+
+.home-work-status {
+  justify-self: end;
+  border-radius: var(--v-radius-full);
 }
 
 .home-edit-shot-meta {
@@ -960,8 +988,9 @@ onMounted(() => {
 
 .home-snapshot {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border-block: 1px solid var(--v-divider-subtle);
+  grid-template-columns: minmax(0, 1fr);
+  overflow: hidden;
+  border-radius: var(--v-radius-lg);
 }
 
 .home-snapshot-item {
@@ -972,7 +1001,7 @@ onMounted(() => {
   min-height: 58px;
   padding: var(--v-space-3) var(--v-space-4);
   border: 0;
-  border-right: 1px solid var(--v-divider-subtle);
+  border-bottom: 1px solid var(--v-divider-subtle);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -988,7 +1017,7 @@ button.home-snapshot-item:hover {
 }
 
 .home-snapshot-item:last-child {
-  border-right: 0;
+  border-bottom: 0;
 }
 
 .home-snapshot-item strong {
@@ -1023,7 +1052,7 @@ button.home-snapshot-item:hover {
 
 .home-recent-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .home-recent-row {
@@ -1034,7 +1063,7 @@ button.home-snapshot-item:hover {
   min-height: 70px;
   padding: var(--v-space-3) var(--v-space-4);
   border: 0;
-  border-right: 1px solid var(--v-divider-subtle);
+  border-bottom: 1px solid var(--v-divider-subtle);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -1043,7 +1072,7 @@ button.home-snapshot-item:hover {
 }
 
 .home-recent-row:last-child {
-  border-right: 0;
+  border-bottom: 0;
 }
 
 .home-recent-row:hover,
@@ -1076,7 +1105,7 @@ button.home-snapshot-item:hover {
 }
 
 .home-recent-skeleton {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .home-recent-skeleton .home-skeleton-row,
@@ -1238,21 +1267,14 @@ button.home-snapshot-item:hover {
 }
 
 @media (max-width: 1120px) {
-  .home-edit-groups,
-  .home-edit-skeleton {
+  .home-primary {
     grid-template-columns: 1fr;
   }
 
-  .home-recent-list {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .home-recent-row:nth-child(2n) {
-    border-right: 0;
-  }
-
-  .home-recent-row:nth-child(-n + 2) {
-    border-bottom: 1px solid var(--v-divider-subtle);
+  .home-support {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+    align-items: start;
   }
 }
 
@@ -1277,18 +1299,23 @@ button.home-snapshot-item:hover {
     padding: 0 var(--v-space-4);
   }
 
+  .home-support {
+    grid-template-columns: 1fr;
+    gap: var(--v-space-5);
+  }
+
   .home-attention-header {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .home-section-summary {
+  .home-work-summary {
+    justify-content: flex-start;
     padding-left: 50px;
-    white-space: normal;
   }
 
   .home-edit-shot {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .home-edit-shot-meta {
@@ -1298,7 +1325,7 @@ button.home-snapshot-item:hover {
   }
 
   .home-edit-shot > .home-chevron {
-    grid-column: 2;
+    grid-column: 3;
     grid-row: 1;
   }
 
@@ -1347,10 +1374,7 @@ button.home-snapshot-item:hover {
     grid-template-columns: 1fr;
   }
 
-  .home-recent-row,
-  .home-recent-row:nth-child(2n),
-  .home-recent-row:nth-child(-n + 2) {
-    border-right: 0;
+  .home-recent-row {
     border-bottom: 1px solid var(--v-divider-subtle);
   }
 
@@ -1410,7 +1434,7 @@ button.home-snapshot-item:hover {
     height: 36px;
   }
 
-  .home-section-summary {
+  .home-work-summary {
     padding-left: 48px;
   }
 
