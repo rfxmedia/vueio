@@ -89,8 +89,7 @@ export function useProjectTeamManagement({
   async function updateMemberRole(member, nextRole) {
     const project = activeProject.value
     if (!canManageProjectTeam.value || !project || !member?.id) return
-    if (member.project_role === 'owner') return
-    if (!['viewer', 'editor'].includes(nextRole || '')) return
+    if (!['viewer', 'editor', 'owner'].includes(nextRole || '')) return
     if ((member.project_role || 'viewer') === nextRole) return
 
     saving.value = true
@@ -111,7 +110,6 @@ export function useProjectTeamManagement({
   async function removeMember(member) {
     const project = activeProject.value
     if (!canManageProjectTeam.value || !project || !member?.id) return
-    if (member.project_role === 'owner') return
     if (!confirm(`Remove ${member.display_name || member.username} from this project?`)) return
 
     saving.value = true

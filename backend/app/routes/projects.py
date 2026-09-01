@@ -78,6 +78,7 @@ from app.services.uploads import (
     validate_uploader_name,
     write_bounded_upload,
 )
+from app.services.user_access import has_app_access, is_admin_user, is_restricted_project_member
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -90,10 +91,10 @@ LINKED_FOLDER_UPLOAD_DISABLED_REASON = 'Uploads are disabled inside linked stora
 
 # Project browser permission model:
 # - project root hosts high-level app objects (trackers/pages) plus real workspace folders
-# - artist accounts always browse/mutate through their own real workspace folder, even with an editor grant
+# - review-only Member accounts browse/mutate through their own real workspace folder, even with an editor grant
 # - editor grants allow shot/version work and file management, not project-structure controls
 def _is_workspace_scoped_artist(user: dict | None) -> bool:
-    return bool(user and (user.get('role') or '').strip().lower() == 'artist')
+    return is_restricted_project_member(user)
 
 
 def _is_project_artist(user: dict | None) -> bool:
@@ -200,8 +201,20 @@ class UploadSessionCreateRequest(BaseModel):
 
 def _require_admin_user(vueio_session: str | None, x_vueio_agent_key: str | None) -> tuple[dict, str]:
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    if user.get('role') != 'admin':
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail='Admin access required')
+    return user, auth_mode
+
+
+def _require_app_capability_user(
+    vueio_session: str | None,
+    x_vueio_agent_key: str | None,
+    capability: str,
+    detail: str,
+) -> tuple[dict, str]:
+    user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
+    if not has_app_access(user, capability):
+        raise HTTPException(status_code=403, detail=detail)
     return user, auth_mode
 
 
@@ -248,7 +261,12 @@ def list_projects(vueio_session: str = Cookie(None), x_vueio_agent_key: str | No
 
 @router.post('/api/projects')
 def create_project(data: ProjectCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
-    user, _auth_mode = _require_admin_user(vueio_session, x_vueio_agent_key)
+    user, _auth_mode = _require_app_capability_user(
+        vueio_session,
+        x_vueio_agent_key,
+        'create_projects',
+        'Project creation access required',
+    )
 
     project = create_horizon_project(
         db,
@@ -282,7 +300,7 @@ def get_project_offline_media(project_id: str, vueio_session: str = Cookie(None)
 def update_project(project_id: str, data: ProjectUpdate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot update project settings')
+        raise HTTPException(status_code=403, detail='Project content management access required')
 
     project = update_horizon_project(
         db,
@@ -299,7 +317,15 @@ def update_project(project_id: str, data: ProjectUpdate, vueio_session: str = Co
 
 @router.delete('/api/projects/{project_id}')
 def delete_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
-    _require_admin_user(vueio_session, x_vueio_agent_key)
+    user, _auth_mode, _visible_project, _access_role = _require_project_access_ctx(
+        db,
+        project_id,
+        vueio_session,
+        x_vueio_agent_key,
+        required_role='owner',
+    )
+    if not has_app_access(user, 'delete_projects'):
+        raise HTTPException(status_code=403, detail='Project deletion access required')
 
     project = db.query(HorizonProject).filter(HorizonProject.id == project_id).first()
     if project is None:
@@ -376,7 +402,7 @@ def list_project_pages(project_id: str, vueio_session: str = Cookie(None), x_vue
 def create_project_page(project_id: str, data: PageCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot create Vue pages')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     page = create_horizon_page(
         db,
         project_id,
@@ -401,7 +427,7 @@ def get_project_page(project_id: str, page_ref: str, vueio_session: str = Cookie
 def update_project_page(project_id: str, page_id: str, data: PageUpdate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot update Vue pages')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     page = update_horizon_page(
         db,
         project_id,
@@ -420,7 +446,7 @@ def update_project_page(project_id: str, page_id: str, data: PageUpdate, vueio_s
 def delete_project_page(project_id: str, page_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot delete Vue pages')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     delete_horizon_page(db, project_id, page_id)
     touch_horizon_project(db, project_id)
     return {'status': 'deleted'}
@@ -441,7 +467,7 @@ def create_project_folder(project_id: str, data: FolderCreate, vueio_session: st
         if not parent_path:
             parent_path = workspace_path
         if parent_path != workspace_path and not parent_path.startswith(f'{workspace_path}/'):
-            raise HTTPException(status_code=403, detail='Artists can only create folders inside their workspace')
+            raise HTTPException(status_code=403, detail='Members with review access can only create folders inside their workspace')
     elif not _role_can_edit_project_files(access_role):
         raise HTTPException(status_code=403, detail='Editor access required')
 
@@ -483,7 +509,7 @@ def _resolve_project_upload_base_path(user: dict, access_role: str, project_id: 
         if not normalized_target_path:
             normalized_target_path = workspace_path
         if normalized_target_path != workspace_path and not normalized_target_path.startswith(f'{workspace_path}/'):
-            raise HTTPException(status_code=403, detail='Artists can only upload into their workspace')
+            raise HTTPException(status_code=403, detail='Members with review access can only upload into their workspace')
     elif not _role_can_edit_project_files(access_role):
         raise HTTPException(status_code=403, detail='Editor access required')
     return normalized_target_path
@@ -635,7 +661,7 @@ async def import_file_to_project(project_id: str, vueio_session: str = Cookie(No
         if not normalized_target_folder:
             normalized_target_folder = workspace_path
         if normalized_target_folder != workspace_path and not normalized_target_folder.startswith(f'{workspace_path}/'):
-            raise HTTPException(status_code=403, detail='Artists can only upload into their workspace')
+            raise HTTPException(status_code=403, detail='Members with review access can only upload into their workspace')
     elif not _role_can_edit_project_files(access_role):
         raise HTTPException(status_code=403, detail='Editor access required')
 
@@ -759,7 +785,7 @@ def _append_project_link(links_data: dict, source_path: str, target_folder: str 
 def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot link storage files to projects')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     ensure_horizon_project_runtime_dir(db, project_id)
     require_user_file_browser_read_access(user, data.source_path)
     links_data = load_project_links(project_id)
@@ -773,7 +799,7 @@ def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = C
 def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot link storage files to projects')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     ensure_horizon_project_runtime_dir(db, project_id)
 
     source_paths = []
@@ -800,7 +826,7 @@ def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str =
 def unlink_nas_file(project_id: str, source_path: str, target_folder: str = None, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot unlink storage files from projects')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     ensure_horizon_project_runtime_dir(db, project_id)
     links_data = load_project_links(project_id)
     original_count = len(links_data.get('links', []))

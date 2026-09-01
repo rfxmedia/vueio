@@ -244,6 +244,55 @@
               </div>
             </div>
             <VMenu
+              :open="colorPreviewMenuOpen"
+              align="end"
+              min-width="278"
+              :teleport="true"
+              panel-class="viewer-color-preview-menu"
+              panel-label="Color preview"
+              @update:open="(open) => { if (!open) closeColorPreviewMenu() }"
+            >
+              <template #trigger="{ triggerProps }">
+                <button
+                  v-bind="triggerProps"
+                  type="button"
+                  class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--icon viewer-color-preview-trigger"
+                  :class="{ active: colorPreviewMenuOpen || colorPreviewMode !== 'source' }"
+                  :aria-label="colorPreviewButtonLabel"
+                  @click.stop="toggleColorPreviewMenu"
+                >
+                  <svg class="icon" aria-hidden="true"><use href="#icon-color"/></svg>
+                </button>
+              </template>
+              <div class="viewer-color-preview-panel">
+                <div class="viewer-color-preview-heading">
+                  <span class="v-section-label">Color preview</span>
+                  <span>Display only</span>
+                </div>
+                <button
+                  v-for="option in colorPreviewOptions"
+                  :key="option.value"
+                  type="button"
+                  class="v-dropdown-item viewer-color-preview-option"
+                  :class="{ active: option.value === colorPreviewMode }"
+                  :disabled="option.value !== 'source' && !colorPreviewAvailable"
+                  role="menuitemradio"
+                  :aria-checked="option.value === colorPreviewMode ? 'true' : 'false'"
+                  @click.stop="selectColorPreview(option.value)"
+                >
+                  <span class="viewer-color-preview-option__mark" aria-hidden="true"></span>
+                  <span class="viewer-color-preview-option__copy">
+                    <span class="viewer-color-preview-option__label">{{ option.label }}</span>
+                    <span class="viewer-color-preview-option__hint">{{ option.hint }}</span>
+                  </span>
+                  <svg v-if="option.value === colorPreviewMode" class="icon viewer-color-preview-option__check"><use href="#icon-check"/></svg>
+                </button>
+                <p class="viewer-color-preview-note">
+                  {{ colorPreviewAvailable ? 'Viewer and screenshots only. Media stays unchanged.' : 'Color preview is unavailable in this browser.' }}
+                </p>
+              </div>
+            </VMenu>
+            <VMenu
               :open="qualityMenuOpen"
               align="end"
               min-width="176"
@@ -343,6 +392,10 @@ const props = defineProps({
   onSetCurrentFrameAsThumbnail: { type: Function, default: null },
   canSetCurrentFrameAsThumbnail: { type: Boolean, default: false },
   frameCaptureComment: { type: Object, default: null },
+  colorPreviewOptions: { type: Array, default: () => [] },
+  colorPreviewMode: { type: String, default: 'source' },
+  colorPreviewAvailable: { type: Boolean, default: true },
+  onSetColorPreviewMode: { type: Function, default: null },
 })
 
 const {
@@ -413,6 +466,7 @@ watch(
 const scrubPreviewVideoEl = ref(null)
 const volumeSliderEl = ref(null)
 const qualityMenuOpen = ref(false)
+const colorPreviewMenuOpen = ref(false)
 const frameCaptureMenuOpen = ref(false)
 const frameCaptureIncludeAnnotations = ref(true)
 const frameCaptureIncludeComment = ref(true)
@@ -477,6 +531,14 @@ const frameCopyButtonTitle = computed(() => {
   if (frameCopyState.value === 'error') return frameCopyError.value || 'Could not take screenshot'
   return 'Take Screenshot'
 })
+const selectedColorPreviewLabel = computed(() => (
+  props.colorPreviewOptions.find(option => option.value === props.colorPreviewMode)?.label || 'Source'
+))
+const colorPreviewButtonLabel = computed(() => (
+  props.colorPreviewAvailable
+    ? `Color preview. ${selectedColorPreviewLabel.value}`
+    : 'Color preview unavailable'
+))
 const frameCopyTooltipLabel = computed(() => {
   if (!canCopyCurrentFrame.value) return 'Screenshot unavailable'
   if (frameCopyState.value === 'copying') return 'Saving'
@@ -702,12 +764,26 @@ function toggleFullscreen() {
 
 function toggleQualityMenu() {
   frameCaptureMenuOpen.value = false
+  colorPreviewMenuOpen.value = false
   qualityMenuOpen.value = !qualityMenuOpen.value
 }
 
 function toggleFrameCaptureMenu() {
   qualityMenuOpen.value = false
+  colorPreviewMenuOpen.value = false
   frameCaptureMenuOpen.value = !frameCaptureMenuOpen.value
+}
+
+function toggleColorPreviewMenu() {
+  qualityMenuOpen.value = false
+  frameCaptureMenuOpen.value = false
+  colorPreviewMenuOpen.value = !colorPreviewMenuOpen.value
+}
+
+function selectColorPreview(value) {
+  if (value !== 'source' && !props.colorPreviewAvailable) return
+  props.onSetColorPreviewMode?.(value)
+  colorPreviewMenuOpen.value = false
 }
 
 function selectQuality(value) {
@@ -721,6 +797,10 @@ function closeQualityMenu() {
 
 function closeFrameCaptureMenu() {
   frameCaptureMenuOpen.value = false
+}
+
+function closeColorPreviewMenu() {
+  colorPreviewMenuOpen.value = false
 }
 
 function isHlsSource(source) {
@@ -983,6 +1063,7 @@ watch(() => props.streamPreparing, (preparing) => {
   if (preparing) {
     closeQualityMenu()
     closeFrameCaptureMenu()
+    closeColorPreviewMenu()
     isTimelineDragging.value = false
     hideScrubPreview()
   }
@@ -1542,7 +1623,8 @@ onUnmounted(() => {
   }
 }
 
-.viewer-quality-trigger {
+.viewer-quality-trigger,
+.viewer-color-preview-trigger {
   min-width: var(--viewer-control-size);
   width: var(--viewer-control-size);
   min-height: var(--viewer-control-height);
@@ -1550,7 +1632,8 @@ onUnmounted(() => {
   padding: 0;
 }
 
-.viewer-quality-trigger.active {
+.viewer-quality-trigger.active,
+.viewer-color-preview-trigger.active {
   color: var(--v-accent);
   background: color-mix(in srgb, var(--v-accent) 11%, transparent);
 }
@@ -1581,6 +1664,102 @@ onUnmounted(() => {
 
 .viewer-settings-menu {
   padding: 6px;
+}
+
+.viewer-color-preview-menu {
+  max-height: min(70vh, 440px);
+  padding: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.viewer-color-preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.viewer-color-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-3);
+  padding: 3px 9px 6px;
+}
+
+.viewer-color-preview-heading > span:last-child {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-2xs);
+}
+
+.viewer-color-preview-option {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  min-height: 48px;
+  padding: 6px 9px;
+  gap: 9px;
+  border-radius: var(--v-button-radius);
+}
+
+.viewer-color-preview-option.active {
+  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-bg-hover));
+}
+
+.viewer-color-preview-option__mark {
+  width: 16px;
+  height: 16px;
+  align-self: center;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-radius: var(--v-radius-full);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, currentColor 28%, transparent) 0 33%,
+    color-mix(in srgb, currentColor 54%, transparent) 33% 66%,
+    color-mix(in srgb, currentColor 82%, transparent) 66% 100%
+  );
+}
+
+.viewer-color-preview-option.active .viewer-color-preview-option__mark {
+  color: var(--v-accent);
+  border-color: color-mix(in srgb, var(--v-accent) 44%, transparent);
+}
+
+.viewer-color-preview-option__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  text-align: left;
+}
+
+.viewer-color-preview-option__label {
+  color: var(--v-text);
+  font-size: var(--v-text-sm);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.viewer-color-preview-option__hint {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.2;
+}
+
+.viewer-color-preview-option__check {
+  width: 14px;
+  height: 14px;
+  align-self: center;
+  color: var(--v-accent);
+}
+
+.viewer-color-preview-note {
+  margin: 5px 3px 0;
+  padding: 9px 7px 3px;
+  border-top: 1px solid var(--v-border);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.35;
 }
 
 .viewer-settings-panel {

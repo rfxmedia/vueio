@@ -21,6 +21,7 @@ from app.services.file_access import check_folder_read_permission
 from app.services.horizons.projects import list_visible_horizon_projects
 from app.services.recently_viewed import exclude_deleted_project_recently_viewed
 from app.services.search_index import filter_search_index_for_user, get_search_index
+from app.services.user_access import has_app_access
 
 router = APIRouter(tags=['app-state'])
 
@@ -137,10 +138,7 @@ def get_recently_viewed(limit: int = 10, vueio_session: str | None = Cookie(None
             project.id
             for project in list_visible_horizon_projects(db, user)
         }
-        can_browse_files = bool(
-            user.get('role') == 'admin'
-            or (user.get('app_access') or {}).get('file_browser')
-        )
+        can_browse_files = has_app_access(user, 'file_browser')
 
         def can_view_recent(item: RecentlyViewed) -> bool:
             project_id = item.project_id or (

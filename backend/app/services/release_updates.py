@@ -102,6 +102,11 @@ def _base_status(current_version: str, repository: str, channel: str) -> dict:
     return {
         'current_version': current_version,
         'channel': channel,
+        'source_branch': channel,
+        'source_url': (
+            f'https://github.com/{repository}/tree/{quote(channel, safe="")}'
+            if configured else ''
+        ),
         'latest_version': None,
         'update_available': False,
         'configured': configured,

@@ -351,6 +351,10 @@ only. Switching from nightly to stable does not downgrade the running app. It
 waits for a stable release newer than the installed nightly because database
 migrations are one-way.
 
+The public `stable` branch shows the source for the latest Stable release. The
+public `nightly` branch shows the source for the latest Nightly release. When a
+Nightly becomes Stable, both branches point to the same reviewed source.
+
 The immutable release tag is carried into the engine, UI images, installer,
 and update screen, so version numbers do not need to be edited in several
 places.

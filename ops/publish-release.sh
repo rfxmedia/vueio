@@ -20,6 +20,8 @@ Usage:
 
 Vueio chooses the next unused version automatically. Nightly versions use the
 current UTC date plus a sequence number, so more than one can ship each day.
+The public nightly branch advances for every release. A Stable release advances
+both public branches to the same reviewed commit.
 EOF
 }
 
@@ -73,6 +75,12 @@ fi
 gh auth status >/dev/null 2>&1 || die "Sign in first with: gh auth login"
 git fetch --quiet origin --tags
 git rev-parse --verify HEAD >/dev/null
+[[ $(git branch --show-current) == nightly ]] ||
+  die "Publish from the public nightly branch. Stable is a release pointer, not a work branch"
+for public_branch in stable nightly; do
+  git ls-remote --exit-code --heads origin "refs/heads/$public_branch" >/dev/null 2>&1 ||
+    die "The public $public_branch branch is missing"
+done
 
 tag_alpha_for_series() {
   local tag=$1
@@ -169,6 +177,11 @@ printf 'Release: %s\n' "$release_tag"
 printf 'Commit:  %s\n' "$(git rev-parse --short=12 HEAD)"
 printf 'Channel: %s\n' "${channel^}"
 printf 'Notes:   %s\n\n' "$notes_file"
+if [[ $channel == stable ]]; then
+  printf 'Branches: Stable and Nightly will point to this commit.\n'
+else
+  printf 'Branch:   Nightly will point to this commit.\n'
+fi
 printf 'CI will run the full verification, build and scan both architectures, then publish the release.\n'
 if [[ $assume_yes != true ]]; then
   printf 'Type PUBLISH to create and push the immutable tag: '
@@ -176,10 +189,14 @@ if [[ $assume_yes != true ]]; then
   [[ $confirmation == PUBLISH ]] || die "Publication cancelled; nothing was changed"
 fi
 
-git tag --annotate "$release_tag" --file "$notes_file"
-if ! git push origin "refs/tags/$release_tag"; then
+git tag --annotate --cleanup=verbatim "$release_tag" --file "$notes_file"
+push_refs=("HEAD:refs/heads/nightly" "refs/tags/$release_tag")
+if [[ $channel == stable ]]; then
+  push_refs=("HEAD:refs/heads/stable" "HEAD:refs/heads/nightly" "refs/tags/$release_tag")
+fi
+if ! git push --atomic origin "${push_refs[@]}"; then
   git tag --delete "$release_tag" >/dev/null 2>&1 || true
-  die "The tag was not pushed; the local tag was removed"
+  die "The public branch and tag were not changed; the local tag was removed"
 fi
 
 printf 'Tag pushed. Waiting for the release workflow to appear...\n'

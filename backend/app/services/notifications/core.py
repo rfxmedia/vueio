@@ -36,6 +36,7 @@ from app.services.horizons_fresh import (
     list_visible_horizon_projects,
 )
 from app.services.tracker_events import serialize_tracker_event, tracker_activity_visible_shot_ids
+from app.services.user_access import is_admin_user
 
 logger = logging.getLogger('vueio.notifications')
 settings = get_settings()
@@ -225,7 +226,7 @@ def _subject_ids_for_user(user: dict | None) -> set[str]:
 
 
 def _default_scope_for_user(user: dict | None) -> str:
-    return 'all_visible' if (user or {}).get('role') == 'admin' else 'related_to_me'
+    return 'all_visible' if is_admin_user(user) else 'related_to_me'
 
 
 def normalize_notification_scope(scope: str | None, user: dict | None = None) -> str:

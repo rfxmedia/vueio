@@ -64,6 +64,26 @@ class TrackerHistoryRestoreRequest(BaseModel):
     expected_state_hash: str = Field(min_length=64, max_length=64, pattern=r'^[0-9a-f]{64}$')
 
 
+def _require_tracker_management(
+    db: Session,
+    *,
+    project_id: str,
+    user: dict,
+    auth_mode: str,
+    required_role: str,
+) -> str:
+    _project, access_role = require_horizon_project_access(
+        db,
+        project_id,
+        user,
+        auth_mode=auth_mode,
+        required_role=required_role,
+    )
+    if is_restricted_horizon_artist(user, access_role):
+        raise HTTPException(status_code=403, detail='Project content management access required')
+    return access_role
+
+
 def _record_tracker_update(
     db: Session,
     *,
@@ -104,17 +124,17 @@ def list_trackers(project_id: str, vueio_session: str = Cookie(None), x_vueio_ag
 @router.post('/api/projects/{project_id}/trackers')
 def create_tracker(project_id: str, data: TrackerCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    access_role = _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     tracker = create_horizon_tracker(db, project_id=project_id, name=data.name)
-    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role='admin')
+    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role=access_role)
 
 
 @router.post('/api/projects/{project_id}/trackers/{tracker_ref}/duplicate')
 def duplicate_tracker(project_id: str, tracker_ref: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    access_role = _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     tracker = duplicate_horizon_tracker(db, project_id, tracker_ref)
-    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role='admin', include_archived=True)
+    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role=access_role, include_archived=True)
 
 
 @router.get('/api/projects/{project_id}/trackers/{tracker_ref}')
@@ -190,7 +210,7 @@ def _require_tracker_restore_access(
         required_role='owner',
     )
     if is_restricted_horizon_artist(user, access_role):
-        raise HTTPException(status_code=403, detail='Artists cannot restore tracker history')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     require_horizon_project_writable(db, project_id)
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     if not tracker_tool_enabled_for_context(tracker, 'details', user=user, access_role=access_role):
@@ -376,12 +396,12 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
     incoming_fields = set(updates.model_fields_set)
     if not incoming_fields:
         raise HTTPException(status_code=400, detail='No tracker changes provided')
-    require_horizon_project_access(
+    access_role = _require_tracker_management(
         db,
-        project_id,
-        user,
+        project_id=project_id,
+        user=user,
         auth_mode=auth_mode,
-        required_role='admin' if incoming_fields & {'name', 'settings'} else 'editor',
+        required_role='owner' if incoming_fields & {'name', 'settings'} else 'editor',
     )
     tracker_fields = incoming_fields & {'name', 'settings'}
     tag_updates = None
@@ -422,7 +442,7 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
         auth_mode=auth_mode,
         fields=changed,
     )
-    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role='admin')
+    return serialize_horizon_tracker_detail(db, tracker, user=user, access_role=access_role)
 
 
 @router.get('/api/projects/{project_id}/trackers/{tracker_ref}/delivery-logo')
@@ -436,7 +456,7 @@ def get_tracker_delivery_logo(project_id: str, tracker_ref: str, vueio_session: 
 @router.post('/api/projects/{project_id}/trackers/{tracker_ref}/delivery-logo')
 async def upload_tracker_delivery_logo(project_id: str, tracker_ref: str, file: UploadFile = File(...), vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     settings = tracker_settings_for(tracker)
     previous_logo = settings['delivery']['logo_upload_name']
@@ -452,7 +472,7 @@ async def upload_tracker_delivery_logo(project_id: str, tracker_ref: str, file: 
 @router.post('/api/projects/{project_id}/trackers/{tracker_ref}/delivery-logo/select')
 def select_tracker_delivery_logo(project_id: str, tracker_ref: str, data: DeliveryLogoSourceRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     settings = tracker_settings_for(tracker)
     previous_logo = settings['delivery']['logo_upload_name']
@@ -468,7 +488,7 @@ def select_tracker_delivery_logo(project_id: str, tracker_ref: str, data: Delive
 @router.delete('/api/projects/{project_id}/trackers/{tracker_ref}/delivery-logo')
 def remove_tracker_delivery_logo(project_id: str, tracker_ref: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     settings = tracker_settings_for(tracker)
     previous_logo = settings['delivery']['logo_upload_name']
@@ -482,6 +502,6 @@ def remove_tracker_delivery_logo(project_id: str, tracker_ref: str, vueio_sessio
 @router.delete('/api/projects/{project_id}/trackers/{tracker_ref}')
 def delete_tracker(project_id: str, tracker_ref: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='admin')
+    _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
     delete_horizon_tracker(db, project_id, tracker_ref)
     return {'success': True}

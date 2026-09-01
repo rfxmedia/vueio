@@ -22,6 +22,12 @@ from app.config import get_settings
 from app.db import SessionLocal
 from app.models import UserSession
 from app.services.agent_keys import resolve_agent_key_record, touch_agent_key
+from app.services.user_access import (
+    canonical_user_role,
+    effective_app_access,
+    is_admin_user,
+    normalize_app_access,
+)
 
 settings = get_settings()
 SESSION_TTL_SECONDS = settings.SESSION_COOKIE_MAX_AGE
@@ -82,6 +88,8 @@ def _normalize_user_records(users: dict) -> dict:
     for username, record in (users or {}).items():
         item = dict(record or {})
         item.pop('permissions', None)
+        item['role'] = canonical_user_role(item.get('role'))
+        item['app_access'] = normalize_app_access(item.get('app_access'))
         normalized[username] = item
     return normalized
 
@@ -178,21 +186,12 @@ def mutate_users_and_revoke_sessions(
 
 
 def serialize_auth_user(user: dict) -> dict:
-    default_admin_access = {'file_browser': True, 'project_manager': True}
-    default_artist_access = {'file_browser': False, 'project_manager': False}
-
-    app_access = user.get('app_access')
-    if user.get('role') == 'admin':
-        app_access = default_admin_access
-    elif not app_access:
-        app_access = default_artist_access
-
     return {
         'id': user['id'],
         'username': user['username'],
         'display_name': user.get('display_name') or user['username'],
-        'role': user['role'],
-        'app_access': app_access,
+        'role': canonical_user_role(user.get('role')),
+        'app_access': effective_app_access(user),
     }
 
 
@@ -332,6 +331,6 @@ def require_auth(vueio_session: str | None = Cookie(None)) -> dict:
 
 def require_admin(vueio_session: str | None = Cookie(None)) -> dict:
     user = require_auth(vueio_session)
-    if user.get('role') != 'admin':
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail='Admin access required')
     return user

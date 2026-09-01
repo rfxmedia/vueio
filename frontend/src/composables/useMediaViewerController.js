@@ -2,6 +2,7 @@ import { computed, getCurrentScope, nextTick, onScopeDispose, ref, watch } from 
 
 import api, { buildShareCredentialQuery, resolveAccessEndpoint } from '../lib/api'
 import { getCanonicalMediaRefs, getMediaKind, normalizeMediaEntity } from '../lib/mediaEntity'
+import { normalizeVideoColorPreviewMode, VIDEO_COLOR_PREVIEW_OPTIONS } from '../lib/videoColorPreview'
 import { formatSizeBytes, formatTimecodeWithFrames } from '../utils/formatters'
 import { useMediaComments } from './useMediaComments'
 import { useViewerAnnotationOverlay } from './useViewerAnnotationOverlay'
@@ -107,6 +108,8 @@ export function useMediaViewerController({
   const sidebarTab = ref('comments')
   const activityFocusCommentId = ref(null)
   const commentReferenceHistory = ref([])
+  const colorPreviewMode = ref('source')
+  const colorPreviewAvailable = ref(true)
   const canReturnToCommentOrigin = computed(() => commentReferenceHistory.value.length > 0)
   const commentReferenceOriginContext = computed(() => commentReferenceHistory.value.at(-1)?.context || null)
 
@@ -117,6 +120,19 @@ export function useMediaViewerController({
   let commentOriginRestoreBusy = false
 
   const reportError = (message, error) => onError?.(message, error)
+
+  function setColorPreviewMode(mode) {
+    const normalized = normalizeVideoColorPreviewMode(mode)
+    if (normalized !== 'source' && !colorPreviewAvailable.value) return
+    colorPreviewMode.value = normalized
+  }
+
+  function handleColorPreviewUnavailable(error) {
+    if (!colorPreviewAvailable.value) return
+    colorPreviewAvailable.value = false
+    colorPreviewMode.value = 'source'
+    reportError('Color preview unavailable', error)
+  }
 
   const media = useViewerMediaCore({
     currentVideo,
@@ -300,6 +316,7 @@ export function useMediaViewerController({
     annotationCanvas: annotations.annotationCanvas,
     previewCanvas: annotations.previewCanvas,
     showAnnotationPreview: mediaComments.showAnnotationPreview,
+    colorPreviewMode,
     shareMode,
     getFallbackSourceName: getFallbackFrameSourceName,
     triggerBlobDownload,
@@ -667,6 +684,13 @@ export function useMediaViewerController({
     annotations,
     comments: mediaComments,
     frames,
+    colorPreview: Object.freeze({
+      mode: colorPreviewMode,
+      available: colorPreviewAvailable,
+      options: VIDEO_COLOR_PREVIEW_OPTIONS,
+      setMode: setColorPreviewMode,
+      handleUnavailable: handleColorPreviewUnavailable,
+    }),
     actions: Object.freeze({
       setVideoElRef,
       setVideoContainerRef,

@@ -105,7 +105,7 @@
           <dl class="account-profile-facts">
             <div>
               <dt>Role</dt>
-              <dd>{{ currentUser?.role === 'admin' ? 'Administrator' : 'Artist' }}</dd>
+              <dd>{{ currentUser?.role === 'admin' ? 'Administrator' : 'Member' }}</dd>
             </div>
             <div>
               <dt>Access</dt>
@@ -241,7 +241,7 @@
     </section>
 
     <AdminTeamTab
-      v-if="isAdmin && activeTab === 'team'"
+      v-if="canManageMembers && activeTab === 'team'"
       :current-user="currentUser"
       :identity-form="identityForm"
       :identity-initials="identityInitials"
@@ -255,7 +255,8 @@
       :filtered-users="filteredUsers"
       :user-search="userSearch"
       :admin-user-count="adminUserCount"
-      :artist-user-count="artistUserCount"
+      :member-user-count="memberUserCount"
+      :show-team-profile="isAdmin"
       :summarize-app-access="summarizeAppAccess"
       :user-initials="userInitials"
       @update:user-search="userSearch = $event"
@@ -746,37 +747,67 @@
         >
           <input v-model="userForm.password" type="password" class="v-input" :placeholder="editingUser ? 'Leave blank to keep current' : 'Required'" />
         </VField>
-        <VField label="Role" hint="Administrators control the entire workspace. Artists receive explicit access.">
+        <VField label="Account type" hint="Administrators control the workspace. Members receive only the access you choose.">
           <select v-if="canEditUserRole" v-model="userForm.role" class="v-input">
-            <option value="artist">Artist</option>
+            <option value="member">Member</option>
             <option value="admin">Admin</option>
           </select>
           <div v-else class="admin-readonly-field">
-            <span>Legacy role</span>
-            <strong>{{ userForm.role }}</strong>
+            <span>Account type</span>
+            <strong>Member</strong>
           </div>
         </VField>
 
-        <div v-if="userForm.role === 'artist'" class="v-subsection admin-subsection">
-          <div class="v-section-label v-section-label--ruled">App access</div>
+        <div v-if="userForm.role === 'member'" class="v-subsection admin-subsection member-access-section">
+          <p v-if="!isAdmin" class="v-inline-note admin-note">
+            You can grant only access that your own account has.
+          </p>
+          <div class="v-section-label v-section-label--ruled">Workspace areas</div>
           <VCheckbox
             :model-value="userForm.app_access.project_manager"
             label="Projects"
-            hint="Enter the Projects area and assigned Horizons projects"
-            @update:modelValue="userForm.app_access.project_manager = $event"
+            hint="Open projects that have been assigned to this Member."
+            :disabled="!canGrantMemberAccess('project_manager')"
+            @update:modelValue="setUserAccess('project_manager', $event)"
           />
           <VCheckbox
             :model-value="userForm.app_access.file_browser"
             label="Files"
-            hint="Browse shared storage through Vueio"
-            @update:modelValue="userForm.app_access.file_browser = $event"
+            hint="Browse configured storage through Vueio."
+            :disabled="!canGrantMemberAccess('file_browser')"
+            @update:modelValue="setUserAccess('file_browser', $event)"
           />
-        </div>
-
-        <div v-if="userForm.role === 'artist'" class="v-subsection admin-subsection">
-          <div class="v-section-label v-section-label--ruled">Horizons access model</div>
+          <div class="v-section-label v-section-label--ruled member-access-divider">Management</div>
+          <VCheckbox
+            :model-value="userForm.app_access.manage_project_content"
+            label="Manage project content"
+            hint="Create and organize trackers, shots, assignments, and project settings within permitted projects."
+            :disabled="!canGrantMemberAccess('manage_project_content')"
+            @update:modelValue="setUserAccess('manage_project_content', $event)"
+          />
+          <VCheckbox
+            :model-value="userForm.app_access.create_projects"
+            label="Create projects"
+            hint="Create projects and choose their storage folders."
+            :disabled="!canGrantMemberAccess('create_projects')"
+            @update:modelValue="setUserAccess('create_projects', $event)"
+          />
+          <VCheckbox
+            :model-value="userForm.app_access.delete_projects"
+            label="Delete projects"
+            hint="Delete projects where this Member has Can manage access."
+            :disabled="!canGrantMemberAccess('delete_projects')"
+            @update:modelValue="setUserAccess('delete_projects', $event)"
+          />
+          <VCheckbox
+            :model-value="userForm.app_access.manage_members"
+            label="Manage members"
+            hint="Manage Member accounts with the same or less access. Administrator accounts stay protected."
+            :disabled="!canGrantMemberAccess('manage_members')"
+            @update:modelValue="setUserAccess('manage_members', $event)"
+          />
           <p class="v-inline-note admin-note">
-            Project permissions are assigned per project in Horizons. The switches above only control which main areas this account can enter.
+            Project roles still control scope: Can view, Can edit, or Can manage. Account access never grants entry to an unassigned project.
           </p>
         </div>
       </div>
@@ -869,6 +900,7 @@ import { notify } from '../utils/toasts'
 import { buildVueioAgentSkill, resolveVueioApiBaseUrl } from '../utils/vueioAgentSkill'
 import { useAppIdentityStore } from '../ownership/appIdentity'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
+import { hasAppAccess, isAdminUser } from '../utils/accountAccess'
 
 const AdminAgentKeysTab = defineAsyncComponent(() => import('../components/admin/AdminAgentKeysTab.vue'))
 const AdminStorageTab = defineAsyncComponent(() => import('../components/admin/AdminStorageTab.vue'))
@@ -878,16 +910,16 @@ const AdminUpdatesTab = defineAsyncComponent(() => import('../components/admin/A
 
 const route = useRoute()
 const router = useRouter()
-const { currentUser } = useSessionAuthStore()
+const { currentUser, canManageMembers } = useSessionAuthStore()
 const { identity: appIdentity, update: updateAppIdentity } = useAppIdentityStore()
-const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const isAdmin = computed(() => isAdminUser(currentUser.value))
 const userTabs = [
   { value: 'account', label: 'Account', description: 'Identity and password', icon: '#icon-user' },
   { value: 'notifications', label: 'Notifications', description: 'Delivery and activity', icon: '#icon-bell', wide: true },
   { value: 'agent-keys', label: 'Agent keys', description: 'Agent access and rotation', icon: '#icon-zap', wide: true },
 ]
+const teamTab = { value: 'team', label: 'Team', description: 'Members and access', icon: '#icon-users', wide: true }
 const adminOnlyTabs = [
-  { value: 'team', label: 'Team', description: 'Identity and members', icon: '#icon-users', wide: true },
   { value: 'shares', label: 'Shared links', description: 'Client-facing access', icon: '#icon-share', wide: true },
   { value: 'theme', label: 'Theme', description: 'Workspace appearance', icon: '#icon-pen', wide: true },
   { value: 'storage', label: 'Storage', description: 'Previews and transcodes', icon: '#icon-package' },
@@ -898,15 +930,21 @@ const activeTab = ref('account')
 const systemHealth = ref(null)
 const settingsRefreshing = ref(false)
 const transcodesResetting = ref(false)
-const adminTabs = computed(() => isAdmin.value ? [...userTabs, ...adminOnlyTabs] : userTabs)
+const adminTabs = computed(() => [
+  ...userTabs,
+  ...(canManageMembers.value ? [teamTab] : []),
+  ...(isAdmin.value ? adminOnlyTabs : []),
+])
 const settingsNavGroups = computed(() => [
   { label: 'Personal', tabs: userTabs },
-  ...(isAdmin.value
-    ? [
-        { label: 'Workspace', tabs: adminOnlyTabs.slice(0, 3) },
-        { label: 'System', tabs: adminOnlyTabs.slice(3) },
-      ]
-    : []),
+  ...((canManageMembers.value || isAdmin.value) ? [{
+    label: 'Workspace',
+    tabs: [
+      ...(canManageMembers.value ? [teamTab] : []),
+      ...(isAdmin.value ? adminOnlyTabs.slice(0, 2) : []),
+    ],
+  }] : []),
+  ...(isAdmin.value ? [{ label: 'System', tabs: adminOnlyTabs.slice(2) }] : []),
 ])
 const activeSettingsTab = computed(() => (
   adminTabs.value.find(tab => tab.value === activeTab.value) || userTabs[0]
@@ -966,11 +1004,18 @@ const defaultUserForm = () => ({
   username: '',
   display_name: '',
   password: '',
-  role: 'artist',
-  app_access: { file_browser: false, project_manager: true },
+  role: 'member',
+  app_access: {
+    file_browser: false,
+    project_manager: true,
+    manage_project_content: false,
+    create_projects: false,
+    delete_projects: false,
+    manage_members: false,
+  },
 })
 const userForm = ref(defaultUserForm())
-const canEditUserRole = computed(() => !editingUser.value || ['admin', 'artist'].includes(userForm.value.role))
+const canEditUserRole = computed(() => isAdmin.value)
 
 const agentKeys = ref([])
 const keySearch = ref('')
@@ -1128,7 +1173,7 @@ const filteredUsers = computed(() => {
 })
 
 const adminUserCount = computed(() => users.value.filter(user => user.role === 'admin').length)
-const artistUserCount = computed(() => users.value.filter(user => user.role === 'artist').length)
+const memberUserCount = computed(() => users.value.filter(user => user.role === 'member').length)
 
 const visibleAgentKeys = computed(() => {
   const personalRows = myAgentKeys.value.map(key => normalizeAgentKeyEntry(key, 'personal'))
@@ -1220,11 +1265,14 @@ function normalizeAgentKeyEntry(key, kind) {
 
 function summarizeAppAccess(user) {
   if (user.role === 'admin') return 'Full admin access'
-  if (user.role !== 'artist') return 'Service account'
   const access = []
-  if (user.app_access?.project_manager) access.push('Projects')
+  if (user.app_access?.manage_project_content) access.push('Project manager')
+  else if (user.app_access?.project_manager) access.push('Project review')
   if (user.app_access?.file_browser) access.push('Files')
-  return access.length ? access.join(' + ') : 'No app access'
+  if (user.app_access?.create_projects) access.push('Create projects')
+  if (user.app_access?.delete_projects) access.push('Delete projects')
+  if (user.app_access?.manage_members) access.push('Manage members')
+  return access.length ? access.join(' · ') : 'No workspace access'
 }
 
 function userInitials(user) {
@@ -1656,8 +1704,9 @@ async function refreshAll() {
   settingsRefreshing.value = true
   try {
     const tasks = [loadNotificationPrefs(), loadMyAgentKeys()]
+    if (canManageMembers.value) tasks.push(loadUsers())
     if (isAdmin.value) {
-      tasks.push(loadIdentity(), loadUsers(), loadShares(), loadSystemHealth(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
+      tasks.push(loadIdentity(), loadShares(), loadSystemHealth(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
     }
     const results = await Promise.allSettled(tasks)
     const failedCount = results.filter(result => result.status === 'rejected').length
@@ -1739,6 +1788,7 @@ function openCreateUserModal() {
 }
 
 function openEditUserModal(user) {
+  if (!user?.can_manage) return
   editingUser.value = user
   userForm.value = {
     username: user.username,
@@ -1748,9 +1798,35 @@ function openEditUserModal(user) {
     app_access: {
       file_browser: !!user.app_access?.file_browser,
       project_manager: !!user.app_access?.project_manager,
+      manage_project_content: !!user.app_access?.manage_project_content,
+      create_projects: !!user.app_access?.create_projects,
+      delete_projects: !!user.app_access?.delete_projects,
+      manage_members: !!user.app_access?.manage_members,
     },
   }
   showUserModal.value = true
+}
+
+function canGrantMemberAccess(capability) {
+  return isAdmin.value || hasAppAccess(currentUser.value, capability)
+}
+
+function setUserAccess(capability, enabled) {
+  if (!canGrantMemberAccess(capability)) return
+  userForm.value.app_access[capability] = Boolean(enabled)
+  if (capability === 'project_manager' && !enabled) {
+    userForm.value.app_access.manage_project_content = false
+    userForm.value.app_access.create_projects = false
+    userForm.value.app_access.delete_projects = false
+  } else if (capability === 'manage_project_content' && !enabled) {
+    userForm.value.app_access.create_projects = false
+    userForm.value.app_access.delete_projects = false
+  } else if (['manage_project_content', 'create_projects', 'delete_projects'].includes(capability) && enabled) {
+    userForm.value.app_access.project_manager = true
+    if (['create_projects', 'delete_projects'].includes(capability)) {
+      userForm.value.app_access.manage_project_content = true
+    }
+  }
 }
 
 function closeUserModal() {
@@ -1765,7 +1841,7 @@ async function saveUser() {
       const payload = {
         display_name: userForm.value.display_name,
       }
-      if (['admin', 'artist'].includes(userForm.value.role)) {
+      if (['admin', 'member'].includes(userForm.value.role)) {
         payload.role = userForm.value.role
         payload.app_access = userForm.value.role === 'admin' ? null : userForm.value.app_access
       }

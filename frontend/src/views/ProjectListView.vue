@@ -91,7 +91,7 @@
                 </button>
               </VMenu>
 
-              <button v-if="isAdmin" class="v-btn v-btn-primary" @click="openCreateProjectModal()">
+              <button v-if="canCreateProjects" class="v-btn v-btn-primary" @click="openCreateProjectModal()">
                 <svg class="icon"><use href="#icon-plus"/></svg>
                 <span>New project</span>
               </button>
@@ -396,13 +396,14 @@ function closeSortMenu() {
    boundaries; VMenuActionList drops any that end up leading or doubled. */
 function projectMenuActions(project) {
   const canSettings = canOpenProjectSettingsItem(project)
+  const canStorage = Boolean(project && isAdmin.value)
   return [
     { label: 'Project Settings', icon: '#icon-settings', show: canSettings, run: () => openProjectSettings(project) },
     { divider: true },
     { label: 'Share Project', icon: '#icon-share', show: canShareProjectItem(project), run: () => shareProjectFromList(project) },
     { divider: true },
-    { label: 'Set Project Folder', icon: '#icon-folder', show: canSettings && project.uses_internal_storage, run: () => openProjectStorage(project, 'migrate') },
-    { label: 'Relocate Project', icon: '#icon-map-pin', show: canSettings, run: () => openProjectStorage(project, 'relocate') },
+    { label: 'Set Project Folder', icon: '#icon-folder', show: canStorage && project.uses_internal_storage, run: () => openProjectStorage(project, 'migrate') },
+    { label: 'Relocate Project', icon: '#icon-map-pin', show: canStorage, run: () => openProjectStorage(project, 'relocate') },
     { divider: true },
     { label: 'Delete Project', icon: '#icon-trash', danger: true, show: canDeleteProjectItem(project), run: () => deleteProjectConfirm(project) },
   ]
@@ -414,15 +415,24 @@ const {
 } = useProjectSettingsStore()
 
 const { openingProjectId } = useProjectTrackerSelectionStore()
-const { isAdmin } = useSessionAuthStore()
+const { currentUser, isAdmin, canCreateProjects, canDeleteProjects } = useSessionAuthStore()
 const { getProjectThumbnailUrl } = useViewerStore().media.core
 
 function canDeleteProjectItem(project) {
-  return Boolean(project && isAdmin.value)
+  return Boolean(project && canDeleteProjects.value && (isAdmin.value || project.access_role === 'owner'))
 }
 
 function canOpenProjectSettingsItem(project) {
-  return Boolean(project && isAdmin.value)
+  return Boolean(
+    project
+    && (
+      isAdmin.value
+      || (
+        currentUser.value?.app_access?.manage_project_content === true
+        && ['owner', 'editor'].includes(project.access_role)
+      )
+    )
+  )
 }
 
 function canShareProjectItem(project) {

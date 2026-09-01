@@ -51,6 +51,7 @@ from app.services.horizons_fresh import (
 from app.services.media_assets import declare_media_asset, serialize_media_asset
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandService
 from app.services.tracker_events import build_tracker_event_actor, create_tracker_event
+from app.services.user_access import has_app_access, is_admin_user
 
 router = APIRouter(tags=['horizons-fresh'])
 
@@ -193,9 +194,34 @@ def _auth_ctx(vueio_session: str | None, x_vueio_agent_key: str | None) -> _Auth
 
 def _require_horizons_admin(vueio_session: str | None, x_vueio_agent_key: str | None) -> _AuthCtx:
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    if ctx.user.get('role') != 'admin':
+    if not is_admin_user(ctx.user):
         raise HTTPException(status_code=403, detail='Admin access required')
     return ctx
+
+
+def _require_horizons_capability(
+    vueio_session: str | None,
+    x_vueio_agent_key: str | None,
+    capability: str,
+    detail: str,
+) -> _AuthCtx:
+    ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
+    if not has_app_access(ctx.user, capability):
+        raise HTTPException(status_code=403, detail=detail)
+    return ctx
+
+
+def _require_project_content_management(db: Session, project_id: str, ctx: _AuthCtx, *, required_role: str) -> str:
+    _project, access_role = require_horizon_project_access(
+        db,
+        project_id,
+        ctx.user,
+        auth_mode=ctx.auth_mode,
+        required_role=required_role,
+    )
+    if is_restricted_horizon_artist(ctx.user, access_role):
+        raise HTTPException(status_code=403, detail='Project content management access required')
+    return access_role
 
 
 def _project_payload(project):
@@ -292,7 +318,12 @@ def get_horizons_projects(vueio_session: str = Cookie(None), x_vueio_agent_key: 
 
 @router.post('/api/horizons/projects')
 def post_horizons_project(data: HorizonProjectCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
-    ctx = _require_horizons_admin(vueio_session, x_vueio_agent_key)
+    ctx = _require_horizons_capability(
+        vueio_session,
+        x_vueio_agent_key,
+        'create_projects',
+        'Project creation access required',
+    )
     project = create_horizon_project(
         db,
         title=data.title,
@@ -317,7 +348,7 @@ def put_horizons_project(project_id: str, data: HorizonProjectUpdate, vueio_sess
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='editor')
     if is_restricted_horizon_artist(ctx.user, access_role):
-        raise HTTPException(status_code=403, detail='Artists cannot update project settings')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     project = update_horizon_project(
         db,
         project_id,
@@ -339,14 +370,14 @@ def get_horizons_project_summary(project_id: str, vueio_session: str = Cookie(No
 @router.get('/api/horizons/projects/{project_id}/grants')
 def get_horizons_project_grants(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='owner')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     return {'grants': [_grant_payload(grant) for grant in list_horizon_project_grants(db, project_id)]}
 
 
 @router.post('/api/horizons/projects/{project_id}/grants')
 def post_horizons_project_grant(project_id: str, data: HorizonProjectGrantCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='owner')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     if data.subject_type == 'user_id':
         membership = ensure_horizon_project_membership_for_user(
             db,
@@ -370,7 +401,7 @@ def post_horizons_project_grant(project_id: str, data: HorizonProjectGrantCreate
 @router.get('/api/horizons/projects/{project_id}/grant-candidates')
 def get_horizons_project_grant_candidates(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='editor')
+    _require_project_content_management(db, project_id, ctx, required_role='editor')
 
     current_grants = list_horizon_project_grants(db, project_id)
     member_roles = {}
@@ -415,14 +446,14 @@ def get_horizons_project_grant_candidates(project_id: str, vueio_session: str = 
 @router.delete('/api/horizons/projects/{project_id}/members/{user_id}')
 def delete_horizons_project_member(project_id: str, user_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='owner')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     return remove_horizon_project_membership_for_user(db, project_id=project_id, user_ref=user_id)
 
 
 @router.delete('/api/horizons/projects/{project_id}/grants/{subject_type}/{subject_id}')
 def delete_horizons_project_grant(project_id: str, subject_type: str, subject_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='owner')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     removed = revoke_horizon_project_access(db, project_id=project_id, subject_type=subject_type, subject_id=subject_id)
     if not removed:
         raise HTTPException(status_code=404, detail='Grant not found')
@@ -446,7 +477,7 @@ def post_horizons_media_asset(project_id: str, data: HorizonMediaAssetDeclare, v
     if is_restricted_horizon_artist(ctx.user, access_role):
         file_path = require_horizon_user_workspace_path(db, project_id, ctx.user, file_path, allow_workspace_root=False)
         if str(storage_scope or '').strip().lower() != 'project':
-            raise HTTPException(status_code=403, detail='Artists can only declare project-owned workspace media')
+            raise HTTPException(status_code=403, detail='Members with review access can only use media in their workspace')
     asset = declare_media_asset(
         db,
         project_id,
@@ -588,7 +619,7 @@ def get_horizons_trackers(project_id: str, vueio_session: str = Cookie(None), x_
 @router.post('/api/horizons/projects/{project_id}/trackers', deprecated=True)
 def post_horizons_tracker(project_id: str, data: HorizonTrackerCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='admin')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     tracker = create_horizon_tracker(db, project_id=project_id, name=data.name, slug=data.slug)
     return _tracker_payload(tracker)
 
@@ -598,7 +629,7 @@ def put_horizons_tracker(project_id: str, tracker_id: str, data: HorizonTrackerU
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
     if not data.model_fields_set:
         raise HTTPException(status_code=400, detail='No tracker changes provided')
-    require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='admin')
+    _require_project_content_management(db, project_id, ctx, required_role='owner')
     tracker = update_horizon_tracker(
         db,
         project_id,
@@ -639,7 +670,7 @@ def post_horizons_tracker_shot(project_id: str, tracker_id: str, data: HorizonSh
     ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, ctx.user, auth_mode=ctx.auth_mode, required_role='editor')
     if is_restricted_horizon_artist(ctx.user):
-        raise HTTPException(status_code=403, detail='Artists cannot create tracker shots')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_id)
     command_ctx = _horizons_shot_context(project_id, tracker, ctx, access_role)
     result = ShotCommandService(db).create_shot(
@@ -665,7 +696,7 @@ def put_horizons_shot(project_id: str, shot_id: str, data: HorizonShotUpdate, vu
     if is_restricted_horizon_artist(ctx.user):
         blocked_fields = update_fields - {'status', 'category'}
         if blocked_fields:
-            raise HTTPException(status_code=403, detail='Artists can only update assigned shot status and tag')
+            raise HTTPException(status_code=403, detail='Members with review access can only update assigned shot status and tag')
     tracker = get_horizon_tracker_by_ref(db, project_id, shot.tracker_id)
     command_ctx = _horizons_shot_context(project_id, tracker, ctx, access_role)
     result = ShotCommandService(db).update_shot(

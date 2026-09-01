@@ -519,6 +519,9 @@ const {
   isAdmin,
   canAccessProjectManager,
   canEditProject,
+  canManageProjectContent,
+  canCreateProjects,
+  canDeleteProjects,
   canAddShots,
   canEditShotName,
   canEditDescription,
@@ -707,6 +710,9 @@ projectSettingsStore = provideProjectSettingsStore(createProjectSettingsStore({
   currentPage,
   currentUser,
   isAdmin,
+  canManageProjectContent,
+  canCreateProjects,
+  canDeleteProjects,
   shareMode,
   pendingShareId,
   appIdentity,
@@ -874,7 +880,16 @@ provideActivityStore(createActivityStore({
 }))
 
 function canOpenProjectSettingsItem(project) {
-  return !!project && isAdmin.value
+  return Boolean(
+    project
+    && (
+      isAdmin.value
+      || (
+        currentUser.value?.app_access?.manage_project_content === true
+        && ['owner', 'editor'].includes(project.access_role)
+      )
+    )
+  )
 }
 
 function handleKeydown(e) {
@@ -951,6 +966,7 @@ provideViewerStore(createViewerStore({
     transport: viewerController.transport,
     annotations: viewerController.annotations,
     frames: viewerController.frames,
+    colorPreview: viewerController.colorPreview,
     actions: viewerController.actions,
   },
   comparison: {

@@ -16,6 +16,10 @@ from app.services.auth import load_users
 from app.services.naming import slugify
 from app.services.project_access import verify_path_in_project
 from app.services.project_permissions import make_project_path_smb_mutable
+from app.services.user_access import (
+    canonical_user_role,
+    is_restricted_project_member,
+)
 
 from .common import ROLE_RANK, _dedupe_ordered, _normalize_grant_role, _normalize_horizon_runtime_path
 
@@ -44,7 +48,7 @@ def _canonical_user_id(user: dict | None) -> str | None:
 
 
 def _is_assignable_team_user(user: dict | None) -> bool:
-    return bool(user and (user.get('role') or '').strip().lower() in {'admin', 'artist'})
+    return bool(user and canonical_user_role(user.get('role')) in {'admin', 'member'})
 
 
 def get_horizon_assignable_user(user_ref: str | None) -> dict | None:
@@ -73,7 +77,7 @@ def serialize_horizon_team_user(user: dict | None) -> dict | None:
         'id': _canonical_user_id(user),
         'username': user.get('username') or user.get('id'),
         'display_name': user.get('display_name') or user.get('username') or user.get('id'),
-        'role': user.get('role'),
+        'role': canonical_user_role(user.get('role')),
     }
 
 
@@ -188,9 +192,9 @@ def is_horizon_workspace_root_path(path: str | None) -> bool:
 
 
 def is_restricted_horizon_artist(user: dict | None, access_role: str | None = None) -> bool:
-    # Project roles describe write capability. Artist visibility is always
-    # assignment-scoped so editor grants do not expose unrelated shots.
-    return bool(user and user.get('role') == 'artist')
+    # Project roles describe write capability. Restricted Member visibility is
+    # assignment-scoped until an administrator grants project-content control.
+    return is_restricted_project_member(user)
 
 
 def ensure_horizon_project_user_workspace(db: Session, project_id: str, user: dict | None) -> str:
@@ -216,10 +220,10 @@ def require_horizon_user_workspace_path(
     path: str | None,
     *,
     allow_workspace_root: bool = True,
-    outside_detail: str = 'Artists can only modify items inside their workspace',
+    outside_detail: str = 'Members with review access can only modify items inside their workspace',
     root_detail: str = 'Cannot modify the workspace root',
 ) -> str:
-    """Return a canonical project path confined to an artist workspace."""
+    """Return a canonical project path confined to a restricted Member workspace."""
     normalized_path = _normalize_horizon_runtime_path(path, allow_empty=True)
     workspace_path = ensure_horizon_project_user_workspace(db, project_id, user)
     if not normalized_path:

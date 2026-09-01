@@ -6,12 +6,13 @@ from fastapi import HTTPException
 
 from app.services.auth import get_user_from_session, require_admin
 from app.services.projects import require_project_dir
+from app.services.user_access import is_admin_user
 
 
 def check_project_permission(user: dict, project_id: str) -> bool:
     if not user:
         return False
-    if user.get('role') == 'admin':
+    if is_admin_user(user):
         return True
     perms = user.get('project_permissions', []) or []
     return '*' in perms or project_id in perms

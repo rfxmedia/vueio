@@ -415,9 +415,9 @@
                   <option v-if="!teamMemberHasEditableRole(member)" :value="teamMemberRoleValue(member)" disabled>
                     {{ formatTeamRole(teamMemberRoleValue(member)) }}
                   </option>
-                  <option value="viewer">Viewer</option>
-                  <option value="editor">Editor</option>
-                  <option value="owner" :disabled="member.project_role !== 'owner'">Owner</option>
+                  <option value="viewer">Can view</option>
+                  <option value="editor">Can edit</option>
+                  <option value="owner">Can manage</option>
                 </select>
               </div>
               <button
@@ -473,8 +473,9 @@
                 aria-label="Role for new teammate"
                 @change="$emit('update:teamAddRole', $event.target.value)"
               >
-                <option value="viewer">Viewer</option>
-                <option value="editor">Editor</option>
+                <option value="viewer">Can view</option>
+                <option value="editor">Can edit</option>
+                <option value="owner">Can manage</option>
               </select>
             </div>
             <button
@@ -723,12 +724,16 @@ function teamMemberHasEditableRole(member) {
 }
 
 function isLockedTeamRole(member) {
-  return ['admin', 'owner'].includes(teamMemberRoleValue(member))
+  return member?.role === 'admin' || (isCurrentUser(member) && teamMemberRoleValue(member) === 'owner')
 }
 
 function formatTeamRole(role) {
-  const value = String(role || 'viewer')
-  return value.charAt(0).toUpperCase() + value.slice(1)
+  return ({
+    viewer: 'Can view',
+    editor: 'Can edit',
+    owner: 'Can manage',
+    admin: 'Administrator',
+  })[String(role || 'viewer')] || 'Can view'
 }
 
 function getStatusColor(value) {

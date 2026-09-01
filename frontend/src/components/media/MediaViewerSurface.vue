@@ -10,7 +10,7 @@
       </div>
     </div>
 
-    <div v-else class="video-container" :ref="setVideoContainerRef" @click="handleVideoContainerClick">
+    <div v-else class="video-container" :ref="setVideoContainerElement" @click="handleVideoContainerClick">
       <div v-if="mediaUnavailable" class="media-unavailable" role="status">
         <svg class="icon"><use href="#icon-file" /></svg>
         <h3>Version unavailable</h3>
@@ -76,7 +76,31 @@
         </div>
       </div>
       <template v-else>
-        <video :ref="setVideoElRef" :muted="playerMuted" :loop="nativeVideoLoop" :poster="videoPosterUrl || undefined" @timeupdate="onTimeUpdate" @loadedmetadata="onLoaded" @canplay="onVideoCanPlay" @ended="onVideoEnded" @play="onVideoPlay" @pause="onVideoPause" @seeked="onVideoSeeked" playsinline webkit-playsinline preload="metadata"></video>
+        <video
+          :ref="setVideoElement"
+          :muted="playerMuted"
+          :loop="nativeVideoLoop"
+          :poster="videoPosterUrl || undefined"
+          @timeupdate="handleVideoTimeUpdate"
+          @loadedmetadata="handleVideoLoadedMetadata"
+          @loadeddata="scheduleColorPreviewFrame"
+          @canplay="handleVideoCanPlay"
+          @ended="handleVideoEnded"
+          @play="handleVideoPlay"
+          @pause="handleVideoPause"
+          @seeked="handleVideoSeeked"
+          playsinline
+          webkit-playsinline
+          preload="metadata"
+        ></video>
+
+        <canvas
+          ref="colorPreviewCanvasRef"
+          class="video-color-preview-canvas"
+          :class="{ 'is-visible': colorPreviewReady }"
+          aria-hidden="true"
+          @webglcontextlost.prevent="handleColorPreviewContextLost"
+        ></canvas>
 
         <canvas
           :ref="setAnnotationCanvasRef"
@@ -101,6 +125,7 @@
 <script setup>
 import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
 import { clamp } from '../../utils/math'
+import { createVideoColorPreviewRenderer, isVideoColorPreviewActive } from '../../lib/videoColorPreview'
 
 const MediaPdfViewer = defineAsyncComponent(() => import('./MediaPdfViewer.vue'))
 
@@ -122,6 +147,7 @@ const props = defineProps({
   nativeVideoLoop: { type: Boolean, default: false },
   isDrawingMode: { type: Boolean, default: false },
   showAnnotationPreview: { type: Boolean, default: false },
+  colorPreviewMode: { type: String, default: 'source' },
   pdfFocusRequest: { type: Object, default: null },
   onPdfLoaded: { type: Function, default: null },
   onPdfAnnotationTargetChange: { type: Function, default: null },
@@ -144,11 +170,16 @@ const props = defineProps({
   setVideoElRef: { type: Function, required: true },
   setImageStageRef: { type: Function, required: true },
   setAnnotationCanvasRef: { type: Function, required: true },
-  setPreviewCanvasRef: { type: Function, required: true }
+  setPreviewCanvasRef: { type: Function, required: true },
+  onColorPreviewUnavailable: { type: Function, default: null },
 })
 
 const imageShellRef = ref(null)
 const imageStageRef = ref(null)
+const videoElementRef = ref(null)
+const videoContainerElementRef = ref(null)
+const colorPreviewCanvasRef = ref(null)
+const colorPreviewReady = ref(false)
 const imageScale = ref(1)
 const imagePanX = ref(0)
 const imagePanY = ref(0)
@@ -163,6 +194,175 @@ let dragBounds = null
 let pendingDragPoint = null
 let imageDragFrame = 0
 let imageResizeFrame = 0
+let colorPreviewRenderer = null
+let colorPreviewFrameHandle = 0
+let colorPreviewFallbackFrame = 0
+let colorPreviewResizeObserver = null
+
+const colorPreviewActive = computed(() => isVideoColorPreviewActive(props.colorPreviewMode))
+
+function setVideoElement(element) {
+  cancelColorPreviewFrame()
+  videoElementRef.value = element || null
+  props.setVideoElRef(element)
+  if (!element) {
+    colorPreviewReady.value = false
+    destroyColorPreviewRenderer()
+    return
+  }
+  if (colorPreviewActive.value) scheduleColorPreviewFrame()
+}
+
+function setVideoContainerElement(element) {
+  videoContainerElementRef.value = element || null
+  props.setVideoContainerRef(element)
+  colorPreviewResizeObserver?.disconnect()
+  colorPreviewResizeObserver = null
+  if (element && typeof ResizeObserver !== 'undefined') {
+    colorPreviewResizeObserver = new ResizeObserver(scheduleColorPreviewResize)
+    colorPreviewResizeObserver.observe(element)
+  }
+}
+
+function destroyColorPreviewRenderer() {
+  const renderer = colorPreviewRenderer
+  colorPreviewRenderer = null
+  renderer?.destroy()
+}
+
+function cancelColorPreviewFrame() {
+  const video = videoElementRef.value
+  if (colorPreviewFrameHandle && video?.cancelVideoFrameCallback) {
+    video.cancelVideoFrameCallback(colorPreviewFrameHandle)
+  }
+  if (colorPreviewFallbackFrame) window.cancelAnimationFrame(colorPreviewFallbackFrame)
+  colorPreviewFrameHandle = 0
+  colorPreviewFallbackFrame = 0
+}
+
+function getColorPreviewRenderSize() {
+  const video = videoElementRef.value
+  const container = videoContainerElementRef.value
+  const sourceWidth = Math.max(1, Number(video?.videoWidth || 1))
+  const sourceHeight = Math.max(1, Number(video?.videoHeight || 1))
+  const containerWidth = Math.max(1, Number(container?.clientWidth || sourceWidth))
+  const containerHeight = Math.max(1, Number(container?.clientHeight || sourceHeight))
+  const sourceAspect = sourceWidth / sourceHeight
+  const displayWidth = sourceAspect >= containerWidth / containerHeight
+    ? containerWidth
+    : containerHeight * sourceAspect
+  const pixelRatio = Math.min(2, Math.max(1, Number(window.devicePixelRatio || 1)))
+  const requestedWidth = Math.min(sourceWidth, Math.round(displayWidth * pixelRatio))
+  const scale = Math.min(1, 2560 / requestedWidth)
+  const width = Math.max(1, Math.round(requestedWidth * scale))
+  return {
+    width,
+    height: Math.max(1, Math.round(width / sourceAspect)),
+  }
+}
+
+function ensureColorPreviewRenderer() {
+  if (colorPreviewRenderer) return colorPreviewRenderer
+  colorPreviewRenderer = createVideoColorPreviewRenderer(colorPreviewCanvasRef.value)
+  return colorPreviewRenderer
+}
+
+function renderColorPreviewFrame() {
+  if (!colorPreviewActive.value) return false
+  const video = videoElementRef.value
+  if (!video || Number(video.readyState || 0) < 2) return false
+  try {
+    const size = getColorPreviewRenderSize()
+    const rendered = ensureColorPreviewRenderer().render(
+      video,
+      props.colorPreviewMode,
+      size.width,
+      size.height,
+    )
+    if (rendered) colorPreviewReady.value = true
+    return rendered
+  } catch (error) {
+    handleColorPreviewFailure(error)
+    return false
+  }
+}
+
+function requestColorPreviewFrame() {
+  const video = videoElementRef.value
+  if (!colorPreviewActive.value || !video || video.paused || video.ended) return
+  if (typeof video.requestVideoFrameCallback === 'function') {
+    colorPreviewFrameHandle = video.requestVideoFrameCallback(() => {
+      colorPreviewFrameHandle = 0
+      renderColorPreviewFrame()
+      requestColorPreviewFrame()
+    })
+    return
+  }
+  colorPreviewFallbackFrame = window.requestAnimationFrame(() => {
+    colorPreviewFallbackFrame = 0
+    renderColorPreviewFrame()
+    requestColorPreviewFrame()
+  })
+}
+
+function scheduleColorPreviewFrame() {
+  if (!colorPreviewActive.value) return
+  renderColorPreviewFrame()
+  if (!colorPreviewFrameHandle && !colorPreviewFallbackFrame) requestColorPreviewFrame()
+}
+
+function scheduleColorPreviewResize() {
+  if (!colorPreviewActive.value) return
+  window.requestAnimationFrame(renderColorPreviewFrame)
+}
+
+function handleColorPreviewFailure(error) {
+  cancelColorPreviewFrame()
+  colorPreviewReady.value = false
+  destroyColorPreviewRenderer()
+  props.onColorPreviewUnavailable?.(error)
+}
+
+function handleColorPreviewContextLost() {
+  handleColorPreviewFailure(new Error('The color preview graphics context was lost'))
+}
+
+function handleVideoTimeUpdate(event) {
+  props.onTimeUpdate(event)
+  if (event?.currentTarget?.paused) scheduleColorPreviewFrame()
+}
+
+function handleVideoLoadedMetadata(event) {
+  props.onLoaded(event)
+  scheduleColorPreviewFrame()
+}
+
+function handleVideoCanPlay(event) {
+  props.onVideoCanPlay(event)
+  scheduleColorPreviewFrame()
+}
+
+function handleVideoPlay(event) {
+  props.onVideoPlay(event)
+  scheduleColorPreviewFrame()
+}
+
+function handleVideoPause(event) {
+  props.onVideoPause(event)
+  cancelColorPreviewFrame()
+  renderColorPreviewFrame()
+}
+
+function handleVideoEnded(event) {
+  props.onVideoEnded(event)
+  cancelColorPreviewFrame()
+  renderColorPreviewFrame()
+}
+
+function handleVideoSeeked(event) {
+  props.onVideoSeeked(event)
+  scheduleColorPreviewFrame()
+}
 
 const canUseImageDesktopNavigation = computed(() => (
   props.enableImageDesktopNavigation &&
@@ -393,14 +593,35 @@ watch(() => props.isViewingImage, (isViewingImage) => {
   }
 })
 
+watch(() => props.colorPreviewMode, () => {
+  cancelColorPreviewFrame()
+  colorPreviewReady.value = false
+  if (!colorPreviewActive.value) {
+    destroyColorPreviewRenderer()
+    return
+  }
+  scheduleColorPreviewFrame()
+})
+
+watch(() => props.currentMedia?.path, () => {
+  cancelColorPreviewFrame()
+  colorPreviewReady.value = false
+})
+
 onMounted(() => {
   window.addEventListener('resize', scheduleImagePanClamp)
+  window.addEventListener('resize', scheduleColorPreviewResize)
 })
 
 onUnmounted(() => {
   stopImageDrag()
+  cancelColorPreviewFrame()
+  destroyColorPreviewRenderer()
+  colorPreviewResizeObserver?.disconnect()
+  colorPreviewResizeObserver = null
   if (imageResizeFrame) window.cancelAnimationFrame(imageResizeFrame)
   window.removeEventListener('resize', scheduleImagePanClamp)
+  window.removeEventListener('resize', scheduleColorPreviewResize)
 })
 </script>
 
@@ -531,6 +752,22 @@ onUnmounted(() => {
   transform: translateZ(0);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
+}
+
+.video-color-preview-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.video-color-preview-canvas.is-visible {
+  opacity: 1;
 }
 
 .stream-overlay {

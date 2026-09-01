@@ -32,7 +32,13 @@ export function useTrackerSettings({
   const canEdit = computed(() => (
     !shareMode.value &&
     !!currentProject.value &&
-    isAdmin.value
+    (
+      isAdmin.value
+      || (
+        currentUser.value?.app_access?.manage_project_content === true
+        && currentProject.value?.access_role === 'owner'
+      )
+    )
   ))
 
   function toolEnabledForContext(tracker, toolKey) {

@@ -3,7 +3,7 @@
     <AdminSettingsHeader
       eyebrow="Workspace"
       title="Team"
-      description="Set the identity people see on deliveries and control who can enter your Vueio workspace."
+      description="Control who can enter your Vueio workspace and what each Member can manage."
       icon="#icon-users"
     >
       <button class="v-btn v-btn-primary v-btn-sm" @click="$emit('open-create-user-modal')">
@@ -12,8 +12,8 @@
       </button>
     </AdminSettingsHeader>
 
-    <div class="team-settings-shell">
-      <div class="settings-panel identity-panel team-profile-panel">
+    <div class="team-settings-shell" :class="{ 'is-members-only': !showTeamProfile }">
+      <div v-if="showTeamProfile" class="settings-panel identity-panel team-profile-panel">
         <div class="identity-hero">
           <div class="identity-logo-preview" :class="{ 'is-empty': !identityLogoUrl }">
             <img v-if="identityLogoUrl" :src="identityLogoUrl" alt="" />
@@ -98,7 +98,7 @@
           </div>
           <div class="team-member-counts">
             <span>{{ adminUserCount }} {{ adminUserCount === 1 ? 'admin' : 'admins' }}</span>
-            <span>{{ artistUserCount }} {{ artistUserCount === 1 ? 'artist' : 'artists' }}</span>
+            <span>{{ memberUserCount }} {{ memberUserCount === 1 ? 'member' : 'members' }}</span>
           </div>
         </div>
 
@@ -123,7 +123,7 @@
               <div class="team-member-title-row">
                 <h3>{{ user.display_name }}</h3>
                 <span v-if="user.id === currentUser?.id" class="admin-badge success">You</span>
-                <span class="admin-badge" :class="user.role === 'admin' ? 'success' : ''">{{ user.role }}</span>
+                <span class="admin-badge" :class="user.role === 'admin' ? 'success' : ''">{{ user.role === 'admin' ? 'Administrator' : 'Member' }}</span>
               </div>
               <div class="team-member-meta">
                 <span>@{{ user.username }}</span>
@@ -131,8 +131,11 @@
               </div>
             </div>
             <div class="team-member-actions">
-              <button class="v-btn v-btn-ghost v-btn-sm" @click="$emit('open-edit-user-modal', user)">Edit</button>
-              <button v-if="user.id !== currentUser?.id" class="v-btn v-btn-danger v-btn-sm" @click="$emit('delete-user', user)">Delete</button>
+              <template v-if="user.can_manage">
+                <button class="v-btn v-btn-ghost v-btn-sm" @click="$emit('open-edit-user-modal', user)">Edit</button>
+                <button v-if="user.id !== currentUser?.id" class="v-btn v-btn-danger v-btn-sm" @click="$emit('delete-user', user)">Delete</button>
+              </template>
+              <span v-else class="team-member-protected">Protected</span>
             </div>
           </article>
         </div>
@@ -147,7 +150,7 @@ import AdminSettingsHeader from './AdminSettingsHeader.vue'
 
 defineProps({
   adminUserCount: { type: Number, required: true },
-  artistUserCount: { type: Number, required: true },
+  memberUserCount: { type: Number, required: true },
   currentUser: { type: Object, default: null },
   filteredUsers: { type: Array, required: true },
   identityForm: { type: Object, required: true },
@@ -158,6 +161,7 @@ defineProps({
   identitySaving: { type: Boolean, required: true },
   identityTeamName: { type: String, required: true },
   identityWebsiteUrl: { type: String, default: '' },
+  showTeamProfile: { type: Boolean, default: false },
   summarizeAppAccess: { type: Function, required: true },
   userInitials: { type: Function, required: true },
   userSearch: { type: String, default: '' },
@@ -190,12 +194,17 @@ defineEmits([
   padding-top: var(--v-space-4);
 }
 
+.team-settings-shell.is-members-only {
+  grid-template-columns: minmax(0, 820px);
+}
+
 .identity-panel {
   gap: 18px;
 }
 
 .team-profile-panel,
 .team-members-panel {
+  width: 100%;
   max-width: none;
   padding: var(--v-space-4);
   border: 1px solid var(--v-surface-border-soft);
@@ -336,6 +345,12 @@ defineEmits([
   gap: 7px;
 }
 
+.team-member-protected {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  font-weight: 650;
+}
+
 .identity-hero,
 .identity-logo-row,
 .identity-delivery-sample {
@@ -462,7 +477,7 @@ defineEmits([
   text-decoration: none;
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 1320px) {
   .team-settings-shell {
     grid-template-columns: 1fr;
   }

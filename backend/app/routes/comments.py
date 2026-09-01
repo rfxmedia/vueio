@@ -14,6 +14,7 @@ from app.config import get_settings
 from app.limiter import enforce_rate_limit
 from app.models import Comment
 from app.services.auth import get_request_user, get_user_from_session
+from app.services.user_access import is_admin_user
 from app.services.comment_visuals import (
     build_comment_visual_context,
     can_generate_comment_frame,
@@ -720,7 +721,7 @@ def resolve_comment(request: Request, comment_id: int, share_id: str = None, sha
 @router.delete('/api/comments/{comment_id}')
 def delete_comment(comment_id: int, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
     user = get_user_from_session(vueio_session)
-    if not user or user['role'] != 'admin':
+    if not is_admin_user(user):
         raise HTTPException(status_code=403, detail='Admin access required')
     comment = db.query(Comment).filter(Comment.id == comment_id).first()
     if not comment:

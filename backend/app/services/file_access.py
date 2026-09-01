@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 from app.services.auth import require_auth
+from app.services.user_access import has_app_access, is_admin_user
 
 
 def _permission_path_parts(value: str) -> tuple[str, ...] | None:
@@ -21,13 +22,7 @@ def _is_same_or_descendant(candidate: tuple[str, ...], root: tuple[str, ...]) ->
 
 
 def _has_file_browser_access(user: dict) -> bool:
-    return bool(
-        user
-        and (
-            user.get('role') == 'admin'
-            or (user.get('app_access') or {}).get('file_browser')
-        )
-    )
+    return has_app_access(user, 'file_browser')
 
 
 def check_folder_read_permission(user: dict, path: str) -> bool:
@@ -36,7 +31,7 @@ def check_folder_read_permission(user: dict, path: str) -> bool:
     candidate = _permission_path_parts(path)
     if candidate is None:
         return False
-    if user.get('role') == 'admin':
+    if is_admin_user(user):
         return True
     perms = user.get('folder_permissions', []) or []
     if '*' in perms:
@@ -93,7 +88,7 @@ def require_file_browser_read_access(vueio_session: Optional[str], path: str) ->
 def filter_items_by_permission(user: dict, items: list) -> list:
     if not user:
         return []
-    if user.get('role') == 'admin':
+    if is_admin_user(user):
         return items
 
     folder_permissions = user.get('folder_permissions', [])

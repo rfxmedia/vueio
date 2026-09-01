@@ -2,6 +2,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { invalidateTrackerPayloads } from '../lib/workspacePayloadCache'
 import { notify } from '../utils/toasts'
+import { isRestrictedProjectMember } from '../utils/accountAccess'
 
 const CATEGORY_COLORS = [
   '#6366f1',
@@ -550,7 +551,7 @@ export function useTrackerListController(ctx) {
   const canReorderShots = computed(() => (
     !ctx.shareMode.value &&
     ctx.canEditProject.value &&
-    ctx.currentUser.value?.role !== 'artist' &&
+    !isRestrictedProjectMember(ctx.currentUser.value) &&
     !ctx.currentProject.value?.storage_read_only &&
     !hasTrackerFilters.value &&
     !trackerSortKey.value &&
@@ -589,7 +590,7 @@ export function useTrackerListController(ctx) {
   })
 
   const canAssignShots = computed(() => (
-    !ctx.shareMode.value && !!ctx.currentProject.value && ctx.currentUser.value?.role !== 'artist' &&
+    !ctx.shareMode.value && !!ctx.currentProject.value && !isRestrictedProjectMember(ctx.currentUser.value) &&
     (ctx.isAdmin.value || ['admin', 'owner', 'editor'].includes(ctx.currentProject.value?.access_role || ''))
   ))
   const canArchiveShots = computed(() => canAssignShots.value)

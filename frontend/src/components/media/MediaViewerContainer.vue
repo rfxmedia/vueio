@@ -49,6 +49,7 @@ const {
   transport,
   annotations,
   frames,
+  colorPreview,
   actions: viewerActions,
 } = media
 
@@ -118,6 +119,7 @@ const surfaceProps = computed(() => ({
   nativeVideoLoop: transport.nativeVideoLoopEnabled.value,
   isDrawingMode: annotations.isDrawingMode.value,
   showAnnotationPreview: comments.showAnnotationPreview.value,
+  colorPreviewMode: colorPreview.mode.value,
   pdfFocusRequest: annotations.pdfFocusRequest.value,
   onPdfLoaded: annotations.handlePdfLoaded,
   onPdfAnnotationTargetChange: annotations.handlePdfAnnotationTargetChange,
@@ -141,6 +143,7 @@ const surfaceProps = computed(() => ({
   setImageStageRef: viewerActions.setImageStageRef,
   setAnnotationCanvasRef: annotations.setAnnotationCanvasRef,
   setPreviewCanvasRef: annotations.setPreviewCanvasRef,
+  onColorPreviewUnavailable: colorPreview.handleUnavailable,
 }))
 
 const toolbarProps = computed(() => ({
@@ -179,6 +182,10 @@ const toolbarProps = computed(() => ({
   onSetCurrentFrameAsThumbnail: frames.setCurrentFrameAsThumbnail,
   canSetCurrentFrameAsThumbnail: frames.canSetCurrentFrameAsThumbnail.value,
   frameCaptureComment: frames.frameCaptureComment.value,
+  colorPreviewOptions: colorPreview.options,
+  colorPreviewMode: colorPreview.mode.value,
+  colorPreviewAvailable: colorPreview.available.value,
+  onSetColorPreviewMode: colorPreview.setMode,
 }))
 
 const infoPanelProps = computed(() => ({

@@ -59,13 +59,14 @@ from app.services.tracker_downloads import build_tracker_latest_versions_zip, st
 from app.services.zip_utils import get_zip_package_job, get_zip_package_job_download, get_zip_package_job_record
 from app.services.tracker_events import build_tracker_event_actor, create_tracker_event
 from app.services.tracker_history import prepare_tracker_history_mutation
+from app.services.user_access import is_restricted_project_member
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=['tracker-workflow'])
 
 
 def _is_project_artist(user: dict | None) -> bool:
-    return bool(user and (user.get('role') or '').strip().lower() == 'artist')
+    return is_restricted_project_member(user)
 
 
 def _ensure_artist_workspace_rel_path(db: Session, project_id: str, user: dict | None, path: str | None, *, allow_workspace_root: bool = True) -> str:
@@ -75,7 +76,7 @@ def _ensure_artist_workspace_rel_path(db: Session, project_id: str, user: dict |
         user,
         path,
         allow_workspace_root=allow_workspace_root,
-        outside_detail='Artists can only use files inside their workspace',
+        outside_detail='Members with review access can only use files inside their workspace',
         root_detail='Cannot use the workspace root',
     )
 
@@ -385,7 +386,7 @@ def add_shot_to_tracker(project_id: str, tracker_name: str, data: ShotCreate, vu
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot create tracker shots')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role=access_role, user=user, auth_mode=auth_mode)
     service = ShotCommandService(db)
@@ -416,7 +417,7 @@ def bulk_import_shots(project_id: str, tracker_name: str, data: BulkShotImport, 
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot bulk-create tracker shots')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role=access_role, user=user, auth_mode=auth_mode)
     result = ShotCommandService(db).bulk_import_shots(ctx, data.files, created_by=user.get('id') or user.get('username'))
@@ -455,7 +456,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
 
     if data.shot_order:
         if _is_project_artist(user):
-            raise HTTPException(status_code=403, detail='Artists cannot reorder tracker shots')
+            raise HTTPException(status_code=403, detail='Project content management access required')
         ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role=access_role, user=user, auth_mode=auth_mode)
         result = ShotCommandService(db).reorder_shots(ctx, data.shot_order)
         _apply_shot_command_result(db, result, project_id=project_id)
@@ -501,7 +502,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
             current_assignee = shot.assignee_user_id if shot.assignee_user_id else None
             if requested_assignee == current_assignee:
                 # Older frontend bundles included the unchanged assignee on status saves.
-                # Tolerate that no-op so artist editors can still change status, but
+                # Tolerate that no-op so review Members can still change status, but
                 # continue blocking actual assignment changes.
                 artist_fields.remove('assignee_user_id')
                 ignore_unchanged_artist_assignee = True
@@ -512,7 +513,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
                 ignore_unchanged_artist_assignee = True
         blocked_fields = artist_fields & {'new_shot_id', 'description', 'assignee_user_id', 'assignee_user_ids', 'shot_order'}
         if blocked_fields:
-            raise HTTPException(status_code=403, detail='Artists can only update shot status, tag, and versions')
+            raise HTTPException(status_code=403, detail='Members with review access can only update shot status, tag, and versions')
         if data.file_path:
             data.file_path = _ensure_artist_workspace_rel_path(db, project_id, user, data.file_path, allow_workspace_root=False)
         if data.versions is not None:
@@ -595,7 +596,7 @@ async def upload_shot_brief(project_id: str, tracker_name: str, shot_id: str, vu
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
-        raise HTTPException(status_code=403, detail='Artists cannot upload shot briefs')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     shot = get_horizon_shot_by_ref(db, project_id, shot_id, tracker_id=tracker.id)
     actor = _request_tracker_actor(user, auth_mode)
@@ -683,7 +684,7 @@ def bulk_update_tracker_shots(project_id: str, tracker_name: str, data: BulkShot
     if not update_fields:
         raise HTTPException(status_code=400, detail='At least one bulk update field is required')
     if _is_project_artist(user) and update_fields - {'status', 'category'}:
-        raise HTTPException(status_code=403, detail='Artists can only bulk update shot status and tag')
+        raise HTTPException(status_code=403, detail='Members with review access can only bulk update shot status and tag')
 
     next_status = _normalize_bulk_shot_status(data.status) if 'status' in update_fields else None
     next_category = None
@@ -1240,7 +1241,11 @@ def delete_shot_from_tracker(project_id: str, tracker_name: str, shot_id: str, v
 def add_shot_legacy(project_id: str, data: ShotCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
-    _get_or_create_main_tracker(db, project_id, can_create=access_role == 'admin')
+    _get_or_create_main_tracker(
+        db,
+        project_id,
+        can_create=_access_role_meets(access_role, 'owner') and not _is_project_artist(user),
+    )
     return add_shot_to_tracker(project_id, 'Main', data, vueio_session=vueio_session, x_vueio_agent_key=x_vueio_agent_key, db=db)
 
 

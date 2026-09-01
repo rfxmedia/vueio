@@ -12,6 +12,7 @@ from app.runtime_state import SEARCH_INDEX_MAX_FILES, SEARCH_INDEX_TTL_SECONDS, 
 from app.services.file_access import check_folder_read_permission
 from app.services.horizons_fresh import DELETED_PROJECT_STATUS
 from app.services.horizons.projects import list_visible_horizon_projects
+from app.services.user_access import has_app_access
 
 settings = get_settings()
 MEDIA_ROOT = settings.MEDIA_ROOT
@@ -89,10 +90,7 @@ def filter_search_index_for_user(index: dict, user: dict, db: Session) -> dict:
         project.id
         for project in list_visible_horizon_projects(db, user)
     }
-    can_search_files = bool(
-        user.get('role') == 'admin'
-        or (user.get('app_access') or {}).get('file_browser')
-    )
+    can_search_files = has_app_access(user, 'file_browser')
     return {
         'built_at': index.get('built_at', 0.0),
         'projects': [

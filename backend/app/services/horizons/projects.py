@@ -28,6 +28,7 @@ from app.services.projects import (
     resolve_storage_location,
     storage_location_is_read_only,
 )
+from app.services.user_access import is_admin_user
 
 from .common import DELETED_PROJECT_STATUS, ROLE_RANK, _normalize_project_status, _normalize_visibility, is_deleted_horizon_project
 
@@ -208,7 +209,7 @@ def get_horizon_project_access_role(db: Session, project: HorizonProject, user: 
 
     if is_deleted_horizon_project(project):
         return None
-    if user.get('role') == 'admin':
+    if is_admin_user(user):
         return 'admin'
 
     owner_candidates = {value for _stype, value in _subject_candidates_for_user(user)}
@@ -244,7 +245,7 @@ def require_horizon_project_access(db: Session, project_id: str, user: dict, aut
 
 
 def list_visible_horizon_projects(db: Session, user: dict, auth_mode: str | None = None) -> list[HorizonProject]:
-    if user.get('role') == 'admin':
+    if is_admin_user(user):
         return list_horizon_projects(db)
     visible = []
     for project in list_horizon_projects(db):

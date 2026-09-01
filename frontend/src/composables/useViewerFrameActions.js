@@ -35,6 +35,7 @@ export function useViewerFrameActions({
   annotationCanvas,
   previewCanvas,
   showAnnotationPreview,
+  colorPreviewMode,
   shareMode,
   getFallbackSourceName = () => '',
   triggerBlobDownload,
@@ -123,13 +124,18 @@ export function useViewerFrameActions({
     }
   }
 
-  function renderCurrentVideoFrame({ includeAnnotations = false, includeComment = false } = {}) {
+  function renderCurrentVideoFrame({
+    includeAnnotations = false,
+    includeComment = false,
+    includeColorPreview = true,
+  } = {}) {
     return renderVideoFrame({
       video: readSource(videoEl),
       annotationCanvas: includeAnnotations ? readSource(annotationCanvas) : null,
       previewCanvas: includeAnnotations && readSource(showAnnotationPreview) ? readSource(previewCanvas) : null,
       includeAnnotations,
       comment: includeComment ? getFrameCaptureCommentSnapshot({ requireCurrentFrame: true }) : null,
+      colorPreviewMode: includeColorPreview ? readSource(colorPreviewMode) : 'source',
     })
   }
 
@@ -232,7 +238,7 @@ export function useViewerFrameActions({
       throw new Error('Thumbnail target unavailable')
     }
 
-    const canvas = renderCurrentVideoFrame({ includeAnnotations: false })
+    const canvas = renderCurrentVideoFrame({ includeAnnotations: false, includeColorPreview: false })
     const blob = await canvasToPngBlob(canvas)
     const formData = new FormData()
     formData.append('file', blob, getCurrentFrameDownloadName())

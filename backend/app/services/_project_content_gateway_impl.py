@@ -40,6 +40,7 @@ from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.projects import get_project_dir, load_project_links, project_storage_is_read_only, resolve_project_root
 from app.services.share_access import _resolve_horizons_media_target_by_refs, build_project_file_info_payload, normalize_virtual_path, resolve_shared_horizons_object_target
 from app.services.zip_utils import ZipDiscoveryBudget, ZipEntry, ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget, unique_arcname
+from app.services.user_access import is_restricted_project_member
 
 settings = get_settings()
 PDF_EXTENSIONS = {'.pdf'}
@@ -105,7 +106,7 @@ def _virtual_path_is_inside(virtual_path: str | None, parent_path: str | None) -
     return True if not parent else normalized == parent or normalized.startswith(f'{parent}/')
 
 def _is_artist_user(user: dict | None) -> bool:
-    return bool(user and (user.get('role') or '').strip().lower() == 'artist')
+    return is_restricted_project_member(user)
 
 def _horizon_asset_map_by_path(assets: list) -> dict[str, object]:
     result: dict[str, object] = {}

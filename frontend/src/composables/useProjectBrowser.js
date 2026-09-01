@@ -10,6 +10,7 @@ import {
   openBrowserMediaItem,
 } from '../lib/browserSurface'
 import { isFileBrowserFile, isFileBrowserFolder } from '../utils/fileBrowserItems'
+import { isRestrictedProjectMember } from '../utils/accountAccess'
 import {
   readWorkspacePayload,
   requestWorkspacePayload,
@@ -126,7 +127,7 @@ export function useProjectBrowser({
   function resolveArtistWorkspaceRoot(snapshot) {
     const explicitRoot = snapshot?.artistWorkspaceRoot || ''
     if (explicitRoot) return explicitRoot
-    if (getCurrentUser()?.role === 'artist' && artistWorkspaceRoot.value) {
+    if (isRestrictedProjectMember(getCurrentUser()) && artistWorkspaceRoot.value) {
       return artistWorkspaceRoot.value
     }
     return ''
@@ -147,7 +148,7 @@ export function useProjectBrowser({
       && (
         !projectPath.value
         || (
-          getCurrentUser()?.role === 'artist'
+          isRestrictedProjectMember(getCurrentUser())
           && projectPath.value === snapshot?.artistWorkspaceRoot
         )
       )
@@ -183,7 +184,7 @@ export function useProjectBrowser({
     const query = buildShareCredentialQuery({ path, include_counts: true }, credential)
     const { data } = await api.get(`${endpoint}${query}`, { signal: controller.signal })
 
-    if (!shareMode.value && getCurrentUser()?.role === 'artist' && !path) {
+    if (!shareMode.value && isRestrictedProjectMember(getCurrentUser()) && !path) {
       const workspaceItem = (data.items || []).find((item) => item?.is_workspace && item.type === 'folder')
       if (workspaceItem?.path && workspaceItem.path !== path) {
         const nestedSnapshot = await resolveProjectContentsSnapshot(projectId, workspaceItem.path, controller)
@@ -254,7 +255,7 @@ export function useProjectBrowser({
         permissions: { download: !shareMode.value },
       }
       const loadSnapshot = () => browserSession.switchContext(context, async (_context, { signal }) => {
-        if (!path || shareMode.value || !['admin', 'artist'].includes(getCurrentUser()?.role)) {
+        if (!path || shareMode.value || !getCurrentUser()) {
           return resolveProjectContentsSnapshot(projectId, path, { signal })
         }
         const rootAssetsAreCurrent = (

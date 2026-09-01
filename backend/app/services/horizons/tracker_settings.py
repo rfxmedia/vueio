@@ -5,6 +5,7 @@ import json
 from app.models import HorizonTracker
 from app.services.external_urls import normalize_external_http_url
 from app.services.project_delivery import normalize_delivery_logo_upload_name
+from app.services.user_access import is_admin_user
 
 from .common import DEFAULT_DELIVERY_MESSAGE, DEFAULT_TRACKER_SETTINGS, TRACKER_TOOL_ACCESSES
 
@@ -95,5 +96,5 @@ def tracker_tool_enabled_for_context(
     if share:
         return False
     if access == 'admin':
-        return bool(user and user.get('role') == 'admin')
+        return is_admin_user(user)
     return bool(access_role)

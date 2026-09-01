@@ -85,7 +85,7 @@ def _authorize_thumbnail_mutation(
     if not is_restricted_horizon_artist(user, access_role):
         return entity_path
     if entity_type != 'folder':
-        raise HTTPException(status_code=403, detail='Artists cannot update the project thumbnail')
+        raise HTTPException(status_code=403, detail='Project content management access required')
     return require_horizon_user_workspace_path(
         db,
         project_id,

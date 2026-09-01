@@ -1,3 +1,5 @@
+import { isRestrictedProjectMember } from '../utils/accountAccess'
+
 const SHARE_ROUTE_NAMES = ['shared-nas', 'shared-project', 'shared-tracker', 'shared-project-file', 'shared-project-file-root']
 
 function getPathParamValue(pathParam) {
@@ -148,7 +150,7 @@ export function useAppRouting({
 
   async function handleProtectedRoute(routeName, params, isStale, signal) {
     if (routeName === 'files') {
-      if (currentUser.value?.role === 'artist') {
+      if (!session.canAccessFileBrowser.value) {
         router.replace('/projects')
         return
       }
@@ -193,7 +195,7 @@ export function useAppRouting({
         signal,
       })
       if (isStale()) return
-      if (!folderPath && currentUser.value?.role === 'artist' && projectPath?.value) {
+      if (!folderPath && isRestrictedProjectMember(currentUser.value) && projectPath?.value) {
         await router.replace({
           name: 'project-folder-path',
           params: { projectId: params.projectId, path: projectPath.value.split('/').filter(Boolean) },

@@ -69,8 +69,7 @@ export function useTrackerWorkspaceController(ctx) {
   const trackerActivityHasMore = computed(() => trackerActivityNextBefore.value !== null)
   const canRestoreTrackerHistory = computed(() => (
     !ctx.shareMode.value &&
-    ctx.canDeleteShots.value &&
-    ctx.currentUser?.value?.role !== 'artist'
+    ctx.canDeleteShots.value
   ))
   const trackerViewsHasMore = computed(() => trackerViewsNextBefore.value !== null)
   const trackerRef = () => ctx.currentTrackerRef.value

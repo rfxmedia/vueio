@@ -71,7 +71,7 @@ class ShotCommandService(ShotCommandBase):
 
     def create_shot(self, ctx: ShotCommandContext, *, shot_code: str, description: str | None = None, status: str | None = None, category: str | None = None, assignee_user_id: str | None = None, assignee_user_ids: list[str | None] | None = None) -> ShotCommandResult:
         if not ctx.can_create_shot or ctx.restricted_artist:
-            raise HTTPException(status_code=403, detail='Artists cannot create tracker shots')
+            raise HTTPException(status_code=403, detail='Project content management access required')
         self._lock_history(ctx)
         shot = _create_horizon_shot_no_commit(
             self.db,
@@ -95,7 +95,7 @@ class ShotCommandService(ShotCommandBase):
         self._require_update_shot(ctx)
         fields = set(fields_set or set())
         if ctx.restricted_artist and fields - {'status', 'category'}:
-            raise HTTPException(status_code=403, detail='Artists can only update assigned shot status and tag')
+            raise HTTPException(status_code=403, detail='Members with review access can only update assigned shot status and tag')
         self._lock_history(ctx)
         shot = self._shot(ctx, shot_ref)
         old = {
@@ -362,7 +362,7 @@ class ShotCommandService(ShotCommandBase):
         reason: str | None = None,
     ) -> ShotCommandResult:
         if not ctx.can_archive_shot or ctx.restricted_artist:
-            raise HTTPException(status_code=403, detail='Artists cannot archive tracker shots')
+            raise HTTPException(status_code=403, detail='Project content management access required')
         self._lock_history(ctx)
         resolved = self._resolve_unique_shots(ctx, normalize_bulk_shot_refs(shot_refs))
         shot_ids = sorted(shot.id for shot in resolved)
@@ -468,7 +468,7 @@ class ShotCommandService(ShotCommandBase):
         if not fields:
             raise HTTPException(status_code=400, detail='At least one bulk update field is required')
         if ctx.restricted_artist and fields - {'status', 'category'}:
-            raise HTTPException(status_code=403, detail='Artists can only bulk update shot status and tag')
+            raise HTTPException(status_code=403, detail='Members with review access can only bulk update shot status and tag')
         self._lock_history(ctx)
         next_status = normalize_shot_status(status) if 'status' in fields else None
         next_category = category if 'category' in fields else None
@@ -642,7 +642,7 @@ class ShotCommandService(ShotCommandBase):
     def reorder_shots(self, ctx: ShotCommandContext, shot_order: list[str]) -> ShotCommandResult:
         self._require_update_shot(ctx)
         if ctx.restricted_artist:
-            raise HTTPException(status_code=403, detail='Artists cannot reorder tracker shots')
+            raise HTTPException(status_code=403, detail='Project content management access required')
         self._lock_history(ctx)
         shots = self.db.query(HorizonShot).filter(HorizonShot.project_id == ctx.project_id).filter(HorizonShot.tracker_id == ctx.tracker_id).filter(HorizonShot.archived_at.is_(None)).order_by(HorizonShot.created_at.asc(), HorizonShot.id.asc()).all()
         if not shots:
@@ -739,7 +739,7 @@ class ShotCommandService(ShotCommandBase):
 
     def _set_archived(self, ctx: ShotCommandContext, shot_ref: str | HorizonShot, *, archived: bool, reason: str | None) -> ShotCommandResult:
         if not ctx.can_archive_shot or ctx.restricted_artist:
-            raise HTTPException(status_code=403, detail='Artists cannot archive tracker shots')
+            raise HTTPException(status_code=403, detail='Project content management access required')
         self._lock_history(ctx)
         resolved = self._shot(ctx, shot_ref)
         shot = (

@@ -10,9 +10,9 @@
           <p class="v-empty-state-hint">{{ projectContentsError }}</p>
         </div>
         <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <!-- ARTIST WORKSPACE VIEW (folder browser with tracker shortcuts) -->
+        <!-- RESTRICTED MEMBER WORKSPACE VIEW (folder browser with tracker shortcuts) -->
         <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <div v-if="currentUser?.role === 'artist'" class="project-contents">
+        <div v-if="isRestrictedMember" class="project-contents">
           <div v-if="projectFolderContext?.is_linked_folder && projectUploadDisabledReason" class="project-folder-note v-inline-note">
             {{ projectUploadDisabledReason }}
           </div>
@@ -221,7 +221,7 @@
         <!-- ═══════════════════════════════════════════════════════════════════ -->
         <!-- PROJECT FOLDER CONTENTS (admin view - when no tracker is selected) -->
         <!-- ═══════════════════════════════════════════════════════════════════ -->
-        <div v-if="currentUser?.role !== 'artist'" class="project-contents">
+        <div v-if="!isRestrictedMember" class="project-contents">
           <div v-if="projectFolderContext?.is_linked_folder && projectUploadDisabledReason" class="project-folder-note v-inline-note">
             {{ projectUploadDisabledReason }}
           </div>
@@ -268,8 +268,8 @@
                         </template>
                         <button v-if="canShareProject" class="v-dropdown-item" @click="shareProjectPage(item); closeContentMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share Dashboard</button>
                         <div v-if="canEditProject" class="v-dropdown-divider"></div>
-                        <button v-if="canEditProject && currentUser?.role !== 'artist'" class="v-dropdown-item" @click="startRenamePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Rename</button>
-                        <button v-if="canEditProject && currentUser?.role !== 'artist'" class="v-dropdown-item v-dropdown-item-danger" @click="deletePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-trash"/></svg> Delete</button>
+                        <button v-if="canEditProject && !isRestrictedMember" class="v-dropdown-item" @click="startRenamePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Rename</button>
+                        <button v-if="canEditProject && !isRestrictedMember" class="v-dropdown-item v-dropdown-item-danger" @click="deletePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-trash"/></svg> Delete</button>
                       </VMenu>
                     </template>
                   </ProjectSpecialtyItem>
@@ -553,7 +553,7 @@ import { useFileBrowserStore } from '../ownership/fileBrowser'
 import { useViewerStore } from '../ownership/viewer'
 
 const { currentProject } = useProjectTrackerSelectionStore()
-const { currentUser, canEditProject: canEditProjectPermission } = useSessionAuthStore()
+const { currentUser, canEditProject: canEditProjectPermission, isRestrictedMember } = useSessionAuthStore()
 const { shareMode, shareAllowDownload } = useShareAccessContext()
 const fileBrowserStore = useFileBrowserStore()
 const {
@@ -698,7 +698,7 @@ watch(projectPath, () => {
 /* Menus as data — each list is rendered by both the grid and list layouts, so
    the two can no longer drift apart the way the file menus had. VMenu closes
    on select, so no action needs to call closeContentMenu itself. */
-const canManageProjectItems = computed(() => currentUser.value?.role !== 'artist')
+const canManageProjectItems = computed(() => !isRestrictedMember.value)
 const canUnlink = computed(() => canManageProjectItems.value && canEditProject.value)
 
 function folderMenuActions(item) {
@@ -741,7 +741,7 @@ const projectSpecialtyItemCount = computed(() => (
 const hasNoProjectContents = computed(() => (
   !projectContentsLoading.value
   && (projectContents.value || []).length === 0
-  && (currentUser.value?.role === 'artist' || (!projectPageItems.value.length && !projectTrackerItems.value.length))
+  && (isRestrictedMember.value || (!projectPageItems.value.length && !projectTrackerItems.value.length))
 ))
 const hasNoProjectFiles = computed(() => (
   !projectContentsLoading.value
@@ -761,14 +761,14 @@ const showProjectContentCategoryHeaders = computed(() => Boolean(
 const isNestedFolder = computed(() => Boolean(projectPath.value))
 
 const emptyStateTitle = computed(() => {
-  if (currentUser.value?.role === 'artist') return 'Your workspace is empty'
+  if (isRestrictedMember.value) return 'Your workspace is empty'
   if (shareMode.value && isNestedFolder.value) return 'This shared folder is empty'
   if (isNestedFolder.value) return 'This folder is empty'
   return 'This project is empty'
 })
 
 const emptyStateHint = computed(() => {
-  if (currentUser.value?.role === 'artist') return 'Upload files or create folders to get started'
+  if (isRestrictedMember.value) return 'Upload files or create folders to get started'
   if (shareMode.value) return 'There are no files or folders available here.'
   if (isNestedFolder.value) return 'Add files or folders here when this part of the project is ready.'
   return 'Click "New" to add a shot tracker, folder, or file'

@@ -364,7 +364,7 @@ const { hasNavigator, navigatorOpen, toggleNavigator } = useContextNavigator()
 const showNavigatorToggle = computed(() => showDesktopSidebar.value && hasNavigator.value)
 
 const breadcrumbTrail = computed(() => breadcrumbs.value.slice(-3))
-const userRoleLabel = computed(() => currentUser.value?.role === 'admin' ? 'Administrator' : 'Artist')
+const userRoleLabel = computed(() => currentUser.value?.role === 'admin' ? 'Administrator' : 'Member')
 const userInitial = computed(() => currentUser.value?.display_name?.charAt(0)?.toUpperCase() || 'U')
 const userIdentityStyle = computed(() => identityColorStyle(
   currentUser.value?.id || currentUser.value?.username || currentUser.value?.display_name,

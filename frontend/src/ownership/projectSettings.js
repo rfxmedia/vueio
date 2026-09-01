@@ -38,14 +38,28 @@ export function createProjectSettingsStore(ctx) {
   const dashboardDraftDescription = ref('')
 
   const activeProject = computed(() => projectTarget.value || ctx.currentProject.value || null)
+  const projectRoleMeets = (project, requiredRole) => {
+    const rank = { viewer: 1, editor: 2, owner: 3, admin: 4 }
+    return (rank[project?.access_role] || 0) >= rank[requiredRole]
+  }
+  const canManageProject = (project, requiredRole = 'editor') => Boolean(
+    project
+    && (
+      ctx.isAdmin.value
+      || (
+        ctx.currentUser.value?.app_access?.manage_project_content === true
+        && projectRoleMeets(project, requiredRole)
+      )
+    )
+  )
   const canOpenProjectSettings = computed(() => (
-    !ctx.shareMode.value && !!ctx.currentProject.value && ctx.isAdmin.value
+    !ctx.shareMode.value && canManageProject(ctx.currentProject.value)
   ))
   const canEditActiveProject = computed(() => (
-    Boolean(activeProject.value) && !ctx.shareMode.value && ctx.isAdmin.value
+    !ctx.shareMode.value && canManageProject(activeProject.value)
   ))
   const canManageProjectTeam = computed(() => (
-    Boolean(activeProject.value) && !ctx.shareMode.value && ctx.isAdmin.value
+    !ctx.shareMode.value && canManageProject(activeProject.value, 'owner')
   ))
   const projectThumbnailUrl = computed(() => {
     const target = activeProject.value
@@ -87,7 +101,7 @@ export function createProjectSettingsStore(ctx) {
 
   async function openProjectSettings(project = null) {
     const requestedProject = project || ctx.currentProject.value
-    if (!requestedProject || ctx.shareMode.value || !ctx.isAdmin.value) return
+    if (!requestedProject || ctx.shareMode.value || !canManageProject(requestedProject)) return
 
     const targetProjectId = requestedProject.id || ctx.currentProject.value?.id
     if (!targetProjectId) return
@@ -162,7 +176,7 @@ export function createProjectSettingsStore(ctx) {
   }
 
   async function loadStorageRoots() {
-    if (!ctx.isAdmin.value) return
+    if (!ctx.isAdmin.value && !ctx.canCreateProjects?.value) return
     try {
       const { data } = await api.get('/api/storage/roots')
       storageRoots.value = data || []

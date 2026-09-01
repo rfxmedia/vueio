@@ -7,7 +7,7 @@
         <p class="home-intro">{{ homeIntro }}</p>
       </div>
 
-      <div v-if="isAdmin" class="v-page-actions">
+      <div v-if="canCreateProjects" class="v-page-actions">
         <button type="button" class="v-btn v-btn-primary" @click="openCreateProjectModal">
           <svg class="icon" aria-hidden="true"><use href="#icon-plus" /></svg>
           New project
@@ -339,7 +339,7 @@ import { useViewerStore } from '../ownership/viewer'
 import { formatActivityRelativeTimestamp, formatLocaleDate } from '../utils/formatters'
 import { identityColorStyle } from '../utils/semanticColors'
 
-const { currentUser, isAdmin } = useSessionAuthStore()
+const { currentUser, canCreateProjects } = useSessionAuthStore()
 const { projects, openProject, openCreateProjectModal } = useProjectWorkspaceStore()
 const { openProjectTracker } = useTrackerStore()
 const { goToProjects } = useAppChromeStore()
@@ -457,7 +457,7 @@ function projectDueState(project) {
 }
 
 const emptyProjectsCopy = computed(() => (
-  isAdmin.value
+  canCreateProjects.value
     ? 'Start a project when the next job is ready to move.'
     : 'Projects in progress and shared with you will appear here.'
 ))

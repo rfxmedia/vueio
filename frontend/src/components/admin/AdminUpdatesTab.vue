@@ -53,7 +53,19 @@
       <section class="updates-channel-card" aria-labelledby="updates-channel-title">
         <div class="updates-channel-copy">
           <p class="settings-eyebrow">Release channel</p>
-          <h3 id="updates-channel-title">Following {{ channelLabel }}</h3>
+          <div class="updates-channel-heading">
+            <h3 id="updates-channel-title">Following {{ channelLabel }}</h3>
+            <a
+              v-if="status?.source_url"
+              class="updates-branch-link"
+              :href="status.source_url"
+              target="_blank"
+              rel="noreferrer"
+            >
+              View {{ status.source_branch }} branch
+              <svg class="icon"><use href="#icon-external-link" /></svg>
+            </a>
+          </div>
           <p>{{ channelDescription }}</p>
           <p class="updates-channel-note">{{ channelSwitchNote }}</p>
         </div>
@@ -147,8 +159,8 @@ const channelLabel = computed(() => status.value?.channel === 'nightly' ? 'Night
 const otherChannelLabel = computed(() => status.value?.channel === 'nightly' ? 'Stable' : 'Nightly')
 const channelSwitchCommand = computed(() => `sudo vueioctl channel ${otherChannelLabel.value.toLowerCase()}`)
 const channelDescription = computed(() => status.value?.channel === 'nightly'
-  ? 'Nightly includes early development builds as well as Stable releases.'
-  : 'Stable includes reviewed releases only. Switch to Nightly to receive development builds earlier.')
+  ? 'Nightly follows published test builds from the public nightly branch and includes Stable releases.'
+  : 'Stable follows reviewed releases from the public stable branch. Switch to Nightly to receive test builds earlier.')
 const channelSwitchNote = computed(() => status.value?.channel === 'nightly'
   ? 'Returning to Stable never downgrades Vue.io. If Nightly is ahead, Vue.io stays on it until a newer Stable release is available.'
   : state.value === 'ahead'
@@ -431,6 +443,39 @@ onMounted(() => check())
   margin: 2px 0 4px;
 }
 
+.updates-channel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--v-space-3);
+}
+
+.updates-branch-link {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 5px;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.updates-branch-link:hover {
+  color: var(--v-text);
+}
+
+.updates-branch-link:focus-visible {
+  border-radius: var(--v-radius-sm);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--v-accent-muted);
+}
+
+.updates-branch-link .icon {
+  width: 12px;
+  height: 12px;
+}
+
 .updates-channel-card .updates-channel-note {
   margin-top: 7px;
   color: var(--v-text-secondary);
@@ -601,6 +646,12 @@ onMounted(() => check())
   .updates-channel-card,
   .updates-command-card {
     grid-template-columns: 1fr;
+  }
+
+  .updates-channel-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
   }
 
   .updates-channel-card,

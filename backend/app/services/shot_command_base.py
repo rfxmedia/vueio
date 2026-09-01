@@ -121,7 +121,7 @@ class ShotCommandBase:
             user=ctx.actor.user,
             access_role=ctx.access_role,
         ):
-            raise HTTPException(status_code=403, detail='Artists can only use files inside their workspace')
+            raise HTTPException(status_code=403, detail='Members with review access can only use files inside their workspace')
         return asset
 
     def _media_asset_id(self, ctx: ShotCommandContext, media_asset_id: str | None) -> str | None:
@@ -169,7 +169,7 @@ class ShotCommandBase:
             return
         normalized = (normalized_path or '').strip().strip('/')
         if not normalized:
-            raise HTTPException(status_code=403, detail='Artists can only use files inside their workspace')
+            raise HTTPException(status_code=403, detail='Members with review access can only use files inside their workspace')
         try:
             workspace_path = get_horizon_user_workspace_path(ctx.actor.user)
         except HTTPException:
@@ -193,7 +193,7 @@ class ShotCommandBase:
                 access_role=ctx.access_role,
             ):
                 return
-        raise HTTPException(status_code=403, detail='Artists can only use files inside their workspace')
+        raise HTTPException(status_code=403, detail='Members with review access can only use files inside their workspace')
 
     def _delete_comments_for_versions(self, version_ids: list[str]) -> None:
         if not version_ids:

@@ -338,6 +338,12 @@ jobs:
         run: |
           set -Eeuo pipefail
           notes="$RUNNER_TEMP/vueio-release-notes.md"
+          git fetch --force origin \
+            "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          [[ $(git cat-file -t "refs/tags/$GITHUB_REF_NAME") == tag ]] || {
+            echo "The release tag is not annotated; refusing to substitute commit text for release notes." >&2
+            exit 1
+          }
           authored_notes=$(git for-each-ref \
             --format='%(contents)' "refs/tags/$GITHUB_REF_NAME")
           [[ -n ${authored_notes//[[:space:]]/} ]] || {

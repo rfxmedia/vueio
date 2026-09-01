@@ -9,6 +9,7 @@ import { useShareAccessContext } from '../ownership/shareAccessContext'
 import { useTrackerStore } from '../ownership/tracker'
 import { getMediaKind } from '../lib/mediaEntity'
 import { isFileBrowserEntry } from '../utils/fileBrowserItems'
+import { isRestrictedProjectMember } from '../utils/accountAccess'
 import {
   readWorkspacePayload,
   requestWorkspacePayload,
@@ -314,7 +315,7 @@ export function useContextNavigator() {
   }
 
   const projectRootPath = computed(() => (
-    currentUser.value?.role === 'artist' ? artistWorkspaceRoot.value || '' : ''
+    isRestrictedProjectMember(currentUser.value) ? artistWorkspaceRoot.value || '' : ''
   ))
 
   const projectContext = computed(() => {

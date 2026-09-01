@@ -1,6 +1,7 @@
 import { computed, inject, provide } from 'vue'
 
 import { createBrowserContext, isAtRoot, parentContext } from '../lib/browserContext'
+import { isRestrictedProjectMember } from '../utils/accountAccess'
 
 export const navigationStoreKey = Symbol('vueio.navigationStore')
 
@@ -133,7 +134,7 @@ export function createNavigationStore({
         navigateProjectFolder(parentContext(activeBrowserContext.value)?.path || share.shareRoot.value, { replaceRoute: true })
         break
       case 'project-parent':
-        if (session.currentUser.value?.role === 'artist' && artistWorkspaceRoot.value && projectPath.value === artistWorkspaceRoot.value) {
+        if (isRestrictedProjectMember(session.currentUser.value) && artistWorkspaceRoot.value && projectPath.value === artistWorkspaceRoot.value) {
           goToProjects()
           break
         }

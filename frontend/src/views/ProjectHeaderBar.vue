@@ -54,7 +54,7 @@
     <div class="project-header-actions">
       <div class="project-header-action-row">
         <VMenu
-          v-if="!currentTracker && !currentPage && canShowProjectCreateMenu && currentUser?.role !== 'artist'"
+          v-if="!currentTracker && !currentPage && canShowProjectCreateMenu && !isRestrictedMember"
           :open="showNewMenu"
           align="end"
           teleport
@@ -71,7 +71,7 @@
         </VMenu>
 
         <VMenu
-          v-if="!currentTracker && !currentPage && canShowProjectCreateMenu && currentUser?.role === 'artist'"
+          v-if="!currentTracker && !currentPage && canShowProjectCreateMenu && isRestrictedMember"
           :open="showArtistNewMenu"
           align="end"
           teleport
@@ -172,7 +172,7 @@ import { useShareAccessContext } from '../ownership/shareAccessContext'
 import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 
 const { currentProject, currentTracker, currentPage } = useProjectTrackerSelectionStore()
-const { currentUser, isAdmin } = useSessionAuthStore()
+const { currentUser, isAdmin, isRestrictedMember } = useSessionAuthStore()
 const { shareMode } = useShareAccessContext()
 const {
   currentProjectHeaderThumbnailUrl,

@@ -85,6 +85,13 @@ sudo vueioctl version
 sudo vueioctl doctor
 ```
 
+## Release channels
+
+The public `stable` branch contains the latest reviewed Stable source. The
+public `nightly` branch contains the latest Nightly source. Stable promotion
+brings both branches to the same reviewed commit. Immutable GitHub Releases
+provide each version, its downloads, and its release notes.
+
 ## Documentation
 
 - [Self-hosting, storage, exposure, backups, and updates](docs/SELF_HOSTING.md)

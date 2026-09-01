@@ -13,7 +13,11 @@ import { useShareAccessContext } from '../ownership/shareAccessContext'
  */
 export function useProjectCreateMenu() {
   const { currentProject } = useProjectTrackerSelectionStore()
-  const { currentUser, canEditProject: canEditProjectPermission } = useSessionAuthStore()
+  const {
+    isAdmin,
+    isRestrictedMember,
+    canEditProject: canEditProjectPermission,
+  } = useSessionAuthStore()
   const { shareMode } = useShareAccessContext()
   const workspace = useProjectWorkspaceStore()
   const fileBrowser = useFileBrowserStore()
@@ -27,7 +31,7 @@ export function useProjectCreateMenu() {
       canEditProject.value
       || (
         !canEditProject.value
-        && currentUser.value?.role === 'artist'
+        && isRestrictedMember.value
         && Boolean(workspace.projectPath.value)
       )
     )
@@ -48,13 +52,14 @@ export function useProjectCreateMenu() {
   }
 
   const projectCreateMenuActions = computed(() => {
-    const isArtist = currentUser.value?.role === 'artist'
+    const restrictedMember = isRestrictedMember.value
+    const canCreateTracker = !restrictedMember && (isAdmin.value || currentProject.value?.access_role === 'owner')
     const canUpload = fileBrowser.uploads.project.canUploadToProject.value
     const uploadDisabledReason = fileBrowser.uploads.project.projectUploadDisabledReason.value
 
     return [
-      { label: 'Vue Dashboard', icon: '#icon-file', show: !isArtist, run: workspace.openProjectCreatePage },
-      { label: 'Vue Tracker', icon: '#icon-project', show: !isArtist, run: workspace.openProjectCreateTracker },
+      { label: 'Vue Dashboard', icon: '#icon-file', show: !restrictedMember, run: workspace.openProjectCreatePage },
+      { label: 'Vue Tracker', icon: '#icon-project', show: canCreateTracker, run: workspace.openProjectCreateTracker },
       { label: 'Folder', icon: '#icon-folder', run: workspace.openProjectCreateFolderFromMenu },
       { divider: true },
       {
@@ -64,7 +69,7 @@ export function useProjectCreateMenu() {
         title: uploadDisabledReason || '',
         run: openUpload,
       },
-      { label: 'Link from storage', icon: '#icon-link', show: !isArtist, run: openLinkPicker },
+      { label: 'Link from storage', icon: '#icon-link', show: !restrictedMember, run: openLinkPicker },
     ]
   })
 

@@ -1,6 +1,11 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api, { getApiErrorMessage } from '../lib/api'
+import {
+  hasAppAccess,
+  isAdminUser,
+  isRestrictedProjectMember,
+} from '../utils/accountAccess'
 import { notify } from '../utils/toasts'
 
 const AUTH_CACHE_TTL_MS = 45_000
@@ -65,20 +70,20 @@ export function useAppSession({
     setupForm.value = { ...setupForm.value, [field]: value }
   }
 
-  const isAdmin = computed(() => currentUser.value?.role === 'admin')
+  const isAdmin = computed(() => isAdminUser(currentUser.value))
 
   const canAccessFileBrowser = computed(() => {
     if (shareMode.value) return true
     if (!currentUser.value) return false
     if (isAdmin.value) return true
-    return currentUser.value.app_access?.file_browser === true
+    return hasAppAccess(currentUser.value, 'file_browser')
   })
 
   const canAccessProjectManager = computed(() => {
     if (shareMode.value && activeModule.value === 'projects') return true
     if (!currentUser.value) return false
     if (isAdmin.value) return true
-    return currentUser.value.app_access?.project_manager === true
+    return hasAppAccess(currentUser.value, 'project_manager')
   })
 
   const ROLE_RANK = { viewer: 1, editor: 2, owner: 3, admin: 4 }
@@ -89,12 +94,20 @@ export function useAppSession({
   const projectRoleMeets = requiredRole => ROLE_RANK[currentProjectAccessRole.value] >= ROLE_RANK[requiredRole]
 
   const canEditProject = computed(() => isAdmin.value || projectRoleMeets('editor'))
-  const isArtistUser = computed(() => currentUser?.value?.role === 'artist')
+  const isRestrictedMember = computed(() => isRestrictedProjectMember(currentUser.value))
+  const canManageProjectContent = computed(() => (
+    !shareMode.value
+    && hasAppAccess(currentUser.value, 'manage_project_content')
+    && projectRoleMeets('editor')
+  ))
+  const canCreateProjects = computed(() => hasAppAccess(currentUser.value, 'create_projects'))
+  const canDeleteProjects = computed(() => hasAppAccess(currentUser.value, 'delete_projects'))
+  const canManageMembers = computed(() => hasAppAccess(currentUser.value, 'manage_members'))
   const projectFilesMutable = computed(() => !currentProject?.value?.storage_read_only)
-  const canAddShots = computed(() => projectFilesMutable.value && !shareMode.value && !isArtistUser.value && (isAdmin.value || projectRoleMeets('editor')))
-  const canEditShotName = computed(() => projectFilesMutable.value && !shareMode.value && !isArtistUser.value && (isAdmin.value || projectRoleMeets('editor')))
-  const canEditDescription = computed(() => projectFilesMutable.value && !shareMode.value && !isArtistUser.value && (isAdmin.value || projectRoleMeets('editor')))
-  const canDeleteShots = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || projectRoleMeets('owner')))
+  const canAddShots = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || canManageProjectContent.value))
+  const canEditShotName = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || canManageProjectContent.value))
+  const canEditDescription = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || canManageProjectContent.value))
+  const canDeleteShots = computed(() => projectFilesMutable.value && !shareMode.value && !isRestrictedMember.value && (isAdmin.value || projectRoleMeets('owner')))
   const canAddVersions = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || projectRoleMeets('editor')))
   const canManageVersionPublication = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || projectRoleMeets('owner')))
   const showShotDownloads = computed(() => !shareMode.value || shareAllowDownload.value)
@@ -282,6 +295,11 @@ export function useAppSession({
     canAccessFileBrowser,
     canAccessProjectManager,
     canEditProject,
+    canManageProjectContent,
+    canCreateProjects,
+    canDeleteProjects,
+    canManageMembers,
+    isRestrictedMember,
     canAddShots,
     canEditShotName,
     canEditDescription,

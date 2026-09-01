@@ -4,6 +4,7 @@ import { normalizeMediaEntity } from '../lib/mediaEntity'
 import { normalizeProjectContentItems } from '../lib/projectContentItems'
 import { notify } from '../utils/toasts'
 import { formatVersionLabel } from '../utils/versionLabels'
+import { hasAppAccess } from '../utils/accountAccess'
 
 const TRACKER_IMPORT_MEDIA_EXTS = new Set([
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif',
@@ -78,8 +79,7 @@ export function useFilePickerModal({
     !!currentProject.value?.id &&
     PROJECT_PICKER_MODES.has(pickerMode.value)
   ))
-  const isArtistUser = computed(() => currentUser?.value?.role === 'artist')
-  const canUseNasPicker = computed(() => !isArtistUser.value)
+  const canUseNasPicker = computed(() => hasAppAccess(currentUser?.value, 'file_browser'))
   const effectivePickerSource = computed(() => {
     if (pickerMode.value === 'comment-reference') return 'project'
     if (!canUseProjectPicker.value) return 'nas'

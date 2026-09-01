@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.services.auth import require_admin
+from app.services.auth import require_admin, require_auth
 from app.services.horizons.projects import get_horizon_project, serialize_horizon_project
 from app.services.missing_media_relink import commit_missing_media_relink, plan_missing_media_relink
 from app.services.project_relocation import (
@@ -24,8 +24,16 @@ from app.services.projects import (
     storage_location_is_read_only,
     storage_root_is_available,
 )
+from app.services.user_access import has_app_access
 
 router = APIRouter(tags=['project-storage'])
+
+
+def _require_project_creator(vueio_session: str | None) -> dict:
+    user = require_auth(vueio_session)
+    if not has_app_access(user, 'create_projects'):
+        raise HTTPException(status_code=403, detail='Project creation access required')
+    return user
 
 
 class StorageFolderCreate(BaseModel):
@@ -65,13 +73,13 @@ def _root_payload(name: str, item: dict) -> dict:
 
 @router.get('/api/storage/roots')
 def list_storage_roots(vueio_session: str = Cookie(None)):
-    require_admin(vueio_session)
+    _require_project_creator(vueio_session)
     return [_root_payload(name, item) for name, item in configured_project_storage_catalog().items()]
 
 
 @router.get('/api/storage/browse')
 def browse_storage(root: str, path: str = '', vueio_session: str = Cookie(None)):
-    require_admin(vueio_session)
+    _require_project_creator(vueio_session)
     root = root.strip().lower()
     normalized = normalize_project_storage_path(path, allow_empty=True)
     if normalized:
@@ -98,7 +106,7 @@ def browse_storage(root: str, path: str = '', vueio_session: str = Cookie(None))
 
 @router.post('/api/storage/folders')
 def create_storage_folder(data: StorageFolderCreate, vueio_session: str = Cookie(None)):
-    require_admin(vueio_session)
+    _require_project_creator(vueio_session)
     root = data.root.strip().lower()
     configured_roots = configured_project_storage_roots()
     if root == 'data' or root not in configured_roots:

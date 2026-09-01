@@ -1,4 +1,5 @@
 import { getCommentAvatarFill, getCommentInitials } from '../utils/commentDisplay'
+import { drawVideoColorPreviewFrame, isVideoColorPreviewActive } from './videoColorPreview'
 
 export function canvasToPngBlob(canvas) {
   return new Promise((resolve, reject) => {
@@ -250,6 +251,7 @@ export function renderVideoFrame({
   previewCanvas,
   includeAnnotations = false,
   comment = null,
+  colorPreviewMode = 'source',
 } = {}) {
   if (!video || video.readyState < 2) {
     throw new Error('No video frame is ready yet')
@@ -269,7 +271,11 @@ export function renderVideoFrame({
     throw new Error('Could not prepare current frame')
   }
 
-  ctx.drawImage(video, 0, 0, width, height)
+  if (isVideoColorPreviewActive(colorPreviewMode)) {
+    drawVideoColorPreviewFrame(ctx, video, colorPreviewMode, width, height)
+  } else {
+    ctx.drawImage(video, 0, 0, width, height)
+  }
   if (includeAnnotations) {
     drawVisibleOverlayCanvas(ctx, annotationCanvas, width, height)
     drawVisibleOverlayCanvas(ctx, previewCanvas, width, height)
