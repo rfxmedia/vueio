@@ -502,7 +502,11 @@
 
     <AdminStorageTab
       v-if="isAdmin && activeTab === 'storage'"
+      :storage-roots="storageRoots"
+      :storage-roots-error="storageRootsError"
+      :storage-roots-loading="storageRootsLoading"
       :transcodes-resetting="transcodesResetting"
+      @refresh-storage-roots="loadStorageRoots"
       @reset-transcodes="resetTranscodes"
     />
 
@@ -922,13 +926,16 @@ const teamTab = { value: 'team', label: 'Team', description: 'Members and access
 const adminOnlyTabs = [
   { value: 'shares', label: 'Shared links', description: 'Client-facing access', icon: '#icon-share', wide: true },
   { value: 'theme', label: 'Theme', description: 'Workspace appearance', icon: '#icon-pen', wide: true },
-  { value: 'storage', label: 'Storage', description: 'Previews and transcodes', icon: '#icon-package' },
+  { value: 'storage', label: 'Storage', description: 'Locations and capacity', icon: '#icon-package' },
   { value: 'downloads', label: 'Download history', description: 'Transfer activity', icon: '#icon-download', wide: true },
   { value: 'updates', label: 'Updates', description: 'Version and releases', icon: '#icon-refresh' },
 ]
 const activeTab = ref('account')
 const systemHealth = ref(null)
 const settingsRefreshing = ref(false)
+const storageRoots = ref([])
+const storageRootsError = ref('')
+const storageRootsLoading = ref(false)
 const transcodesResetting = ref(false)
 const adminTabs = computed(() => [
   ...userTabs,
@@ -1442,6 +1449,20 @@ async function loadSystemHealth() {
   systemHealth.value = data
 }
 
+async function loadStorageRoots() {
+  storageRootsLoading.value = true
+  storageRootsError.value = ''
+  try {
+    const { data } = await api.get('/api/storage/roots')
+    storageRoots.value = Array.isArray(data) ? data : []
+  } catch (error) {
+    storageRoots.value = []
+    storageRootsError.value = getApiErrorMessage(error, 'Vueio could not check the connected storage locations.')
+  } finally {
+    storageRootsLoading.value = false
+  }
+}
+
 async function resetTranscodes() {
   if (!confirm('Reset all generated transcodes? Source files will not be changed, but previews must regenerate when opened again.')) return
   transcodesResetting.value = true
@@ -1706,7 +1727,7 @@ async function refreshAll() {
     const tasks = [loadNotificationPrefs(), loadMyAgentKeys()]
     if (canManageMembers.value) tasks.push(loadUsers())
     if (isAdmin.value) {
-      tasks.push(loadIdentity(), loadShares(), loadSystemHealth(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
+      tasks.push(loadIdentity(), loadShares(), loadSystemHealth(), loadStorageRoots(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
     }
     const results = await Promise.allSettled(tasks)
     const failedCount = results.filter(result => result.status === 'rejected').length

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shutil
+
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -63,11 +65,23 @@ class MissingMediaRelinkRequest(BaseModel):
 
 def _root_payload(name: str, item: dict) -> dict:
     path = item['path']
+    available = storage_root_is_available(item)
+    total_bytes = None
+    free_bytes = None
+    if available:
+        try:
+            usage = shutil.disk_usage(path)
+            total_bytes = usage.total
+            free_bytes = usage.free
+        except OSError:
+            pass
     return {
         'id': name,
         'label': item['label'],
         'read_only': storage_location_is_read_only(path),
-        'available': storage_root_is_available(item),
+        'available': available,
+        'total_bytes': total_bytes,
+        'free_bytes': free_bytes,
     }
 
 

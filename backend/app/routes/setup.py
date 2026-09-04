@@ -21,7 +21,7 @@ class SetupCompleteRequest(BaseModel):
     team_name: str = Field(default='My studio', max_length=120)
     website_url: str | None = Field(default=None, max_length=500)
     username: str = Field(default='admin', max_length=48)
-    display_name: str = Field(default='Administrator', max_length=120)
+    display_name: str = Field(default='', max_length=120)
     password: str = Field(max_length=1024)
     setup_token: str | None = Field(default=None, max_length=256)
 
@@ -44,7 +44,10 @@ def _require_setup_token(submitted_token: str | None) -> None:
             detail='Initial setup is locked because VUEIO_SETUP_TOKEN is not configured',
         )
     if not hmac.compare_digest(configured_token, str(submitted_token or '').strip()):
-        raise HTTPException(status_code=401, detail='Invalid setup token')
+        raise HTTPException(
+            status_code=401,
+            detail='That setup code is not correct. Copy the current code from the installer, then try again.',
+        )
 
 
 @router.get('/api/setup/status')

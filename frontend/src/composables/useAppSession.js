@@ -39,7 +39,7 @@ export function useAppSession({
     team_name: 'My studio',
     website_url: '',
     username: 'admin',
-    display_name: 'Administrator',
+    display_name: '',
     password: '',
     confirm: '',
   })
@@ -216,7 +216,7 @@ export function useAppSession({
         team_name: data.identity?.team_name || form.team_name || 'My studio',
         website_url: data.identity?.website_url || form.website_url || '',
         username: data.user?.username || form.username || 'admin',
-        display_name: data.user?.display_name || form.display_name || 'Administrator',
+        display_name: data.user?.display_name || form.display_name || form.username || 'admin',
         password: '',
         confirm: '',
       }

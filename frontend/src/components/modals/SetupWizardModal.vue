@@ -48,37 +48,25 @@
           <div class="v-modal-section-head">
             <h3 class="v-modal-section-title">Workspace</h3>
             <p class="v-modal-section-copy">
-              Choose how your studio appears to collaborators and shared-link viewers.
+              This name appears to your team and shared-link viewers.
             </p>
           </div>
-          <div class="setup-form-grid">
-            <VField label="Studio or team name">
-              <input
-                :value="form.team_name"
-                class="v-input"
-                autocomplete="organization"
-                placeholder="My studio"
-                @input="setSetupField('team_name', $event.target.value)"
-              />
-            </VField>
-            <VField label="Website" hint="Optional">
-              <input
-                :value="form.website_url"
-                class="v-input"
-                autocomplete="url"
-                placeholder="https://example.com"
-                @input="setSetupField('website_url', $event.target.value)"
-              />
-            </VField>
-          </div>
+          <VField label="Workspace name">
+            <input
+              :value="form.team_name"
+              class="v-input"
+              autocomplete="organization"
+              placeholder="Your studio or team"
+              @input="setSetupField('team_name', $event.target.value)"
+            />
+          </VField>
         </section>
 
         <section class="v-modal-section">
           <div class="v-modal-section-head">
             <h3 class="v-modal-section-title">Owner account</h3>
             <p class="v-modal-section-copy">
-              This first account can manage users, projects, and application settings.
-              Project folders remain authorized safely from the server.
+              This account has full access to Vueio. You can add other people later.
             </p>
           </div>
           <div class="setup-form-grid">
@@ -92,12 +80,12 @@
                 @input="setSetupField('username', $event.target.value)"
               />
             </VField>
-            <VField label="Display name">
+            <VField label="Your name" hint="Optional">
               <input
                 :value="form.display_name"
                 class="v-input"
                 autocomplete="name"
-                placeholder="Administrator"
+                placeholder="How your team sees you"
                 @input="setSetupField('display_name', $event.target.value)"
               />
             </VField>
@@ -135,13 +123,11 @@
             {{ passwordValidationMessage }}
           </p>
         </section>
-
-        <p v-if="error" class="setup-error" role="alert">{{ error }}</p>
-
       </form>
     </section>
 
     <template #footer>
+      <p v-if="error" class="setup-error" role="alert">{{ error }}</p>
       <button
         class="v-btn v-btn-primary v-btn-lg setup-submit"
         type="submit"
@@ -227,9 +213,11 @@ const canSubmit = computed(() => (
 }
 
 .setup-error {
-  margin: calc(var(--v-space-1) * -1) 0 0;
+  flex: 1 1 100%;
+  margin: 0;
   color: var(--v-danger);
   font-size: var(--v-text-sm);
+  line-height: 1.4;
 }
 
 .setup-submit {
