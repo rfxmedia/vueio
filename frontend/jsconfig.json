@@ -8,10 +8,10 @@
     "strict": false,
     "jsx": "preserve",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vitest/globals", "vite/client"],
+    "types": ["vite/client"],
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*.js", "src/**/*.vue", "src/**/*.d.ts", "vitest.config.js", "vite.config.js"],
+  "include": ["src/**/*.js", "src/**/*.vue", "src/**/*.d.ts", "vite.config.js"],
   "exclude": ["node_modules", "dist"]
 }

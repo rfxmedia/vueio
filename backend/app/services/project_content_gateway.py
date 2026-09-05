@@ -19,7 +19,7 @@ from app.services._project_content_gateway_impl import (
     resolve_horizons_object_share,
 )
 from app.services._project_content_gateway_shared import SharedMediaPolicy, SharedPagePolicy, SharedProjectFilePolicy, SharedProjectFolderPolicy, SharedProjectPolicy
-from app.services._project_content_gateway_responses import build_metadata, build_zip_response, stream_content, thumbnail_content
+from app.services._project_content_gateway_responses import build_metadata, thumbnail_content
 
 __all__ = [
     'AuthorizedZipRequest',
@@ -37,7 +37,6 @@ __all__ = [
     'SharedProjectPolicy',
     'build_metadata',
     'build_project_breadcrumbs',
-    'build_zip_response',
     'collect_zip',
     'list_content',
     'normalize_content_path',
@@ -45,6 +44,5 @@ __all__ = [
     'resolve_content',
     'resolve_horizons_object_auth',
     'resolve_horizons_object_share',
-    'stream_content',
     'thumbnail_content',
 ]

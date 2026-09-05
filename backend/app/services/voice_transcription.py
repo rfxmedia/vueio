@@ -25,6 +25,7 @@ MAX_PENDING_TRANSCRIPTIONS = 128
 _jobs: queue.Queue[tuple[int, str]] = queue.Queue(maxsize=MAX_PENDING_TRANSCRIPTIONS)
 _queued_jobs: set[tuple[int, str]] = set()
 _state_lock = threading.Lock()
+_recovery_needed = threading.Event()
 _worker_started = False
 _transcriber = None
 
@@ -48,6 +49,7 @@ def enqueue_voice_note_transcription(comment_id: int, attachment_id: str) -> boo
         try:
             _jobs.put_nowait(job)
         except queue.Full:
+            _recovery_needed.set()
             logger.warning('Voice transcription queue is full')
             return False
         _queued_jobs.add(job)
@@ -206,10 +208,17 @@ def _transcribe_job(comment_id: int, attachment_id: str) -> None:
 
 
 def _worker_main() -> None:
-    recovered = _recover_pending_voice_notes()
-    if recovered:
-        logger.info('Queued %s pending voice note transcription(s)', recovered)
+    _recovery_needed.set()
     while True:
+        # Refill after a recovery batch or overflow drains. Ordinary notes and
+        # idle workers do not repeatedly scan the persisted comment history.
+        if _recovery_needed.is_set() and _jobs.empty():
+            _recovery_needed.clear()
+            recovered = _recover_pending_voice_notes()
+            if recovered >= MAX_PENDING_TRANSCRIPTIONS:
+                _recovery_needed.set()
+            if recovered:
+                logger.info('Queued %s pending voice note transcription(s)', recovered)
         comment_id, attachment_id = _jobs.get()
         try:
             _transcribe_job(comment_id, attachment_id)

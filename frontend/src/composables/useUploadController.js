@@ -100,12 +100,12 @@ export function useUploadController({
     return upload.handleExternalDrop(event, targetPath)
   }
 
-  watch(upload.uploadQueue, (items) => {
+  watch(() => upload.uploadQueue.value.filter(item => item.status === 'done'), (items) => {
     const onCompleted = uploadCompleteHandler.value
     if (!onCompleted) return
     const completed = []
     for (const item of items || []) {
-      if (item.status !== 'done' || notifiedCompletedItems.has(item)) continue
+      if (notifiedCompletedItems.has(item)) continue
       notifiedCompletedItems.add(item)
       completed.push({
         path: item.finalPath || [item.targetFolder, item.relPath].filter(Boolean).join('/'),
@@ -114,7 +114,7 @@ export function useUploadController({
       })
     }
     if (completed.length) onCompleted(completed)
-  }, { deep: true })
+  })
 
   return {
     ...upload,

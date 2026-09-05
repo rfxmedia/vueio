@@ -1,15 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Header, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.services.auth import get_request_user
-from app.services.horizons_fresh import (
-    can_access_horizon_media_asset_id,
-    can_access_horizon_shot_version_id,
-    require_horizon_project_access,
-)
+from app.services.horizons_fresh import require_horizon_project_access
 from app.services.media_serving import (
     DownloadAuditSpec,
     HlsRouteBuilder,
@@ -24,7 +20,6 @@ from app.services.media_serving import (
     stream_object_file,
 )
 from app.services.project_content_gateway import object_payload_tuple, resolve_horizons_object_auth
-from app.services.share_access import _resolve_horizons_media_target_by_refs
 
 router = APIRouter(tags=['horizons-media-objects'])
 
@@ -44,37 +39,6 @@ def _require_horizons_media_editor(project_id: str, vueio_session: str | None, x
     user, auth_mode = _auth_ctx(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     return user, access_role
-
-
-def _resolve_object_target(db: Session, project_id: str, *, asset_id: str | None = None, version_id: str | None = None, detail: str, user=None, access_role: str | None = None):
-    full_path, cache_key, storage_scope, resolved_asset_id, canonical_path = _resolve_horizons_media_target_by_refs(
-        db,
-        project_id,
-        horizons_media_asset_id=asset_id,
-        horizons_shot_version_id=version_id,
-    )
-    if not canonical_path or not resolved_asset_id:
-        raise HTTPException(status_code=404, detail=detail)
-    if user is not None:
-        if version_id:
-            is_visible = can_access_horizon_shot_version_id(
-                db,
-                project_id,
-                version_id,
-                user=user,
-                access_role=access_role,
-            )
-        else:
-            is_visible = can_access_horizon_media_asset_id(
-                db,
-                project_id,
-                resolved_asset_id,
-                user=user,
-                access_role=access_role,
-            )
-        if not is_visible:
-            raise HTTPException(status_code=404, detail=detail)
-    return full_path, cache_key, storage_scope, resolved_asset_id, canonical_path
 
 
 def _build_horizons_object_payload(

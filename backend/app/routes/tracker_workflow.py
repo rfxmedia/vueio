@@ -21,7 +21,6 @@ from app.services.horizons_fresh import (
     SHOT_STATUS_ORDER,
     create_horizon_tracker,
     can_access_horizon_shot_version_id,
-    ensure_horizon_project_user_workspace,
     ensure_horizon_project_runtime_dir,
     get_horizon_shot_by_ref,
     get_horizon_tracker_by_ref,
@@ -50,7 +49,7 @@ from app.services.horizons.version_publication import (
 from app.services.horizons.projects import require_horizon_project_writable
 from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_tracker
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandResult, ShotCommandService
-from app.services.media_pipeline import trigger_auto_hls_package, trigger_faststart_fix
+from app.services.media_pipeline import trigger_auto_hls_package
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.share_access import validate_share
 from app.services.uploads import write_bounded_upload
@@ -216,7 +215,6 @@ def _queue_bulk_hls_packages(file_paths: list[str], project_id: str | None = Non
         for file_path in file_paths:
             try:
                 trigger_auto_hls_package(file_path, db, project_id=project_id)
-                trigger_faststart_fix(file_path, project_id=project_id)
             except Exception:
                 pass
     finally:
@@ -228,24 +226,6 @@ def _safe_name(value: str | None, fallback: str) -> str:
     if safe_value in {'.', '..'}:
         return fallback
     return safe_value or fallback
-
-
-def _version_number(value) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(str(value).strip())
-    except Exception:
-        return None
-
-
-def _next_version_label(existing_versions: list[HorizonShotVersion]) -> str:
-    max_version = 0
-    for version in existing_versions or []:
-        parsed = _version_number(version.label)
-        if parsed is not None:
-            max_version = max(max_version, parsed)
-    return str(max_version + 1)
 
 
 def _serialize_horizon_shot(db: Session, shot: HorizonShot) -> dict:
@@ -309,18 +289,6 @@ def _normalize_bulk_shot_status(status: str | None) -> str:
     if normalized not in SHOT_STATUS_ORDER:
         raise HTTPException(status_code=400, detail='Invalid shot status')
     return normalized
-
-
-def _resolve_unique_bulk_shots(shot_refs: list[str], resolver) -> list[HorizonShot]:
-    shots: list[HorizonShot] = []
-    seen_ids: set[str] = set()
-    for shot_ref in shot_refs:
-        shot = resolver(shot_ref)
-        if shot.id in seen_ids:
-            continue
-        shots.append(shot)
-        seen_ids.add(shot.id)
-    return shots
 
 
 def _request_tracker_actor(user: dict | None, auth_mode: str | None) -> dict[str, str | None]:
@@ -449,7 +417,6 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='viewer')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
-    actor = _request_tracker_actor(user, auth_mode)
 
     if not _access_role_meets(access_role, 'editor'):
         raise HTTPException(status_code=403, detail='Editor access required')
@@ -477,13 +444,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
         .one()
     )
 
-    old_status = shot.status
-    old_shot_code = shot.shot_code
-    old_description = shot.description
-    old_category = shot.category
-    old_assignee_user_id = shot.assignee_user_id
     old_assignee_ids = get_horizon_shot_assignee_ids(shot)
-    old_assignees = serialize_horizon_shot_assignees(shot)
     update_fields: set[str] = set()
     shot_code = None
     description = None

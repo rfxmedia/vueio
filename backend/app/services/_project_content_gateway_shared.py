@@ -9,7 +9,7 @@ from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_path
 from app.services.project_link_content import collect_project_virtual_zip_entries
 from app.services.horizons.projects import get_horizon_project
 from app.services.horizons.version_publication import held_media_paths_for_project
-from app.services.projects import get_project_dir, resolve_project_root
+from app.services.projects import resolve_project_root
 from app.services.share_access import build_shared_file_info_payload, normalize_virtual_path, require_path_within_shared_root, resolve_shared_media_target
 from app.services.zip_utils import ZipEntry
 

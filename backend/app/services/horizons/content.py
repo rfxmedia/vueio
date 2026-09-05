@@ -7,11 +7,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.models import (
-    HorizonShot,
-    HorizonShotVersion,
-    MediaAsset,
-)
+from app.models import MediaAsset
 from app.services.file_operation_journal import cancel_file_operation, create_file_operation, complete_file_operation, fail_file_operation
 from app.services.path_references import rewrite_project_links_payload, rewrite_project_path_references
 from app.services.project_access import verify_path_in_project
@@ -61,46 +57,6 @@ def create_horizon_project_folder(db: Session, project_id: str, folder_path: str
     make_project_path_smb_mutable(target)
     touch_horizon_project(db, project_id)
     return {'path': normalized_path, 'created': True}
-
-
-def reserve_horizon_upload_path(db: Session, project_id: str, target_folder: str | None, filename: str | None) -> tuple[Path, Path, str]:
-    project_dir = ensure_horizon_project_runtime_dir(db, project_id)
-    normalized_folder = _normalize_horizon_runtime_path(target_folder, allow_empty=True)
-    safe_name = _sanitize_horizon_filename(filename)
-    target_dir = project_dir / normalized_folder if normalized_folder else project_dir
-    verify_path_in_project(target_dir, project_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    make_project_path_smb_mutable(target_dir)
-
-    base_name = Path(safe_name).stem
-    extension = Path(safe_name).suffix
-    candidate = target_dir / safe_name
-    counter = 1
-    while candidate.exists():
-        candidate = target_dir / f'{base_name}_{counter}{extension}'
-        counter += 1
-    verify_path_in_project(candidate, project_dir)
-    rel_path = str(candidate.relative_to(project_dir))
-    return project_dir, candidate, rel_path
-
-
-def _get_horizon_asset_by_path(db: Session, project_id: str, file_path: str) -> MediaAsset | None:
-    return (
-        db.query(MediaAsset)
-        .filter(MediaAsset.project_id == project_id)
-        .filter(MediaAsset.file_path == file_path)
-        .filter(MediaAsset.unavailable_at.is_(None))
-        .order_by(MediaAsset.updated_at.desc())
-        .first()
-    )
-
-
-def _horizon_asset_is_referenced(db: Session, asset_id: str) -> bool:
-    shot_link = db.query(HorizonShot).filter(HorizonShot.latest_media_asset_id == asset_id).first()
-    if shot_link:
-        return True
-    version_link = db.query(HorizonShotVersion).filter(HorizonShotVersion.media_asset_id == asset_id).first()
-    return version_link is not None
 
 
 def register_horizon_project_file(

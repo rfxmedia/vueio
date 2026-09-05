@@ -692,10 +692,6 @@ def get_media_asset_by_path(
     return query.order_by(MediaAsset.updated_at.desc()).first()
 
 
-def get_media_assets_under_prefix(db: Session, project_id: str, prefix: str) -> list[MediaAsset]:
-    return get_media_assets_under_prefix_for_scope(db, project_id, prefix, storage_scope='project')
-
-
 def get_media_assets_under_prefix_for_scope(db: Session, project_id: str, prefix: str, *, storage_scope: str) -> list[MediaAsset]:
     normalized_prefix = _normalize_asset_path(prefix)
     if not normalized_prefix:

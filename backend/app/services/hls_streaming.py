@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import time
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from uuid import uuid4
@@ -260,17 +261,25 @@ def _package_has_current_profile(package_dir: Path) -> bool:
 
 def _probe_video_streams(input_path: Path) -> dict:
     try:
-        result = subprocess.run(
-            ['ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', str(input_path)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return {'duration': 0.0, 'width': 0, 'height': 0, 'fps': 24.0, 'frames': 0, 'has_audio': False}
-        data = json.loads(result.stdout)
+        return _probe_video_generation(input_path, source_signature(input_path))
     except Exception:
         return {'duration': 0.0, 'width': 0, 'height': 0, 'fps': 24.0, 'frames': 0, 'has_audio': False}
+
+
+@lru_cache(maxsize=256)
+def _probe_video_generation(input_path: Path, generation: str) -> dict:
+    # Reuse probes across status requests and the packaging worker. The physical
+    # source generation invalidates replacements; raised failures are not cached.
+    result = subprocess.run(
+        ['ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', str(input_path)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    data = json.loads(result.stdout)
+    if not data.get('streams'):
+        raise ValueError('No media streams found')
 
     duration = probe_duration_seconds(data)
     width = 0
@@ -430,10 +439,6 @@ def hls_job_key(source_identity: str) -> str:
 def _adopt_legacy_hls_artifact(db: Session, *, legacy_job_key: str, artifact_job_key: str, probe: dict, package_dir: Path, master_playlist: Path) -> bool:
     if legacy_job_key == artifact_job_key:
         return False
-    active_package_dir = _active_hls_package_dir(package_dir)
-    active_master_playlist = active_package_dir / 'master.m3u8'
-    if _is_nonempty_file(active_master_playlist) and validate_hls_package(active_package_dir, probe):
-        return True
     if transcode_claim_is_active(artifact_job_key):
         return False
 
@@ -870,26 +875,14 @@ def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -
     job = db.query(TranscodeJob).filter(TranscodeJob.file_path == package_job_key).first()
     force_restart = False
 
-    probe = _probe_video_streams(input_path)
-    _adopt_legacy_hls_artifact(db, legacy_job_key=job_key, artifact_job_key=package_job_key, probe=probe, package_dir=package_dir, master_playlist=master_playlist)
-    for legacy_identity in legacy_media_source_identities(db, input_path, job_key):
-        active_package_dir = _active_hls_package_dir(package_dir)
-        if _is_nonempty_file(active_package_dir / 'master.m3u8') and validate_hls_package(active_package_dir, probe):
-            break
-        _adopt_legacy_hls_artifact(
-            db,
-            legacy_job_key=hls_job_key(legacy_identity),
-            artifact_job_key=package_job_key,
-            probe=probe,
-            package_dir=package_dir,
-            master_playlist=master_playlist,
-        )
-    job = db.query(TranscodeJob).filter(TranscodeJob.file_path == package_job_key).first()
-
     active_package_dir = _active_hls_package_dir(package_dir)
     active_master_playlist = active_package_dir / 'master.m3u8'
+    has_master_playlist = _is_nonempty_file(active_master_playlist)
+    if not has_master_playlist and transcode_claim_is_active(package_job_key):
+        return False
 
-    if _is_nonempty_file(active_master_playlist):
+    probe = _probe_video_streams(input_path)
+    if has_master_playlist:
         if validate_hls_package(active_package_dir, probe):
             if not job:
                 job = TranscodeJob(
@@ -914,14 +907,27 @@ def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -
             return True
         force_restart = True
 
+    if transcode_claim_is_active(package_job_key):
+        return False
+
+    legacy_job_keys = [job_key, *(hls_job_key(identity) for identity in legacy_media_source_identities(db, input_path, job_key))]
+    for legacy_job_key in legacy_job_keys:
+        if _adopt_legacy_hls_artifact(
+            db,
+            legacy_job_key=legacy_job_key,
+            artifact_job_key=package_job_key,
+            probe=probe,
+            package_dir=package_dir,
+            master_playlist=master_playlist,
+        ):
+            return True
+
     if job:
         if job.status == 'complete' and not _is_nonempty_file(Path(job.output_path or '')):
             force_restart = True
         elif job.status in {'error', 'pending'}:
             force_restart = True
         elif job.status == 'processing':
-            if transcode_claim_is_active(package_job_key):
-                return False
             force_restart = True
 
     if not job or force_restart:

@@ -49,6 +49,10 @@ services:
       - type: bind
         source: ${VUEIO_DATA_PATH:?Run vueioctl install first}
         target: /app/data
+      - type: bind
+        source: ${VUEIO_UPDATER_DIR:-./updater}
+        target: /run/vueio-updater
+        read_only: true
     environment:
       MEDIA_ROOT: /storage
       PROJECT_STORAGE_ROOTS: ${VUEIO_PROJECT_STORAGE_ROOTS:-}
@@ -58,6 +62,7 @@ services:
       VUEIO_VERSION: ${VUEIO_VERSION:?Run vueioctl install first}
       VUEIO_CHANNEL: ${VUEIO_CHANNEL:-stable}
       VUEIO_UPDATE_REPOSITORY: ${VUEIO_UPDATE_REPOSITORY:-}
+      VUEIO_UPDATER_SOCKET: /run/vueio-updater/control.sock
       SECRET_KEY: ${VUEIO_SECRET_KEY:?Run vueioctl install first}
       SESSION_COOKIE_SECURE: ${VUEIO_SESSION_COOKIE_SECURE:-true}
       CORS_ALLOW_ORIGINS: ${VUEIO_CORS_ALLOW_ORIGINS:?Run vueioctl install first}

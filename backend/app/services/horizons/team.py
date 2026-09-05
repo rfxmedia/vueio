@@ -51,11 +51,12 @@ def _is_assignable_team_user(user: dict | None) -> bool:
     return bool(user and canonical_user_role(user.get('role')) in {'admin', 'member'})
 
 
-def get_horizon_assignable_user(user_ref: str | None) -> dict | None:
+def get_horizon_assignable_user(user_ref: str | None, *, users: dict | None = None) -> dict | None:
     normalized = str(user_ref or '').strip()
     if not normalized:
         return None
-    users = _user_directory()
+    if users is None:
+        users = _user_directory()
     direct = users.get(normalized)
     if _is_assignable_team_user(direct):
         return direct
@@ -165,6 +166,39 @@ def serialize_horizon_shot_assignees(shot: HorizonShot, db: Session | None = Non
     return assignees
 
 
+def serialize_horizon_shot_assignments(db: Session, shots: list[HorizonShot]) -> dict[str, dict]:
+    """Read assignments and the user directory once for a collection of shots."""
+    if not shots:
+        return {}
+    ids_by_shot = {shot.id: [] for shot in shots}
+    rows = db.query(HorizonShotAssignee).filter(
+        HorizonShotAssignee.shot_id.in_(ids_by_shot),
+    ).order_by(
+        HorizonShotAssignee.sort_order.asc(),
+        HorizonShotAssignee.created_at.asc(),
+        HorizonShotAssignee.id.asc(),
+    ).all()
+    for row in rows:
+        if row.user_id:
+            ids_by_shot[row.shot_id].append(row.user_id)
+    users = _user_directory() if rows or any(shot.assignee_user_id for shot in shots) else {}
+    summaries = {}
+    result = {}
+    for shot in shots:
+        user_ids = _dedupe_ordered(ids_by_shot[shot.id] or ([shot.assignee_user_id] if shot.assignee_user_id else []))
+        for user_id in user_ids:
+            if user_id not in summaries:
+                summaries[user_id] = serialize_horizon_team_user(get_horizon_assignable_user(user_id, users=users))
+        assignees = [summaries[user_id] for user_id in user_ids if summaries[user_id]]
+        result[shot.id] = {
+            'assignee_user_ids': user_ids,
+            'assignees': assignees,
+            'assignee_user_id': shot.assignee_user_id,
+            'assignee': assignees[0] if assignees else None,
+        }
+    return result
+
+
 def get_horizon_user_workspace_path(user: dict | None) -> str:
     team_user = serialize_horizon_team_user(user)
     if not team_user:
@@ -198,7 +232,7 @@ def is_restricted_horizon_artist(user: dict | None, access_role: str | None = No
 
 
 def ensure_horizon_project_user_workspace(db: Session, project_id: str, user: dict | None) -> str:
-    from app.services.projects import project_storage_is_read_only, resolve_project_root
+    from app.services.projects import project_storage_is_read_only
     from .projects import ensure_horizon_project_runtime_dir, get_horizon_project
 
     workspace_path = get_horizon_user_workspace_path(user)

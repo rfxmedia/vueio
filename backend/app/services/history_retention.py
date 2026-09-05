@@ -19,16 +19,10 @@ TRACKER_VIEW_EVENT_RETENTION_SECONDS = 180 * 24 * 60 * 60
 TRACKER_VIEW_EVENT_MAX_RECORDS = 50_000
 
 
-def _overflow_ids(db: Session, model, *, limit: int) -> list:
-    return [
-        record_id
-        for (record_id,) in (
-            db.query(model.id)
-            .order_by(model.created_at.desc(), model.id.desc())
-            .offset(limit)
-            .all()
-        )
-    ]
+def _prune_history(db: Session, model, *, cutoff: float, limit: int) -> int:
+    expired = db.query(model).filter(model.created_at < cutoff).delete(synchronize_session=False)
+    overflow = db.query(model.id).order_by(model.created_at.desc(), model.id.desc()).offset(limit)
+    return expired + db.query(model).filter(model.id.in_(overflow)).delete(synchronize_session=False)
 
 
 def _tracker_event_overflow_ids(db: Session, *, limit: int) -> list[int]:
@@ -126,13 +120,18 @@ def prune_persistent_history(db: Session, *, now: float | None = None) -> dict[s
     event_ids.update(_tracker_event_overflow_ids(db, limit=TRACKER_EVENT_MAX_RECORDS))
     linked_deliveries = 0
     tracker_events = 0
+    # Keep one fixed set for both tables, but bound SQL parameters for large
+    # histories (including installations using SQLite's 999-variable limit).
+    event_ids = list(event_ids)
+    for offset in range(0, len(event_ids), 500):
+        batch = event_ids[offset:offset + 500]
+        linked_deliveries += db.query(NotificationDelivery).filter(
+            NotificationDelivery.tracker_event_id.in_(batch)
+        ).delete(synchronize_session=False)
+        tracker_events += db.query(TrackerEvent).filter(
+            TrackerEvent.id.in_(batch)
+        ).delete(synchronize_session=False)
     if event_ids:
-        linked_deliveries = db.query(NotificationDelivery).filter(
-            NotificationDelivery.tracker_event_id.in_(event_ids)
-        ).delete(synchronize_session=False)
-        tracker_events = db.query(TrackerEvent).filter(
-            TrackerEvent.id.in_(event_ids)
-        ).delete(synchronize_session=False)
         _prune_orphaned_comment_attachments(
             db,
             cutoff=current_time - TRACKER_EVENT_RETENTION_SECONDS,
@@ -142,41 +141,24 @@ def prune_persistent_history(db: Session, *, now: float | None = None) -> dict[s
             cutoff=current_time - TRACKER_EVENT_RETENTION_SECONDS,
         )
 
-    notification_deliveries = db.query(NotificationDelivery).filter(
-        NotificationDelivery.created_at
-        < current_time - NOTIFICATION_DELIVERY_RETENTION_SECONDS
-    ).delete(synchronize_session=False)
-    delivery_overflow = _overflow_ids(
+    notification_deliveries = _prune_history(
         db,
         NotificationDelivery,
+        cutoff=current_time - NOTIFICATION_DELIVERY_RETENTION_SECONDS,
         limit=NOTIFICATION_DELIVERY_MAX_RECORDS,
     )
-    if delivery_overflow:
-        notification_deliveries += db.query(NotificationDelivery).filter(
-            NotificationDelivery.id.in_(delivery_overflow)
-        ).delete(synchronize_session=False)
-
-    download_events = db.query(DownloadEvent).filter(
-        DownloadEvent.created_at < current_time - DOWNLOAD_EVENT_RETENTION_SECONDS
-    ).delete(synchronize_session=False)
-    download_overflow = _overflow_ids(db, DownloadEvent, limit=DOWNLOAD_EVENT_MAX_RECORDS)
-    if download_overflow:
-        download_events += db.query(DownloadEvent).filter(
-            DownloadEvent.id.in_(download_overflow)
-        ).delete(synchronize_session=False)
-
-    tracker_view_events = db.query(TrackerViewEvent).filter(
-        TrackerViewEvent.created_at < current_time - TRACKER_VIEW_EVENT_RETENTION_SECONDS
-    ).delete(synchronize_session=False)
-    tracker_view_overflow = _overflow_ids(
+    download_events = _prune_history(
+        db,
+        DownloadEvent,
+        cutoff=current_time - DOWNLOAD_EVENT_RETENTION_SECONDS,
+        limit=DOWNLOAD_EVENT_MAX_RECORDS,
+    )
+    tracker_view_events = _prune_history(
         db,
         TrackerViewEvent,
+        cutoff=current_time - TRACKER_VIEW_EVENT_RETENTION_SECONDS,
         limit=TRACKER_VIEW_EVENT_MAX_RECORDS,
     )
-    if tracker_view_overflow:
-        tracker_view_events += db.query(TrackerViewEvent).filter(
-            TrackerViewEvent.id.in_(tracker_view_overflow)
-        ).delete(synchronize_session=False)
 
     return {
         'tracker_events': tracker_events,

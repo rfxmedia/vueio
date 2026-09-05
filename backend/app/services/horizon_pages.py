@@ -12,7 +12,6 @@ from sqlalchemy.orm import Session
 from app.models import HorizonPage, HorizonShotVersion, HorizonTracker, MediaAsset
 from app.services.external_urls import normalize_external_http_url
 from app.services.naming import slugify
-from app.services.projects import get_project_dir
 
 PAGE_BLOCK_TYPES = {'text', 'tracker_list', 'resource_list', 'upload_inbox'}
 
@@ -345,10 +344,6 @@ def page_allows_path(page: HorizonPage, path: str | None) -> bool:
             if kind == 'folder' and _path_within(resource_path, normalized_path):
                 return True
     return False
-
-
-def page_allows_zip_path(page: HorizonPage, path: str | None) -> bool:
-    return bool(page_zip_resource_paths(page, path))
 
 
 def page_zip_resource_paths(page: HorizonPage, path: str | None) -> list[str]:

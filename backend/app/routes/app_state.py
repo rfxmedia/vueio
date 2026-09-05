@@ -4,14 +4,12 @@ import time
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, get_db
 from app.models import (
     HorizonProject,
     HorizonShot,
-    HorizonShotAssignee,
     HorizonShotVersion,
     HorizonTracker,
     RecentlyViewed,
@@ -19,6 +17,7 @@ from app.models import (
 from app.services.auth import get_request_user, get_user_from_session
 from app.services.file_access import check_folder_read_permission
 from app.services.horizons.projects import list_visible_horizon_projects
+from app.services.horizons.team import _horizon_shot_assignment_clause, _subject_candidates_for_user
 from app.services.recently_viewed import exclude_deleted_project_recently_viewed
 from app.services.search_index import filter_search_index_for_user, get_search_index
 from app.services.user_access import has_app_access
@@ -41,31 +40,21 @@ def get_home_assigned_edits(
     db: Session = Depends(get_db),
 ):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
-    user_id = str(user.get('id') or user.get('username') or '').strip()
+    subject_ids = {value for _subject_type, value in _subject_candidates_for_user(user)}
     visible_projects = list_visible_horizon_projects(db, user, auth_mode=auth_mode)
     visible_project_ids = [project.id for project in visible_projects]
-    if not user_id or not visible_project_ids:
+    if not subject_ids or not visible_project_ids:
         return {'total': 0, 'projects': []}
 
     rows = (
         db.query(HorizonShot, HorizonTracker, HorizonProject)
         .join(HorizonTracker, HorizonTracker.id == HorizonShot.tracker_id)
         .join(HorizonProject, HorizonProject.id == HorizonShot.project_id)
-        .outerjoin(
-            HorizonShotAssignee,
-            and_(
-                HorizonShotAssignee.shot_id == HorizonShot.id,
-                HorizonShotAssignee.user_id == user_id,
-            ),
-        )
         .filter(HorizonShot.project_id.in_(visible_project_ids))
         .filter(HorizonProject.status.notin_(('done', 'completed')))
         .filter(HorizonShot.status.in_(('edits_requested', 'in_progress')))
         .filter(HorizonShot.archived_at.is_(None))
-        .filter(or_(
-            HorizonShotAssignee.user_id == user_id,
-            HorizonShot.assignee_user_id == user_id,
-        ))
+        .filter(_horizon_shot_assignment_clause(subject_ids))
         .order_by(
             HorizonProject.title.asc(),
             HorizonShot.status.asc(),

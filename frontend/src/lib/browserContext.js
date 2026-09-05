@@ -24,19 +24,6 @@ export function createBrowserContext(input = {}) {
   })
 }
 
-export function browserContextKey(context) {
-  if (!context) return 'none'
-  return [
-    context.kind,
-    context.projectId || '',
-    context.shareId || '',
-    context.trackerRef || '',
-    context.pageRef || '',
-    context.rootPath || '',
-    context.path || '',
-  ].join(':')
-}
-
 export function isPathInsideRoot(path = '', rootPath = '') {
   const cleanPath = normalizePath(path)
   const cleanRoot = normalizePath(rootPath)

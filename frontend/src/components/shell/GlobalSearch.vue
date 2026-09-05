@@ -142,8 +142,11 @@ const totalSearchResults = computed(() => {
     searchResults.value.files.length
 })
 
-function isRequestCanceled(error) {
-  return error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED'
+function cancelSearch() {
+  clearTimeout(searchDebounceTimer)
+  searchAbortController?.abort()
+  searchAbortController = null
+  searchLoading.value = false
 }
 
 function openSearch() {
@@ -161,52 +164,46 @@ function focusInput() {
 }
 
 function closeSearch() {
+  cancelSearch()
   searchOpen.value = false
   searchFocused.value = false
   globalSearchQuery.value = ''
   selectedResultIndex.value = -1
   searchResults.value = { projects: [], trackers: [], files: [] }
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  if (searchAbortController) {
-    searchAbortController.abort()
-    searchAbortController = null
-  }
   searchInputRef.value?.blur()
 }
 
 function handleSearchBlur() {
-  setTimeout(() => {
-    searchFocused.value = false
-    searchOpen.value = false
-  }, 200)
+  searchFocused.value = false
+  searchOpen.value = false
 }
 
 async function performSearch() {
-  if (globalSearchQuery.value.length < 2) {
-    searchResults.value = { projects: [], trackers: [], files: [] }
-    return
-  }
-
-  if (searchAbortController) searchAbortController.abort()
   const controller = new AbortController()
   searchAbortController = controller
-  searchLoading.value = true
   try {
     const res = await api.get(`/api/search?q=${encodeURIComponent(globalSearchQuery.value)}`, { signal: controller.signal })
-    searchResults.value = res.data
-  } catch (e) {
-    if (isRequestCanceled(e)) return
+    if (!controller.signal.aborted) searchResults.value = res.data
+  } catch {
+    if (controller.signal.aborted) return
     console.error('Search failed')
     searchResults.value = { projects: [], trackers: [], files: [] }
   } finally {
-    if (searchAbortController === controller) searchAbortController = null
-    searchLoading.value = false
+    if (searchAbortController === controller) {
+      searchAbortController = null
+      searchLoading.value = false
+    }
   }
 }
 
 function debouncedSearch() {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  searchDebounceTimer = setTimeout(performSearch, 200)
+  cancelSearch()
+  selectedResultIndex.value = -1
+  searchResults.value = { projects: [], trackers: [], files: [] }
+  if (globalSearchQuery.value.length >= 2) {
+    searchLoading.value = true
+    searchDebounceTimer = setTimeout(performSearch, 200)
+  }
 }
 
 function navigateResults(direction) {
@@ -274,10 +271,7 @@ function getSearchStatusClass(status) {
   return variants[status] || 'v-status-draft'
 }
 
-onBeforeUnmount(() => {
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  if (searchAbortController) searchAbortController.abort()
-})
+onBeforeUnmount(cancelSearch)
 
 defineExpose({ focusInput, closeSearch })
 </script>

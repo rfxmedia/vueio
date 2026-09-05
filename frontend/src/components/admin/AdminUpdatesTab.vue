@@ -3,10 +3,10 @@
     <AdminSettingsHeader
       eyebrow="Installation"
       title="Updates"
-      description="See what version you are running and check for a newer self-hosted release."
+      description="Keep your Vueio installation up to date with the releases you follow."
       icon="#icon-refresh"
     >
-      <button class="v-btn v-btn-secondary v-btn-sm" type="button" :disabled="loading" @click="check({ refresh: true })">
+      <button class="v-btn v-btn-secondary v-btn-sm" type="button" :disabled="loading || busy" @click="refreshUpdates">
         <svg class="icon" :class="{ spinning: loading }"><use href="#icon-refresh" /></svg>
         {{ loading ? 'Checking' : 'Check again' }}
       </button>
@@ -35,6 +35,82 @@
           View on GitHub
           <svg class="icon"><use href="#icon-external-link" /></svg>
         </a>
+      </section>
+
+      <section
+        v-if="showInstallCard"
+        class="updates-install-card"
+        :class="{ 'is-failed': updateFailed, 'is-complete': progress?.state === 'succeeded' && !awaitingReload }"
+        aria-labelledby="updates-install-title"
+      >
+        <div class="updates-install-heading">
+          <div>
+            <h3 id="updates-install-title">{{ installTitle }}</h3>
+            <p v-if="!showProgress">A backup comes first. Vueio will restart briefly during the update.</p>
+          </div>
+          <button
+            v-if="canOfferUpdate"
+            class="v-btn v-btn-primary updates-install-button"
+            type="button"
+            :disabled="busy || offline"
+            @click="startUpdate"
+          >
+            <svg class="icon" :class="{ spinning: busy }" aria-hidden="true"><use :href="busy ? '#icon-refresh' : '#icon-download'" /></svg>
+            {{ starting ? 'Starting update' : busy ? 'Updating' : updateFailed ? 'Try update again' : 'Update now' }}
+          </button>
+        </div>
+        <div v-if="showProgress" class="updates-install-progress">
+          <div class="updates-progress-label">
+            <p role="status" aria-live="polite">{{ progressDescription }}</p>
+            <span v-if="!updateFailed" aria-hidden="true">{{ progressPercent }}%</span>
+          </div>
+          <div
+            v-if="!updateFailed"
+            class="v-progress"
+            role="progressbar"
+            aria-label="Installation progress"
+            :aria-valuenow="progressPercent"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            :aria-valuetext="progressDescription"
+          >
+            <div class="v-progress-fill" :style="{ width: `${progressPercent}%` }"></div>
+          </div>
+          <p v-if="busy && !needsHostAttention" class="updates-install-note">This page will reconnect when the update is ready. You can leave and return to see its progress.</p>
+          <div v-if="needsHostAttention || progress?.state === 'interrupted'" class="updates-command-row">
+            <code>{{ hostStatusCommand }}</code>
+            <button class="v-btn v-btn-secondary v-btn-sm" type="button" aria-label="Copy host status command" @click="copyCommand(hostStatusCommand, 'Status command copied.')">
+              <svg class="icon" aria-hidden="true"><use href="#icon-copy" /></svg>
+              Copy
+            </button>
+          </div>
+        </div>
+        <p v-if="updateError && !updating" class="updates-install-error" role="status">{{ updateError }}</p>
+        <p v-if="offline && !busy" class="updates-install-error" role="status">The updater is not responding. Vueio will check again automatically.</p>
+      </section>
+
+      <section v-if="progress?.supported === false" class="updates-setup-card" aria-labelledby="updates-setup-title">
+        <div>
+          <h3 id="updates-setup-title">Enable updates from Settings</h3>
+          <p>Run this once on a supported Vueio host. Future updates will be one click away.</p>
+        </div>
+        <div class="updates-command-row">
+          <code>{{ setupCommand }}</code>
+          <button class="v-btn v-btn-secondary v-btn-sm" type="button" aria-label="Copy update setup command" @click="copyCommand(setupCommand, 'Setup command copied.')">
+            <svg class="icon" aria-hidden="true"><use href="#icon-copy" /></svg>
+            Copy
+          </button>
+        </div>
+        <details v-if="status?.update_command" class="updates-command-fallback">
+          <summary>Update from the host instead</summary>
+          <div class="updates-command-row">
+            <code>{{ status.update_command }}</code>
+            <button class="v-btn v-btn-secondary v-btn-sm" type="button" aria-label="Copy update command" @click="copyCommand(status.update_command, 'Update command copied.')">
+              <svg class="icon" aria-hidden="true"><use href="#icon-copy" /></svg>
+              Copy
+            </button>
+          </div>
+        </details>
       </section>
 
       <div class="updates-facts">
@@ -75,6 +151,7 @@
             class="v-btn v-btn-secondary v-btn-sm"
             type="button"
             :aria-label="`Copy command to switch to ${otherChannelLabel}`"
+            :disabled="busy"
             @click="copyCommand(channelSwitchCommand, 'Channel command copied.')"
           >
             <svg class="icon"><use href="#icon-copy" /></svg>
@@ -110,36 +187,14 @@
         </article>
       </section>
 
-      <section v-if="status?.update_command" class="updates-command-card">
-        <div>
-          <p class="settings-eyebrow">Update from the host</p>
-          <h3>Run one safe command</h3>
-          <p>
-            Vue.io will verify the release, create a backup, update both services, and check the installation before it finishes.
-          </p>
-        </div>
-        <div class="updates-command-row">
-          <code>{{ status.update_command }}</code>
-          <button
-            class="v-btn v-btn-primary v-btn-sm"
-            type="button"
-            aria-label="Copy update command"
-            @click="copyCommand(status.update_command, 'Update command copied.')"
-          >
-            <svg class="icon"><use href="#icon-copy" /></svg>
-            Copy
-          </button>
-        </div>
-      </section>
-
       <section class="updates-safety-panel">
         <div class="updates-safety-icon" aria-hidden="true">
           <svg class="icon"><use href="#icon-lock" /></svg>
         </div>
         <div>
-          <strong>Safe by design</strong>
-          <p>The updater automatically backs up your database first. Project files and media are never touched.</p>
-          <p>Updates run on the Vue.io host, never from the web app. To undo an update, run <code>sudo vueioctl rollback</code>.</p>
+          <strong>Backed up before installation</strong>
+          <p>Each update creates a database backup before installation. Project files and original media stay in place.</p>
+          <p>If an update needs attention, its status stays here so you can see the next step.</p>
         </div>
       </section>
     </div>
@@ -147,12 +202,45 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import AdminSettingsHeader from './AdminSettingsHeader.vue'
 import { useUpdateStatusStore } from '../../ownership/updateStatus'
 import { notify } from '../../utils/toasts'
 
-const { status, loading, check } = useUpdateStatusStore()
+const {
+  status, loading, progress, starting, offline, updateError, updating, awaitingReload, needsHostAttention,
+  check, readProgress, startUpdate, setVisible,
+} = useUpdateStatusStore()
+const setupCommand = 'sudo vueioctl updater enable'
+const hostStatusCommand = 'sudo vueioctl updater status'
+const busy = computed(() => updating.value || awaitingReload.value)
+const updateFailed = computed(() => ['failed', 'interrupted'].includes(progress.value?.state))
+const showProgress = computed(() => busy.value || (progress.value && progress.value.state !== 'idle'
+  && !(progress.value.state === 'succeeded' && status.value?.update_available)))
+const canOfferUpdate = computed(() => progress.value?.supported
+  && status.value?.update_available && progress.value?.state !== 'interrupted')
+const showInstallCard = computed(() => showProgress.value || canOfferUpdate.value || offline.value)
+const progressPercent = computed(() => Math.min(100, Math.max(0, Number(progress.value?.progress) || 0)))
+const installTitle = computed(() => {
+  if (starting.value) return 'Starting your update'
+  if (busy.value) return `Updating to ${progress.value?.version || status.value?.latest_version}`
+  if (progress.value?.state === 'interrupted') return 'This update needs attention'
+  if (progress.value?.state === 'failed') return 'The update could not finish'
+  if (progress.value?.state === 'succeeded' && !canOfferUpdate.value) return `Updated to ${progress.value.version}`
+  return 'Ready when you are'
+})
+const progressDescription = computed(() => {
+  if (needsHostAttention.value) return 'Vueio has not reconnected yet. The update may still be running or need attention. Check its status on the host.'
+  if (offline.value && busy.value) return 'Vueio is temporarily unavailable. Waiting for the update to reconnect…'
+  if (awaitingReload.value) return 'The update is installed. Reconnecting to the new version…'
+  if (starting.value) return 'Asking your host to start the update…'
+  return progress.value?.message || 'Preparing the update…'
+})
+
+function refreshUpdates() {
+  check({ refresh: true })
+  readProgress()
+}
 
 const state = computed(() => status.value?.status || (loading.value ? 'checking' : 'unavailable'))
 const channelLabel = computed(() => status.value?.channel === 'nightly' ? 'Nightly' : 'Stable')
@@ -197,7 +285,7 @@ const statusTitle = computed(() => ({
   error: 'Vue.io could not reach the release service',
 }[state.value] || (loading.value ? 'Checking for updates' : 'Update checks are not configured')))
 const statusDescription = computed(() => ({
-  available: 'A newer tested self-hosted release is available when you are ready.',
+  available: `A newer ${channelLabel.value} release is available for this installation.`,
   current: 'No action is needed.',
   ahead: `Vue.io will stay on this version until a newer ${channelLabel.value} release is published.`,
   development: 'Tagged release comparisons begin when this installation runs an immutable alpha version.',
@@ -251,7 +339,8 @@ async function copyCommand(command, successMessage) {
   }
 }
 
-onMounted(() => check())
+onMounted(() => setVisible(true))
+onUnmounted(() => setVisible(false))
 </script>
 
 <style scoped>
@@ -363,7 +452,8 @@ onMounted(() => check())
 
 .updates-status-copy h3,
 .updates-channel-card h3,
-.updates-command-card h3 {
+.updates-install-card h3,
+.updates-setup-card h3 {
   margin: 2px 0 4px;
   color: var(--v-text);
   font-size: var(--v-text-lg);
@@ -371,9 +461,9 @@ onMounted(() => check())
 
 .updates-status-copy p:last-child,
 .updates-channel-card p,
-.updates-command-card p:last-child,
-.updates-fact > span:last-child,
-.updates-safety-note {
+.updates-install-card p,
+.updates-setup-card p,
+.updates-fact > span:last-child {
   margin: 0;
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
@@ -416,16 +506,95 @@ onMounted(() => check())
   white-space: nowrap;
 }
 
-.updates-command-card {
+.updates-install-card,
+.updates-setup-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
-  align-items: center;
-  gap: 18px;
-  padding: 16px;
+  gap: var(--v-space-3);
+  padding: var(--v-space-4);
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-md);
   background: var(--v-surface-canvas);
   box-shadow: var(--v-surface-shadow-raised);
+}
+
+.updates-install-card.is-failed {
+  border-color: color-mix(in srgb, var(--v-warning) 35%, var(--v-surface-border-soft));
+}
+
+.updates-install-card.is-complete {
+  border-color: color-mix(in srgb, var(--v-accent) 28%, var(--v-surface-border-soft));
+}
+
+.updates-install-heading,
+.updates-progress-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-4);
+}
+
+.updates-install-heading > div {
+  min-width: 0;
+}
+
+.updates-install-heading h3 {
+  overflow-wrap: anywhere;
+}
+
+.updates-install-button {
+  flex: none;
+}
+
+.updates-install-button .icon {
+  width: var(--v-space-4);
+  height: var(--v-space-4);
+}
+
+.updates-install-progress {
+  display: grid;
+  gap: var(--v-space-2);
+}
+
+.updates-progress-label {
+  align-items: baseline;
+}
+
+.updates-progress-label p {
+  color: var(--v-text-secondary);
+}
+
+.updates-progress-label > span {
+  color: var(--v-accent);
+  font-size: var(--v-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.updates-install-card .updates-install-note {
+  margin-top: var(--v-space-1);
+}
+
+.updates-install-card .updates-install-error {
+  color: var(--v-warning);
+}
+
+.updates-command-fallback {
+  border-top: 1px solid var(--v-surface-border-soft);
+  padding-top: var(--v-space-3);
+}
+
+.updates-command-fallback summary {
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  cursor: pointer;
+}
+
+.updates-command-fallback[open] summary {
+  margin-bottom: var(--v-space-3);
+}
+
+.updates-command-fallback summary:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: var(--v-space-1);
 }
 
 .updates-channel-card {
@@ -643,8 +812,7 @@ onMounted(() => check())
   }
 
   .updates-facts,
-  .updates-channel-card,
-  .updates-command-card {
+  .updates-channel-card {
     grid-template-columns: 1fr;
   }
 
@@ -655,9 +823,20 @@ onMounted(() => check())
   }
 
   .updates-channel-card,
-  .updates-command-card {
-    gap: 13px;
-    padding: 13px;
+  .updates-install-card,
+  .updates-setup-card {
+    gap: var(--v-space-3);
+    padding: var(--v-space-3);
+  }
+
+  .updates-install-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--v-space-3);
+  }
+
+  .updates-install-button {
+    min-height: 44px;
   }
 
   .updates-command-row {
@@ -667,6 +846,15 @@ onMounted(() => check())
 
   .updates-command-row code {
     padding: 7px 8px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .updates-install-progress .v-progress-fill {
+    transition: none;
+  }
+
+  .updates-settings-section .icon.spinning {
+    animation: none;
   }
 }
 </style>

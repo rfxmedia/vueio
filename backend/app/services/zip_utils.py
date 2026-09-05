@@ -808,15 +808,3 @@ def build_zip_paths(full_paths: List[Path], zip_filename: str, background_tasks:
         ))
 
     return _build_zip_response(entries, zip_filename, background_tasks)
-
-
-def build_zip_file(full_paths: List[Path], zip_filename: str, background_tasks: BackgroundTasks) -> FileResponse:
-    return build_zip_paths(full_paths, zip_filename, background_tasks)
-
-
-def build_zip_dir(root_dir: Path, zip_filename: str, background_tasks: BackgroundTasks) -> FileResponse:
-    zip_filename = (zip_filename or root_dir.name or 'folder').strip()
-    if not zip_filename.lower().endswith('.zip'):
-        zip_filename += '.zip'
-
-    return build_zip_paths([root_dir], zip_filename, background_tasks)

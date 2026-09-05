@@ -18,7 +18,6 @@ from app.config import get_settings
 from app.db import get_db
 from app.models import HorizonProject, HorizonTracker, MediaAsset
 from app.services.auth import get_request_user
-from app.services.file_metadata import build_file_metadata
 from app.services.file_operation_journal import create_file_operation, complete_file_operation, fail_file_operation
 from app.services.file_access import require_user_file_browser_read_access
 from app.services.horizon_pages import (
@@ -52,8 +51,7 @@ from app.services.horizons_fresh import (
 )
 from app.services.horizons.projects import list_unavailable_project_media
 from app.services.media import get_safe_path
-from app.services.media_assets import cleanup_retired_media_asset, register_media_asset, retire_media_asset
-from app.services.media_resolution import resolve_project_content_target, resolve_project_link_target
+from app.services.media_assets import cleanup_retired_media_asset, retire_media_asset
 from app.services.project_access import verify_path_in_project
 from app.services.project_content_gateway import ContentRef, HorizonsProjectAuthPolicy, LegacyProjectAuthPolicy, build_metadata, list_content
 from app.services.project_links import find_link_by_virtual_path, linked_virtual_root
@@ -61,7 +59,6 @@ from app.services.project_permissions import make_project_path_smb_mutable, make
 from app.services.projects import get_project_dir, load_project_links, save_project_links
 from app.services.recently_viewed import purge_recently_viewed_for_project
 from app.services.search_index import invalidate_search_index
-from app.services.share_access import build_project_file_info_payload
 from app.services.trackers import queue_thumbnail_warmup_for_paths
 from app.services.uploads import (
     AuthorizedUploadScope,
@@ -229,21 +226,6 @@ def _require_project_access_ctx(
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role=required_role)
     return user, auth_mode, project, access_role
-
-
-def _ensure_horizon_project_file_asset(db: Session, project_id: str, rel_path: str, existing_asset=None):
-    return register_media_asset(db, project_id, rel_path, storage_scope='project')
-
-
-def _build_project_file_info(project_id: str, path: str, *, db: Session | None = None) -> dict:
-    file_path, _job_key, storage_scope = resolve_project_link_target(project_id, path)
-    if file_path and file_path.exists():
-        return build_project_file_info_payload(project_id, path, file_path, db=db, storage_scope=storage_scope)
-
-    file_path, _job_key, _storage_scope = resolve_project_content_target(project_id, path)
-    if not file_path or not file_path.exists():
-        raise HTTPException(status_code=404, detail='File not found')
-    return build_file_metadata(file_path, path, db=db, project_id=project_id)
 
 
 def _ensure_mutable_project_folder_path(path: str, *, detail: str = 'Workspace folders are protected') -> None:

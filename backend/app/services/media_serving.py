@@ -285,12 +285,6 @@ def get_object_hls_asset(resolve_payload: ResolveObjectPayload, *, asset_path: s
     )
 
 
-def download_object_file(resolve_payload: ResolveObjectPayload, *, not_found_detail: str):
-    full_path, _cache_key, _payload = resolve_payload()
-    _require_existing_file(full_path, detail=not_found_detail)
-    return FileResponse(full_path, media_type='application/octet-stream', filename=full_path.name)
-
-
 def get_object_thumbnail(resolve_payload: ResolveObjectPayload, db: Session, *, not_found_detail: str, queue_missing: bool = True):
     full_path, cache_key, _payload = resolve_payload()
     db.close()

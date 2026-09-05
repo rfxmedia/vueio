@@ -31,7 +31,7 @@ from app.services.project_delivery import delete_delivery_logo_upload
 
 from .common import SHOT_STATUS_LABELS, SHOT_STATUS_ORDER, _normalize_horizon_tracker_tags
 from .projects import get_horizon_project
-from .team import get_horizon_shot_assignee_ids, is_restricted_horizon_artist, serialize_horizon_shot_assignee, serialize_horizon_shot_assignees
+from .team import is_restricted_horizon_artist, serialize_horizon_shot_assignments
 from .tracker_settings import normalize_tracker_settings, tracker_settings_for
 from .version_publication import published_versions_by_shot
 
@@ -169,11 +169,29 @@ def serialize_horizon_shot_version_media(version: HorizonShotVersion, asset: Med
     }, media_asset_id=version.media_asset_id, shot_version_id=version.id)
 
 
-def _serialize_horizon_tracker_versions(db: Session, shot: HorizonShot) -> list[dict]:
-    from .shots import list_horizon_shot_versions
-
-    versions = list_horizon_shot_versions(db, shot.project_id, shot.id)
-    asset_ids = [version.media_asset_id for version in versions if version.media_asset_id]
+def _serialize_horizon_versions_by_shot(
+    db: Session,
+    project_id: str,
+    shot_ids: list[str],
+    version_limit: int | None = None,
+) -> dict[str, list[dict]]:
+    if not shot_ids:
+        return {}
+    versions_by_shot = {shot_id: [] for shot_id in shot_ids}
+    versions = db.query(HorizonShotVersion).filter(
+        HorizonShotVersion.project_id == project_id,
+        HorizonShotVersion.shot_id.in_(shot_ids),
+    ).order_by(HorizonShotVersion.created_at.asc()).all()
+    for version in versions:
+        shot_versions = versions_by_shot[version.shot_id]
+        if not version_limit or version_limit <= 0 or len(shot_versions) < version_limit:
+            shot_versions.append(version)
+    asset_ids = {
+        version.media_asset_id
+        for shot_versions in versions_by_shot.values()
+        for version in shot_versions
+        if version.media_asset_id
+    }
     asset_map = {}
     if asset_ids:
         asset_map = {
@@ -183,8 +201,11 @@ def _serialize_horizon_tracker_versions(db: Session, shot: HorizonShot) -> list[
         from app.services.media_resolution import resolve_media_asset_path
 
         for asset in asset_map.values():
-            resolve_media_asset_path(asset, project_id=shot.project_id, db=db)
-    return [serialize_horizon_shot_version_media(version, asset_map.get(version.media_asset_id)) for version in versions]
+            resolve_media_asset_path(asset, project_id=project_id, db=db)
+    return {
+        shot_id: [serialize_horizon_shot_version_media(version, asset_map.get(version.media_asset_id)) for version in shot_versions]
+        for shot_id, shot_versions in versions_by_shot.items()
+    }
 
 
 def serialize_horizon_tracker_detail(
@@ -217,11 +238,8 @@ def serialize_horizon_tracker_detail(
     if shot_limit and shot_limit > 0:
         shots = shots[:shot_limit]
 
-    def shot_versions_payload(shot: HorizonShot) -> list[dict]:
-        versions = _serialize_horizon_tracker_versions(db, shot)
-        if version_limit and version_limit > 0:
-            return versions[:version_limit]
-        return versions
+    assignments = serialize_horizon_shot_assignments(db, shots)
+    versions_by_shot = _serialize_horizon_versions_by_shot(db, tracker.project_id, [shot.id for shot in shots], version_limit)
 
     return {
         'id': tracker.id,
@@ -247,16 +265,13 @@ def serialize_horizon_tracker_detail(
                 'status': shot.status,
                 'category': shot.category,
                 'tag': shot.category,
-                'assignee_user_ids': get_horizon_shot_assignee_ids(shot),
-                'assignees': serialize_horizon_shot_assignees(shot),
-                'assignee_user_id': shot.assignee_user_id,
-                'assignee': serialize_horizon_shot_assignee(shot),
+                **assignments[shot.id],
                 'latest_version_label': shot.latest_version_label,
                 'latest_media_asset_id': shot.latest_media_asset_id,
                 'archived_at': shot.archived_at,
                 'archived_by': shot.archived_by,
                 'archive_reason': shot.archive_reason,
-                'versions': shot_versions_payload(shot),
+                'versions': versions_by_shot[shot.id],
                 'created_at': shot.created_at,
                 'updated_at': shot.updated_at,
             }

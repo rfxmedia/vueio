@@ -46,11 +46,9 @@ window.addEventListener('unhandledrejection', () => {
 })
 
 async function bootstrap() {
-  try {
-    await loadAndApplyStoredTheme()
-  } catch {
+  void loadAndApplyStoredTheme().catch(() => {
     console.warn('[vue.io theme load] Failed to apply the stored theme')
-  }
+  })
 
   const app = createApp(App)
 

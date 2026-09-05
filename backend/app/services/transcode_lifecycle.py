@@ -13,6 +13,7 @@ from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db import SessionLocal
 from app.models import TranscodeJob
 from app.runtime_state import transcode_cancel_requested, transcode_processes, transcode_progress
 from app.services.media import get_file_hash
@@ -355,7 +356,7 @@ def purge_transcode_identity(job_key: str, *, db: Session | None = None) -> None
     if db is not None:
         db.query(TranscodeJob).filter(TranscodeJob.file_path == job_key).delete(synchronize_session=False)
     else:
-        with SessionLocalForTranscode() as session:
+        with SessionLocal() as session:
             session.query(TranscodeJob).filter(TranscodeJob.file_path == job_key).delete(synchronize_session=False)
             session.commit()
 
@@ -369,7 +370,7 @@ def touch_transcode_access(job_key: str) -> None:
             return
         _transcode_access_touches[job_key] = now
     try:
-        with SessionLocalForTranscode() as session:
+        with SessionLocal() as session:
             job = session.query(TranscodeJob).filter(TranscodeJob.file_path == job_key).first()
             if job is None or job.status != 'complete':
                 with _transcode_access_touches_lock:
@@ -469,28 +470,12 @@ def _tracked_transcode_cache_bytes(jobs: list[TranscodeJob]) -> int:
     return total
 
 
-def transcode_cache_bytes(db: Session | None = None) -> int:
-    owns_session = db is None
-    session = db
-    if session is None:
-        from app.db import SessionLocal
-
-        session = SessionLocal()
-    try:
-        return _tracked_transcode_cache_bytes(session.query(TranscodeJob).all())
-    finally:
-        if owns_session:
-            session.close()
-
-
 def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
     """Evict only completed, reproducible artifacts in true access order."""
     budget = int(settings.TRANSCODE_CACHE_MAX_BYTES)
     owns_session = db is None
     session = db
     if session is None:
-        from app.db import SessionLocal
-
         session = SessionLocal()
     try:
         all_jobs = session.query(TranscodeJob).all()
@@ -565,7 +550,7 @@ def mark_transcode_complete(attempt: TranscodeAttempt, *, output_path: Path, pro
     if transcode_identity_is_cancelled(attempt.job_key) or not owns_transcode_claim(attempt):
         return False
     transcode_progress[attempt.job_key] = {'progress': progress, 'status': 'complete', 'completed_at': time.time(), 'attempt_id': attempt.attempt_id}
-    with SessionLocalForTranscode() as session:
+    with SessionLocal() as session:
         job = session.query(TranscodeJob).filter(TranscodeJob.file_path == attempt.job_key).first()
         if job:
             job.status = 'complete'
@@ -588,7 +573,7 @@ def mark_transcode_error(attempt: TranscodeAttempt, *, error: str, duration: flo
         'completed_at': time.time(),
         'attempt_id': attempt.attempt_id,
     }
-    with SessionLocalForTranscode() as session:
+    with SessionLocal() as session:
         job = session.query(TranscodeJob).filter(TranscodeJob.file_path == attempt.job_key).first()
         if job:
             job.status = 'error'
@@ -596,17 +581,6 @@ def mark_transcode_error(attempt: TranscodeAttempt, *, error: str, duration: flo
             job.progress = 0
             job.duration = duration or job.duration or 0
             session.commit()
-
-
-class SessionLocalForTranscode:
-    def __enter__(self):
-        from app.db import SessionLocal
-
-        self.session = SessionLocal()
-        return self.session
-
-    def __exit__(self, exc_type, exc, tb):
-        self.session.close()
 
 
 def cancel_all_transcodes(*, wait_seconds: float = 2.0) -> int:

@@ -51,7 +51,7 @@ from app.services.horizons_fresh import (
 from app.services.media_assets import declare_media_asset, serialize_media_asset
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandService
 from app.services.tracker_events import build_tracker_event_actor, create_tracker_event
-from app.services.user_access import has_app_access, is_admin_user
+from app.services.user_access import has_app_access
 
 router = APIRouter(tags=['horizons-fresh'])
 
@@ -190,13 +190,6 @@ def _shot_update_fields(data) -> set[str]:
 def _auth_ctx(vueio_session: str | None, x_vueio_agent_key: str | None) -> _AuthCtx:
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     return _AuthCtx(user=user, auth_mode=auth_mode)
-
-
-def _require_horizons_admin(vueio_session: str | None, x_vueio_agent_key: str | None) -> _AuthCtx:
-    ctx = _auth_ctx(vueio_session, x_vueio_agent_key)
-    if not is_admin_user(ctx.user):
-        raise HTTPException(status_code=403, detail='Admin access required')
-    return ctx
 
 
 def _require_horizons_capability(

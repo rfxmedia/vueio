@@ -252,7 +252,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir release-assets
-          cp ops/vueioctl compose.release.yml LICENSE.md THIRD_PARTY_NOTICES.md TRADEMARKS.md release-assets/
+          cp ops/vueioctl ops/vueio-updater.py compose.release.yml LICENSE.md THIRD_PARTY_NOTICES.md TRADEMARKS.md release-assets/
           sed "s/^VERSION=.*/VERSION=\${VUEIO_VERSION:-${GITHUB_REF_NAME}}/" \
             install.sh >release-assets/install.sh
           placeholder=$(printf '%s%s' 'your-' 'owner')
@@ -313,6 +313,7 @@ jobs:
           assets=(
             install.sh
             vueioctl
+            vueio-updater.py
             compose.release.yml
             LICENSE.md
             THIRD_PARTY_NOTICES.md
@@ -371,6 +372,7 @@ jobs:
             release-assets/install.sh \
             release-assets/compose.release.yml \
             release-assets/vueioctl \
+            release-assets/vueio-updater.py \
             release-assets/LICENSE.md \
             release-assets/THIRD_PARTY_NOTICES.md \
             release-assets/TRADEMARKS.md \

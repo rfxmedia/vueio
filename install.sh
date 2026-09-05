@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
 set -eu
 
-# This bootstrap installs the small host-side controller. Vueio itself remains
-# entirely inside Docker Compose; this script never mounts the Docker socket.
+# This bootstrap installs the host controller and update service. The web app
+# runs in Docker Compose without access to the Docker socket.
 VERSION=${VUEIO_VERSION:-}
 INSTALL_DIR=${VUEIO_HOME:-/opt/vueio}
 BIN_DIR=${VUEIO_BIN_DIR:-/usr/local/bin}
@@ -58,7 +58,7 @@ heading
 step "Checking this Linux server"
 
 printf '%s\n' "$VERSION" |
-  grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$' || {
+  grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)(\.dev\.(0|[1-9][0-9]*))?$' || {
   fail "This installer does not contain a valid Vueio release version."
 }
 
@@ -78,6 +78,11 @@ command -v curl >/dev/null 2>&1 || {
 command -v bash >/dev/null 2>&1 || {
   fail "bash is required. Install bash, then run the Vueio command again."
 }
+command -v python3 >/dev/null 2>&1 || {
+  fail "Python 3.9 or newer is required for host management. Install python3, then try again."
+}
+python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' ||
+  fail "Python 3.9 or newer is required for host management."
 command -v sha256sum >/dev/null 2>&1 || {
   fail "sha256sum is required. Install your distribution's coreutils package, then try again."
 }
@@ -109,9 +114,13 @@ trap 'rm -rf "$STAGE"' EXIT INT TERM
 step "Downloading Vueio $VERSION"
 download SHA256SUMS "$STAGE/SHA256SUMS"
 download vueioctl "$STAGE/vueioctl"
+download vueio-updater.py "$STAGE/vueio-updater.py"
 download compose.release.yml "$STAGE/compose.release.yml"
 download LICENSE.md "$STAGE/LICENSE.md"
 grep -Eq '[[:space:]]vueioctl$' "$STAGE/SHA256SUMS" || {
+  fail "The release checksum list is incomplete. Nothing was installed."
+}
+grep -Eq '[[:space:]]vueio-updater\.py$' "$STAGE/SHA256SUMS" || {
   fail "The release checksum list is incomplete. Nothing was installed."
 }
 grep -Eq '[[:space:]]compose\.release\.yml$' "$STAGE/SHA256SUMS" || {
@@ -124,6 +133,8 @@ grep -Eq '[[:space:]]LICENSE\.md$' "$STAGE/SHA256SUMS" || {
   fail "Release verification failed. Nothing was installed."
 bash -n "$STAGE/vueioctl" ||
   fail "The downloaded management command is invalid. Nothing was installed."
+python3 -c 'import ast, sys; ast.parse(open(sys.argv[1], encoding="utf-8").read())' "$STAGE/vueio-updater.py" ||
+  fail "The downloaded update service is invalid. Nothing was installed."
 ok "Release files are verified"
 
 if [ "${VUEIO_NONINTERACTIVE:-0}" = 1 ]; then
@@ -131,6 +142,7 @@ if [ "${VUEIO_NONINTERACTIVE:-0}" = 1 ]; then
   VUEIO_VERSION="$VERSION" \
   VUEIO_RELEASE_COMPOSE="$STAGE/compose.release.yml" \
   VUEIO_RELEASE_LICENSE="$STAGE/LICENSE.md" \
+  VUEIO_RELEASE_UPDATER="$STAGE/vueio-updater.py" \
   VUEIO_RELEASE_ROOT_URL="$RELEASE_ROOT_URL" \
   bash "$STAGE/vueioctl" install </dev/null
 else
@@ -142,6 +154,7 @@ else
   VUEIO_VERSION="$VERSION" \
   VUEIO_RELEASE_COMPOSE="$STAGE/compose.release.yml" \
   VUEIO_RELEASE_LICENSE="$STAGE/LICENSE.md" \
+  VUEIO_RELEASE_UPDATER="$STAGE/vueio-updater.py" \
   VUEIO_RELEASE_ROOT_URL="$RELEASE_ROOT_URL" \
   bash "$STAGE/vueioctl" install </dev/tty
 fi
@@ -153,3 +166,10 @@ fi
 mkdir -p "$BIN_DIR"
 install -m 0755 "$STAGE/vueioctl" "$BIN_DIR/vueioctl"
 ok "Management command installed at $BIN_DIR/vueioctl"
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  step "Enabling updates from Settings"
+  VUEIO_HOME="$INSTALL_DIR" "$BIN_DIR/vueioctl" updater enable ||
+    warn "Vueio is installed. Enable updates later with 'sudo vueioctl updater enable'."
+else
+  warn "To enable updates from Settings, configure your host service manager to run 'vueioctl updater serve' as root. See the self-hosting guide."
+fi

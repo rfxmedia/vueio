@@ -2,6 +2,7 @@
 backend/__pycache__/
 backend/**/*.py[cod]
 backend/**/__pycache__/
+ops/__pycache__/
 backend/*.py[cod]
 .venv/
 venv/

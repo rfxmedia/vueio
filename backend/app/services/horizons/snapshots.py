@@ -10,7 +10,7 @@ from app.models import (
 
 from .projects import get_horizon_project, get_horizon_project_access_role, serialize_horizon_project
 from .shots import list_visible_horizon_shots
-from .team import get_horizon_shot_assignee_ids, serialize_horizon_shot_assignee, serialize_horizon_shot_assignees
+from .team import serialize_horizon_shot_assignments
 
 def build_horizon_project_snapshot(
     db: Session,
@@ -58,6 +58,7 @@ def build_horizon_project_snapshot(
             if limit_shots_per_tracker and limit_shots_per_tracker > 0:
                 shots = shots[:limit_shots_per_tracker]
 
+            assignments = serialize_horizon_shot_assignments(db, shots)
             shot_payloads = []
             for shot in shots:
                 shot_entry = {
@@ -68,10 +69,7 @@ def build_horizon_project_snapshot(
                     'status': shot.status,
                     'category': shot.category,
                     'tag': shot.category,
-                    'assignee_user_ids': get_horizon_shot_assignee_ids(shot),
-                    'assignees': serialize_horizon_shot_assignees(shot),
-                    'assignee_user_id': shot.assignee_user_id,
-                    'assignee': serialize_horizon_shot_assignee(shot),
+                    **assignments[shot.id],
                     'latest_version_label': shot.latest_version_label,
                     'latest_media_asset_id': shot.latest_media_asset_id,
                 }

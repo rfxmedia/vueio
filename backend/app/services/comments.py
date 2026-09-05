@@ -31,7 +31,7 @@ from app.services.horizons_fresh import (
 from app.services.media import AUDIO_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 from app.services.project_access import require_project_auth, verify_path_in_project
 from app.services.project_links import linked_virtual_paths_for_source
-from app.services.projects import get_project_dir, load_project_links, resolve_horizon_project_root, resolve_project_root_by_id
+from app.services.projects import load_project_links, resolve_horizon_project_root, resolve_project_root_by_id
 from app.services.share_access import resolve_shared_horizons_object_target, resolve_shared_media_target, validate_share
 from app.services.upload_payloads import require_valid_image_path
 from app.services.uploads import ensure_upload_capacity
@@ -1046,14 +1046,3 @@ def load_comments_for_paths(
             grouped[path].append(comment)
             grouped_ids[path].add(comment.id)
     return grouped
-
-
-def get_comment_counts(
-    path_list: list[str],
-    db: Session,
-    project_id: str | None = None,
-    target_refs_by_path: dict[str, CommentTargetRefs] | None = None,
-) -> dict:
-    grouped = load_comments_for_paths(path_list, db, project_id=project_id, target_refs_by_path=target_refs_by_path)
-    counts = {path: len(grouped.get(_normalize_comment_path(path), [])) for path in path_list}
-    return counts

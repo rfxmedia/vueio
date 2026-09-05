@@ -33,10 +33,6 @@ def cleanup_old_transcode_entries() -> None:
             transcode_progress.pop(key, None)
 
 
-# Track faststart remux jobs in progress (to avoid duplicate submissions)
-_faststart_in_progress: set[str] = set()
-_faststart_lock = threading.Lock()
-
 # Global search index (in-memory cache)
 SEARCH_INDEX_TTL_SECONDS = settings.SEARCH_INDEX_TTL_SECONDS
 SEARCH_INDEX_MAX_FILES = settings.SEARCH_INDEX_MAX_FILES

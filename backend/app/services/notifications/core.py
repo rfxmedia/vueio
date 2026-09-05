@@ -29,7 +29,7 @@ from app.models import (
     TrackerEvent,
 )
 from app.services.auth import load_users
-from app.services.external_urls import normalize_external_http_url, normalize_http_origin
+from app.services.external_urls import normalize_http_origin
 from app.services.horizons_fresh import (
     get_horizon_project_access_role,
     is_restricted_horizon_artist,

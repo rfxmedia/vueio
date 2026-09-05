@@ -18,7 +18,8 @@ review, comments, share links, file requests, and browser playback.
 Vueio is designed for agentic workflows and media-pipeline automation. It uses
 human-directed, AI-assisted engineering, with repeated adversarial review from
 frontier systems such as Fable 5 and GPT-5.6 Sol. Every release also passes
-automated tests, security scans, recovery checks, and human approval.
+build checks, security scans, manual release and recovery validation, and human
+approval.
 
 ## Install on Linux
 
@@ -45,7 +46,8 @@ The installer:
 3. downloads and verifies the release;
 4. creates private database and session secrets;
 5. starts Vueio and runs its safety checks; and
-6. prints the web address and one-time setup code.
+6. prints the web address and one-time setup code; and
+7. enables updates from Settings on hosts running systemd.
 
 Vueio receives access only to the project folder selected during setup. By
 default it uses `/var/lib/vueio/projects`, binds the web app to
@@ -60,6 +62,11 @@ Cloudflare Tunnels. The guide explains how to prepare Vue.io after you configure
 one of those yourself.
 
 ## Protecting existing installations
+
+Administrators can install the latest release in their selected Nightly or
+Stable channel from **Settings → Updates → Update now**. A progress bar shows
+each stage, and the page reconnects after the restart. Existing installations
+need a one-time [update-service setup](docs/SELF_HOSTING.md#enable-updates-on-an-existing-installation).
 
 Application updates use database migrations and are designed to preserve
 projects, trackers, accounts, comments, shares, and settings. Source media is

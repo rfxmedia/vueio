@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     VUEIO_CHANNEL: str = 'stable'
     VUEIO_UPDATE_REPOSITORY: str = ''
     VUEIO_UPDATE_GITHUB_TOKEN: str = ''
+    VUEIO_UPDATER_SOCKET: str = ''
     VUEIO_HIDDEN_STORAGE_FOLDERS: str = '.vueio,_gsdata_,.DS_Store'
     SECRET_KEY: str = 'vueio-secret-key-change-in-production'
     VUEIO_AGENT_API_KEY: str = ''

@@ -6,11 +6,14 @@ SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 VUEIO_HOME=${VUEIO_HOME:-/opt/vueio}
 COMPOSE_FILE="$VUEIO_HOME/compose.yml"
 STORAGE_COMPOSE_FILE="$VUEIO_HOME/compose.storage.yml"
+INSTALLATION_COMPOSE_FILE="$VUEIO_HOME/compose.installation.yml"
 ENV_FILE="$VUEIO_HOME/.env"
 STORAGE_DIR="$VUEIO_HOME/storage.d"
 BACKUP_DIR="$VUEIO_HOME/backups"
 LOG_DIR="$VUEIO_HOME/logs"
 UPDATE_STATE_FILE="$VUEIO_HOME/.update-state"
+UPDATE_PROGRESS_FILE="$VUEIO_HOME/.update-progress.json"
+UPDATER_FILE="$VUEIO_HOME/vueio-updater.py"
 LICENSE_FILE="$VUEIO_HOME/LICENSE.md"
 RELEASE_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)(\.dev\.(0|[1-9][0-9]*))?$'
 
@@ -79,6 +82,8 @@ Usage: $PROGRAM <command> [arguments]
   rollback                        Restore the latest pre-update backup
   update <release-tag>            Back up, refresh release files, and update
   channel <stable|nightly>        Select which releases Vueio follows
+  updater enable | disable       Configure one-click updates on systemd hosts
+  updater status | serve         Inspect or run the host updater
   storage list
   storage add <label> <path> [ro|rw]
   storage remove <label> [--yes]
@@ -97,6 +102,30 @@ require_command() {
 require_installed() {
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] ||
     die "Vueio is not configured in $VUEIO_HOME. Run '$PROGRAM install' first."
+}
+
+maintenance_lock() {
+  require_installed
+  require_command flock
+  # The daemon passes its already-held lock through this exact descriptor.
+  if [[ ${VUEIO_MAINTENANCE_FD:-} =~ ^[0-9]+$ ]] &&
+    [[ /proc/$$/fd/$VUEIO_MAINTENANCE_FD -ef "$VUEIO_HOME/.maintenance.lock" ]]; then
+    return 0
+  fi
+  exec {VUEIO_MAINTENANCE_FD}>"$VUEIO_HOME/.maintenance.lock"
+  chmod 600 "$VUEIO_HOME/.maintenance.lock"
+  flock -n "$VUEIO_MAINTENANCE_FD" || die "Another host operation is in progress. Wait for it to finish."
+}
+
+prepare_updater_directory() {
+  local pgid
+  pgid=$(env_value VUEIO_PGID)
+  [[ $pgid =~ ^[0-9]+$ ]] || die "The updater needs a numeric engine group ID"
+  [[ ! -L "$VUEIO_HOME/updater" ]] || die "The updater directory must not be a symbolic link"
+  mkdir -p "$VUEIO_HOME/updater"
+  chmod 750 "$VUEIO_HOME/updater"
+  chown "0:$pgid" "$VUEIO_HOME/updater"
+  set_env VUEIO_UPDATER_DIR "$VUEIO_HOME/updater"
 }
 
 validate_release_tag() {
@@ -126,10 +155,13 @@ version_is_newer() {
 }
 
 compose() {
+  local installation=()
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation=(-f "$INSTALLATION_COMPOSE_FILE")
   docker compose \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
     -f "$STORAGE_COMPOSE_FILE" \
+    "${installation[@]}" \
     "$@"
 }
 
@@ -325,6 +357,7 @@ next_storage_id() {
 }
 
 storage_add() {
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || die "This installation has host-specific overrides. Review its storage mapping on the host before adding storage."
   local label=${1:-} path=${2:-} mode=${3:-rw} id record sentinel sentinel_file sentinel_tmp normalized_label
   local marker_created=false duplicate=false
   [[ -n $label && -n $path ]] || die "Usage: $PROGRAM storage add <label> <path> [ro|rw]"
@@ -424,6 +457,7 @@ storage_list() {
 }
 
 storage_remove() {
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || die "This installation has host-specific overrides. Review its storage mapping on the host before removing storage."
   local label=${1:-} confirm=${2:-} record=
   [[ -n $label ]] || die "Usage: $PROGRAM storage remove <label> [--yes]"
   while IFS=$'\t' read -r id existing_label _ _ _; do
@@ -694,6 +728,10 @@ VUEIO_UI_IMAGE=${VUEIO_UI_IMAGE:-${VUEIO_UI_REPOSITORY:-ghcr.io/rfxmedia/vueio-u
 EOF
   chmod 600 "$ENV_FILE"
   chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$LOG_DIR"
+  prepare_updater_directory
+  if [[ -f ${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"} ]]; then
+    install -m 0644 "${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"}" "$UPDATER_FILE"
+  fi
   chown "$puid:$pgid" "$VUEIO_HOME/data" 2>/dev/null ||
     warn "Could not set data ownership to $puid:$pgid; verify it with '$PROGRAM doctor'"
   render_storage
@@ -750,7 +788,7 @@ doctor() {
   channel=${channel:-stable}
   if [[ $fix == true ]]; then
     [[ ! -f $UPDATE_STATE_FILE ]] ||
-      die "An interrupted update must recover first. Re-run the same update command."
+      die "An interrupted update needs review first. Use '$PROGRAM rollback' only after reviewing the recovery backup."
     note "Applying safe repairs..."
     find "$VUEIO_HOME" -maxdepth 1 -type d \
       \( -name '.update.*' -o -name '.release-check.*' \) \
@@ -800,7 +838,7 @@ doctor() {
 
   if [[ -f $UPDATE_STATE_FILE && ${VUEIO_UPDATE_IN_PROGRESS:-0} != 1 ]]; then
     warn "An incomplete update state is present: $UPDATE_STATE_FILE"
-    issues+=("Re-run the same update command so Vueio can recover before retrying.")
+    issues+=("Review the update log and recovery backup before using '$PROGRAM rollback'.")
   elif [[ -f $UPDATE_STATE_FILE ]]; then
     note "OK: the current update owns its recovery state"
   else
@@ -1024,14 +1062,8 @@ backup_vueio() (
     die "PostgreSQL backup validation failed"
   cp "$ENV_FILE" "$tmp/environment"
   cp "$COMPOSE_FILE" "$STORAGE_COMPOSE_FILE" "$tmp/"
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || cp "$INSTALLATION_COMPOSE_FILE" "$tmp/"
   cp -a "$STORAGE_DIR" "$tmp/storage.d"
-  mkdir "$tmp/data"
-  tar -C "$(env_value VUEIO_DATA_PATH)" \
-    --hard-dereference \
-    --exclude='./cache' \
-    --exclude='./packages/tmp' \
-    -cf - . |
-    tar -C "$tmp/data" -xf -
   {
     printf 'format=1\n'
     printf 'created_at=%s\n' "$stamp"
@@ -1042,53 +1074,115 @@ backup_vueio() (
     printf 'source_media_included=false\n'
     printf 'rebuildable_cache_included=false\n'
   } >"$tmp/manifest"
-  python3 - "$tmp" <<'PY' || die "Application data contains entries that cannot be restored safely"
+  # Stream application data directly; staging contains only the database and configuration.
+  python3 - "$tmp" "$(env_value VUEIO_DATA_PATH)" "$archive_tmp" <<'PY' || die "Application data could not be backed up safely"
+import gzip
+import hashlib
+import io
 import os
 import pathlib
 import stat
 import sys
+import tarfile
 
-root = pathlib.Path(sys.argv[1])
-entry_count = 0
+root, data, destination = map(pathlib.Path, sys.argv[1:])
+entries = []
 total_bytes = 0
+
+
+def include(path, relative):
+    global total_bytes
+    encoded = ('./' + relative).encode('utf-8', errors='surrogateescape')
+    if (
+        len(encoded) > 4096
+        or '\\' in relative
+        or any(ord(character) < 32 or ord(character) == 127 for character in relative)
+        or any(len(part.encode('utf-8', errors='surrogateescape')) > 255 for part in relative.split('/'))
+    ):
+        raise ValueError('unsafe path')
+    entry = path.lstat()
+    if stat.S_ISREG(entry.st_mode):
+        total_bytes += entry.st_size
+    elif not stat.S_ISDIR(entry.st_mode):
+        raise ValueError('link or special entry')
+    entries.append((path, relative))
+    # Reserve the archive root and checksum manifest.
+    if len(entries) > 99_998 or total_bytes > 2 * 1024 ** 4:
+        raise ValueError('archive limit')
+
+
+def walk_error(error):
+    raise error
+
+
+class HashingReader:
+    def __init__(self, source):
+        self.source = source
+        self.digest = hashlib.sha256()
+
+    def read(self, size):
+        chunk = self.source.read(size)
+        self.digest.update(chunk)
+        return chunk
+
+
 try:
-    for directory, subdirectories, filenames in os.walk(root, followlinks=False):
-        for name in [*subdirectories, *filenames]:
-            entry_count += 1
-            # The final archive also contains its root and checksum manifest.
-            if entry_count > 99_998:
-                raise ValueError('member limit')
-            relative = (pathlib.Path(directory, name).relative_to(root)).as_posix()
-            encoded = relative.encode('utf-8', errors='surrogateescape')
-            if (
-                len(encoded) > 4096
-                or '\\' in relative
-                or any(ord(character) < 32 or ord(character) == 127 for character in relative)
-                or any(
-                    len(part.encode('utf-8', errors='surrogateescape')) > 255
-                    for part in relative.split('/')
-                )
-            ):
-                raise ValueError('unsafe path')
-            entry = os.lstat(root / relative)
-            if stat.S_ISREG(entry.st_mode):
-                total_bytes += entry.st_size
-                if total_bytes > 2 * 1024 * 1024 * 1024 * 1024:
-                    raise ValueError('expanded size limit')
-            elif not stat.S_ISDIR(entry.st_mode):
+    for base, prefix in ((root, ''), (data, 'data')):
+        if prefix:
+            include(base, prefix)
+        for directory, subdirectories, filenames in os.walk(base, followlinks=False, onerror=walk_error):
+            relative_directory = pathlib.Path(directory).relative_to(base)
+            for name in [*subdirectories, *filenames]:
+                relative = (relative_directory / name).as_posix()
+                if prefix and relative in {'cache', 'packages/tmp'}:
+                    if name in subdirectories:
+                        subdirectories.remove(name)
+                    continue
+                include(pathlib.Path(directory, name), f'{prefix}/{relative}' if prefix else relative)
+
+    checksums = []
+    archived_bytes = 0
+    with gzip.open(destination, 'wb', compresslevel=6) as compressed, tarfile.open(
+        fileobj=compressed, mode='w|', format=tarfile.GNU_FORMAT, dereference=True,
+    ) as archive:
+        archive.addfile(archive.gettarinfo(str(root), arcname='.'))
+        for path, relative in entries:
+            entry = path.lstat()
+            if not (stat.S_ISREG(entry.st_mode) or stat.S_ISDIR(entry.st_mode)):
                 raise ValueError('link or special entry')
+            info = archive.gettarinfo(str(path), arcname='./' + relative)
+            if info.isdir():
+                archive.addfile(info)
+            elif info.isfile():
+                with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
+                    before = os.fstat(source.fileno())
+                    if not stat.S_ISREG(before.st_mode) or (
+                        before.st_dev, before.st_ino, before.st_size,
+                    ) != (entry.st_dev, entry.st_ino, info.size):
+                        raise ValueError('file changed before backup')
+                    archived_bytes += info.size
+                    if archived_bytes > 2 * 1024 ** 4:
+                        raise ValueError('expanded size limit')
+                    reader = HashingReader(source)
+                    archive.addfile(info, reader)
+                    after = os.fstat(source.fileno())
+                    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
+                        after.st_size, after.st_mtime_ns, after.st_ctime_ns,
+                    ):
+                        raise ValueError('file changed during backup')
+                    checksums.append(f'{reader.digest.hexdigest()}  ./{relative}\n')
+            else:
+                raise ValueError('link or special entry')
+        contents = ''.join(sorted(checksums, key=lambda line: line[66:])).encode('utf-8')
+        if len(contents) > 256 * 1024 ** 2 or archived_bytes + len(contents) > 2 * 1024 ** 4:
+            raise ValueError('archive limit')
+        info = tarfile.TarInfo('./checksums.sha256')
+        info.size = len(contents)
+        info.mode = 0o600
+        archive.addfile(info, io.BytesIO(contents))
 except Exception:
     raise SystemExit(1)
 PY
-  (
-    cd "$tmp"
-    # The destination is excluded explicitly; redirection creates it before find runs.
-    # shellcheck disable=SC2094
-    find . -type f ! -name checksums.sha256 -print0 |
-      sort -z |
-      xargs -0 sha256sum >checksums.sha256
-  )
-  tar --hard-dereference -C "$tmp" -czf "$archive_tmp" .
   sha256sum "$archive_tmp" |
     sed "s#  .*#  $(basename "$destination")#" >"$checksum_tmp"
   mv -f -- "$archive_tmp" "$destination"
@@ -1117,8 +1211,12 @@ restore_vueio() (
   umask 077
   require_installed
   require_command python3
+  # An explicit restore owns any pending update's recovery marker. Doctor must
+  # still check actual health before that marker can be cleared.
+  VUEIO_UPDATE_IN_PROGRESS=1
+  export VUEIO_UPDATE_IN_PROGRESS
   local archive=${1:-} source_archive confirmation tmp safety data_path data_parent staged_data='' old_data stamp
-  local safety_db required_kb available_kb archive_bytes engine_stopped=false old_data_moved=false db_restored=false
+  local safety_db required_kb available_kb archive_bytes engine_stopped=false old_data_moved=false db_restored=false environment_changed=false engine_was_running=false
   [[ -f $archive ]] || die "Usage: $PROGRAM restore <archive.tar.gz>"
   if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
     printf 'Restore this backup and replace current Vueio state? Type RESTORE: '
@@ -1176,6 +1274,7 @@ import tarfile
 allowed_files = {
     'checksums.sha256',
     'compose.storage.yml',
+    'compose.installation.yml',
     'compose.yml',
     'database.dump',
     'environment',
@@ -1310,6 +1409,7 @@ except Exception:
 PY
   (cd "$tmp" && sha256sum --strict --quiet -c checksums.sha256) ||
     die "Backup contents failed validation"
+  cp "$ENV_FILE" "$tmp/environment.before-restore"
 
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   data_path=$(env_value VUEIO_DATA_PATH)
@@ -1328,6 +1428,9 @@ PY
   # Take the recovery point only after staging, then keep the engine stopped.
   # No application writes can occur between this snapshot and the state swap.
   safety="$BACKUP_DIR/pre-restore-$stamp.tar.gz"
+  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+    engine_was_running=true
+  fi
   VUEIO_BACKUP_LEAVE_ENGINE_STOPPED=1 backup_vueio "$safety"
   engine_stopped=true
   safety_db="$tmp/safety-database.dump"
@@ -1354,8 +1457,11 @@ PY
       rm -rf -- "$data_path"
       mv "$old_data" "$data_path" || recovered=false
     fi
+    if [[ $environment_changed == true ]]; then
+      install -m 0600 "$tmp/environment.before-restore" "$ENV_FILE" || recovered=false
+    fi
     rm -rf -- "$staged_data"
-    if [[ $recovered == true ]]; then
+    if [[ $recovered == true && $engine_was_running == true ]]; then
       compose up -d >/dev/null 2>&1 || recovered=false
     fi
     rm -rf "$tmp"
@@ -1379,6 +1485,7 @@ PY
   db_restored=true
   if [[ -n ${VUEIO_RESTORE_REPIN_VERSION:-} ]]; then
     validate_release_tag "$VUEIO_RESTORE_REPIN_VERSION"
+    environment_changed=true
     set_env VUEIO_VERSION "$VUEIO_RESTORE_REPIN_VERSION"
     set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$VUEIO_RESTORE_REPIN_VERSION"
     set_env VUEIO_UI_IMAGE "$(env_value VUEIO_UI_REPOSITORY):$VUEIO_RESTORE_REPIN_VERSION"
@@ -1387,6 +1494,7 @@ PY
   doctor
   engine_stopped=false
   trap - EXIT INT TERM
+  rm -f "$UPDATE_STATE_FILE" "$UPDATE_PROGRESS_FILE"
   rm -rf "$tmp"
   note "Restore completed. Safety backup: $safety"
   if [[ ${VUEIO_RESTORE_DISCARD_REPLACED_DATA:-0} == 1 ]]; then
@@ -1450,6 +1558,31 @@ state_value() {
   sed -n "s/^${key}=//p" "$UPDATE_STATE_FILE" | tail -n 1
 }
 
+write_update_progress() {
+  local state=$1 phase=$2 progress=$3 message=$4
+  python3 - "$UPDATE_PROGRESS_FILE" "$state" "$phase" "$progress" "$message" \
+    "${UPDATE_REQUESTED_VERSION:-}" "${UPDATE_PREVIOUS_VERSION:-}" "${VUEIO_UPDATE_OPERATION_ID:-}" <<'PY'
+import json
+import os
+import sys
+import tempfile
+
+path, state, phase, progress, message, version, previous, operation = sys.argv[1:]
+descriptor, temporary = tempfile.mkstemp(prefix='.update-progress.', dir=os.path.dirname(path))
+try:
+    with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
+        json.dump(dict(supported=True, state=state, phase=phase, progress=int(progress),
+                       message=message, version=version or None, previous_version=previous or None,
+                       operation_id=operation or None), handle)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, path)
+finally:
+    if os.path.exists(temporary):
+        os.unlink(temporary)
+PY
+}
+
 write_update_state() {
   local phase=$1 previous=$2 requested=$3 backup=${4:-} tmp
   tmp=$(mktemp "$VUEIO_HOME/.update-state.XXXXXX")
@@ -1465,20 +1598,31 @@ write_update_state() {
 }
 
 update_stage() {
-  local number=$1 name=$2 message=$3
+  local number=$1 name=$2 message=$3 progress
   note "Step $number/7 — $message"
   write_update_state "$name" "$UPDATE_PREVIOUS_VERSION" "$UPDATE_REQUESTED_VERSION" "${UPDATE_BACKUP:-}"
+  case "$name" in
+    preflight) progress=5 ;;
+    assets) progress=15 ;;
+    images) progress=25 ;;
+    backup) progress=50 ;;
+    install) progress=70 ;;
+    restart) progress=80 ;;
+    health) progress=95 ;;
+    *) die "Unknown update phase" ;;
+  esac
+  write_update_progress running "$name" "$progress" "$message"
   if [[ ${VUEIO_UPDATE_FAIL_AT:-} == "$name" ]]; then
     die "Update interruption rehearsal at stage: $name"
   fi
 }
 
 verify_release_for_channel() {
-  local version=$1 channel repository response token_header=()
+  local version=$1 purpose=${2:-update} channel repository response token_header=()
   channel=$(env_value VUEIO_CHANNEL)
   channel=${channel:-stable}
   validate_channel "$channel"
-  if [[ $channel == stable ]] && is_nightly_tag "$version"; then
+  if [[ $purpose != installed && $channel == stable ]] && is_nightly_tag "$version"; then
     die "The stable channel cannot install nightly builds. Run '$PROGRAM channel nightly' first."
   fi
   if [[ ${VUEIO_SKIP_RELEASE_VALIDATION:-0} == 1 || (
@@ -1494,7 +1638,7 @@ verify_release_for_channel() {
   if [[ -n ${VUEIO_UPDATE_GITHUB_TOKEN:-} ]]; then
     token_header=(-H "Authorization: Bearer $VUEIO_UPDATE_GITHUB_TOKEN")
   fi
-  curl -fsSL \
+  curl -fsSL --connect-timeout 10 --max-time 30 \
     -H 'Accept: application/vnd.github+json' \
     -H 'X-GitHub-Api-Version: 2022-11-28' \
     "${token_header[@]}" \
@@ -1544,25 +1688,15 @@ update_preflight() {
 
 recover_incomplete_update() {
   [[ -f $UPDATE_STATE_FILE ]] || return 0
-  local previous requested backup
-  previous=$(state_value previous_version)
-  requested=$(state_value requested_version)
-  backup=$(state_value backup)
-  warn "A previous update to ${requested:-an unknown version} was interrupted."
-  if [[ -n $previous && -n $backup && -f $backup ]]; then
-    warn "Restoring the pre-update safety backup before retrying."
-    VUEIO_NONINTERACTIVE=1 \
-    VUEIO_RESTORE_CONFIRM=RESTORE \
-    VUEIO_RESTORE_REPIN_VERSION="$previous" \
-    VUEIO_RESTORE_DISCARD_REPLACED_DATA=1 \
-    VUEIO_SKIP_PULL=1 \
-      restore_vueio "$backup"
-  else
-    warn "No completed safety backup was recorded, so the existing version will be restarted."
-    compose up -d
-    doctor
-  fi
-  rm -f "$UPDATE_STATE_FILE"
+  case $(state_value phase) in
+    preflight|assets|images|backup)
+      warn "The previous update stopped before installing a release. Resuming the existing engine."
+      compose start vueio_engine
+      doctor
+      rm -f "$UPDATE_STATE_FILE"
+      ;;
+    *) die "An interrupted update needs review on the host. Review its log and backup before '$PROGRAM rollback'. No data was restored automatically." ;;
+  esac
 }
 
 update_failure_handler() {
@@ -1571,24 +1705,24 @@ update_failure_handler() {
   set +e
   [[ $status != 0 ]] || return 0
   warn "The update failed during $phase."
-  if [[ -n ${UPDATE_BACKUP:-} && -f ${UPDATE_BACKUP:-} ]]; then
-    warn "Vueio is restoring your previous version automatically."
-    if VUEIO_NONINTERACTIVE=1 \
-      VUEIO_RESTORE_CONFIRM=RESTORE \
-      VUEIO_RESTORE_REPIN_VERSION="$UPDATE_PREVIOUS_VERSION" \
-      VUEIO_RESTORE_DISCARD_REPLACED_DATA=1 \
-      VUEIO_SKIP_PULL=1 \
-      restore_vueio "$UPDATE_BACKUP"; then
-      rm -f "$UPDATE_STATE_FILE"
-      warn "Your previous version was restored automatically."
-    else
-      warn "Automatic restore needs attention. Run: sudo $PROGRAM doctor"
-    fi
-  else
-    compose up -d >/dev/null 2>&1 || true
-    rm -f "$UPDATE_STATE_FILE"
-    warn "The installed version was not changed."
-  fi
+  case "$phase" in
+    preflight|assets|images|backup)
+      if [[ $phase != backup ]] || compose start vueio_engine >/dev/null 2>&1; then
+        rm -f "$UPDATE_STATE_FILE"
+        write_update_progress failed failed 0 "The update stopped before installation. The installed release was kept."
+      else
+        write_update_progress interrupted failed 50 "The backup did not finish and Vueio needs attention on the host."
+      fi
+      ;;
+    *)
+      # The candidate may already have accepted writes. An automatic database
+      # restore here could destroy those writes, even after a successful boot.
+      compose stop vueio_engine >/dev/null 2>&1 || true
+      write_update_progress interrupted failed 0 "The update needs attention on the host. Review the update log and recovery backup."
+      warn "Vueio was stopped to protect its data. No backup was restored automatically."
+      ;;
+  esac
+  [[ -z ${UPDATE_STAGE_DIRECTORY:-} ]] || rm -rf -- "$UPDATE_STAGE_DIRECTORY"
   [[ -z ${UPDATE_LOG_FILE:-} ]] || warn "Update log: $UPDATE_LOG_FILE"
   exit "$status"
 }
@@ -1596,7 +1730,7 @@ update_failure_handler() {
 update_vueio() (
   set -Eeuo pipefail
   require_installed
-  local version=${1:-} release_root asset_base stage controller_target current_version stamp
+  local version=${1:-} release_root asset_base stage controller_target controller_tmp current_version stamp
   [[ -n $version ]] || die "Usage: $PROGRAM update <release-tag>"
   validate_release_tag "$version"
   VUEIO_UPDATE_IN_PROGRESS=1
@@ -1606,6 +1740,7 @@ update_vueio() (
   validate_release_tag "$current_version"
   if [[ $version == "$current_version" ]]; then
     doctor
+    write_update_progress succeeded complete 100 "This release is already installed."
     note "Vueio $version is already installed. Nothing was changed."
     return 0
   fi
@@ -1617,60 +1752,79 @@ update_vueio() (
   UPDATE_REQUESTED_VERSION=$version
   UPDATE_BACKUP=
   export UPDATE_PREVIOUS_VERSION UPDATE_REQUESTED_VERSION UPDATE_BACKUP
-  trap 'status=$?; update_failure_handler "$status" "$(state_value phase)"' EXIT INT TERM
+  trap 'status=$?; update_failure_handler "$status" "$(state_value phase)"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   note "Updating Vueio from $current_version to $version."
 
-  update_stage 1 preflight "Checking Docker, disk space, release availability, and current health…"
+  update_stage 1 preflight "Checking the current installation and available space…"
   update_preflight "$version"
+  prepare_updater_directory
 
-  update_stage 2 assets "Verifying the release files (usually a few seconds)…"
+  update_stage 2 assets "Verifying the update files…"
   release_root=$(env_value VUEIO_RELEASE_ROOT_URL)
   release_root=${release_root:-https://github.com/rfxmedia/vueio/releases}
   asset_base="$release_root/download/$version"
   stage=$(mktemp -d "$VUEIO_HOME/.update.XXXXXX")
+  UPDATE_STAGE_DIRECTORY=$stage
   if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
-    curl -fsSL "$asset_base/SHA256SUMS" -o "$stage/SHA256SUMS"
-    curl -fsSL "$asset_base/compose.release.yml" -o "$stage/compose.release.yml"
-    curl -fsSL "$asset_base/vueioctl" -o "$stage/vueioctl"
-    curl -fsSL "$asset_base/LICENSE.md" -o "$stage/LICENSE.md"
+    curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/SHA256SUMS" -o "$stage/SHA256SUMS"
+    curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/compose.release.yml" -o "$stage/compose.release.yml"
+    curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/vueioctl" -o "$stage/vueioctl"
+    curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/vueio-updater.py" -o "$stage/vueio-updater.py"
+    curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/LICENSE.md" -o "$stage/LICENSE.md"
     grep -Eq '[[:space:]]vueioctl$' "$stage/SHA256SUMS" || die "Release checksums do not include vueioctl"
+    grep -Eq '[[:space:]]vueio-updater\.py$' "$stage/SHA256SUMS" || die "Release checksums do not include vueio-updater.py"
     grep -Eq '[[:space:]]compose\.release\.yml$' "$stage/SHA256SUMS" || die "Release checksums do not include compose.release.yml"
     grep -Eq '[[:space:]]LICENSE\.md$' "$stage/SHA256SUMS" || die "Release checksums do not include LICENSE.md"
     (cd "$stage" && sha256sum --ignore-missing -c SHA256SUMS)
     bash -n "$stage/vueioctl"
-    docker compose --env-file "$ENV_FILE" -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" config -q
+    python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$stage/vueio-updater.py"
+    local installation=()
+    [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation=(-f "$INSTALLATION_COMPOSE_FILE")
+    docker compose --env-file "$ENV_FILE" -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" "${installation[@]}" config -q
   fi
 
-  update_stage 3 images "Downloading the new containers before downtime (usually a few minutes)…"
+  update_stage 3 images "Downloading the update…"
   pull_release_images "$version"
 
-  update_stage 4 backup "Backing up your database and application data (usually under a minute)…"
+  update_stage 4 backup "Pausing Vueio and backing up your database and application data…"
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  UPDATE_BACKUP="$BACKUP_DIR/pre-update-$stamp.tar.gz"
+  local backup_destination="$BACKUP_DIR/pre-update-$stamp.tar.gz"
+  VUEIO_BACKUP_KIND=pre-update VUEIO_BACKUP_TARGET_VERSION="$version" \
+    VUEIO_BACKUP_LEAVE_ENGINE_STOPPED=1 backup_vueio "$backup_destination"
+  # Only record a backup after its archive and checksum have both completed.
+  UPDATE_BACKUP=$backup_destination
   export UPDATE_BACKUP
   write_update_state backup "$current_version" "$version" "$UPDATE_BACKUP"
-  VUEIO_BACKUP_KIND=pre-update VUEIO_BACKUP_TARGET_VERSION="$version" backup_vueio "$UPDATE_BACKUP"
 
-  update_stage 5 install "Pinning the verified release…"
+  update_stage 5 install "Installing the verified update…"
   if [[ ${VUEIO_SKIP_ASSET_REFRESH:-0} != 1 ]]; then
     install -m 0644 "$stage/compose.release.yml" "$COMPOSE_FILE"
     install -m 0644 "$stage/LICENSE.md" "$LICENSE_FILE"
     controller_target=$(readlink -f "$0")
-    install -m 0755 "$stage/vueioctl" "$controller_target"
+    controller_tmp=$(mktemp "$(dirname "$controller_target")/.vueioctl.XXXXXX")
+    install -m 0755 "$stage/vueioctl" "$controller_tmp"
+    mv -f "$controller_tmp" "$controller_target"
+    install -m 0644 "$stage/vueio-updater.py" "$UPDATER_FILE.next"
+    mv -f "$UPDATER_FILE.next" "$UPDATER_FILE"
   fi
   set_env VUEIO_VERSION "$version"
   set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$version"
   set_env VUEIO_UI_IMAGE "$(env_value VUEIO_UI_REPOSITORY):$version"
 
-  update_stage 6 restart "Restarting Vueio and applying database migrations (usually under a minute)…"
+  update_stage 6 restart "Restarting Vueio and updating its database…"
   compose up -d
   wait_for_engine || die "The updated engine did not become ready"
 
-  update_stage 7 health "Running final safety checks…"
+  update_stage 7 health "Checking that Vueio is ready…"
   doctor
-  rm -rf "$stage"
-  rm -f "$UPDATE_STATE_FILE"
+  # Health is the commit point. A cleanup or status-write error must never stop
+  # the healthy release or restore a backup after it can accept new writes.
   trap - EXIT INT TERM
+  rm -rf "$stage" || warn "The update staging directory needs cleanup on the host."
+  rm -f "$UPDATE_STATE_FILE"
+  write_update_progress succeeded complete 100 "Vueio was updated successfully."
   success "Vueio is running release $version."
 )
 
@@ -1686,6 +1840,13 @@ cleanup_update_logs() {
 run_logged_update() {
   require_installed
   local stamp status
+  (($# == 1)) || die "Usage: $PROGRAM update <release-tag>"
+  validate_release_tag "$1"
+  require_command python3
+  UPDATE_REQUESTED_VERSION=$1
+  UPDATE_PREVIOUS_VERSION=$(env_value VUEIO_VERSION)
+  VUEIO_UPDATE_OPERATION_ID=${VUEIO_UPDATE_OPERATION_ID:-$(python3 -c 'import uuid; print(uuid.uuid4().hex)')}
+  export UPDATE_REQUESTED_VERSION UPDATE_PREVIOUS_VERSION VUEIO_UPDATE_OPERATION_ID
   mkdir -p "$LOG_DIR"
   chmod 700 "$LOG_DIR"
   stamp=$(date -u +%Y%m%dT%H%M%S%NZ)
@@ -1694,14 +1855,124 @@ run_logged_update() {
   touch "$UPDATE_LOG_FILE"
   chmod 600 "$UPDATE_LOG_FILE"
   cleanup_update_logs
+  write_update_progress running queued 0 "Preparing the update…"
   set +e
   update_vueio "$@" > >(tee -a "$UPDATE_LOG_FILE") 2> >(tee -a "$UPDATE_LOG_FILE" >&2)
   status=$?
   set -e
   if ((status != 0)); then
+    if python3 - "$UPDATE_PROGRESS_FILE" <<'PY'
+import json
+import sys
+raise SystemExit(0 if json.load(open(sys.argv[1], encoding='utf-8')).get('state') == 'running' else 1)
+PY
+    then
+      write_update_progress failed failed 0 "The update could not start. Review the host update log."
+    fi
     warn "Update failed. Review $UPDATE_LOG_FILE, then run: sudo $PROGRAM doctor"
   fi
   return "$status"
+}
+
+updater() {
+  require_installed
+  local action=${1:-status} controller unit_name stage version release_root python_path ready=false
+  (($# <= 1)) || die "Usage: $PROGRAM updater <enable|disable|status|serve>"
+  controller=$(readlink -f "$0")
+  case "$action" in
+    status)
+      require_command curl
+      curl --fail --silent --show-error --max-time 3 \
+        --unix-socket "$VUEIO_HOME/updater/control.sock" http://localhost/status
+      printf '\n'
+      return
+      ;;
+    serve)
+      [[ -f "$UPDATER_FILE" ]] || die "The updater is not installed. Run '$PROGRAM updater enable' first."
+      exec python3 "$UPDATER_FILE" --home "$VUEIO_HOME" --controller "$controller"
+      ;;
+    enable|disable) ;;
+    *) die "Usage: $PROGRAM updater <enable|disable|status|serve>" ;;
+  esac
+  [[ $(id -u) == 0 ]] || die "Run this command with sudo"
+  unit_name="vueio-updater-$(printf '%s' "$VUEIO_HOME" | sha256sum | cut -c1-12).service"
+  if [[ $action == disable ]]; then
+    require_command systemctl
+    [[ -d /run/systemd/system ]] || die "Stop the foreground updater with your host's service manager"
+    systemctl disable --now "$unit_name"
+    rm -f "/etc/systemd/system/$unit_name" "$VUEIO_HOME/updater/control.sock"
+    systemctl daemon-reload
+    note "One-click updates were disabled. The host update command remains available."
+    return
+  fi
+  [[ ! -f "$UPDATE_STATE_FILE" ]] || die "Review the interrupted update on the host before enabling its updater"
+  require_command python3
+  require_command curl
+  python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' || die "The host updater needs Python 3.9 or newer"
+  python_path=$(command -v python3)
+  prepare_updater_directory
+  if [[ ! -f "$UPDATER_FILE" ]]; then
+    # Older controllers did not download the helper. Bootstrap only from the
+    # installed published release, with its required checksum entry.
+    version=$(env_value VUEIO_VERSION)
+    validate_release_tag "$version"
+    verify_release_for_channel "$version" installed
+    release_root=$(env_value VUEIO_RELEASE_ROOT_URL)
+    [[ $release_root == https://* ]] || die "Configure an HTTPS release asset URL before enabling updates"
+    stage=$(mktemp -d "$VUEIO_HOME/.updater-download.XXXXXX")
+    if ! curl -fsSL --connect-timeout 10 --max-time 180 "$release_root/download/$version/SHA256SUMS" -o "$stage/SHA256SUMS" ||
+      ! curl -fsSL --connect-timeout 10 --max-time 180 "$release_root/download/$version/vueio-updater.py" -o "$stage/vueio-updater.py" ||
+      ! grep -Eq '[[:space:]]vueio-updater\.py$' "$stage/SHA256SUMS" ||
+      ! (cd "$stage" && sha256sum --ignore-missing --quiet -c SHA256SUMS) ||
+      ! python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$stage/vueio-updater.py"; then
+      rm -rf "$stage"
+      die "The installed release's updater helper could not be verified"
+    fi
+    install -m 0644 "$stage/vueio-updater.py" "$UPDATER_FILE"
+    rm -rf "$stage"
+  fi
+  if ! command -v systemctl >/dev/null 2>&1 || [[ ! -d /run/systemd/system ]]; then
+    note "The verified host updater is prepared. Configure your host's service manager to run '$PROGRAM updater serve' as root."
+    return
+  fi
+  # Keep generated service directives literal and unambiguous.
+  [[ $VUEIO_HOME =~ ^/[A-Za-z0-9_./-]+$ && $controller =~ ^/[A-Za-z0-9_./-]+$ && $python_path =~ ^/[A-Za-z0-9_./-]+$ ]] ||
+    die "Managed updater service paths must use letters, numbers, slashes, dots, underscores, and dashes"
+  cat >"/etc/systemd/system/$unit_name" <<EOF
+[Unit]
+Description=Vueio host updater
+RequiresMountsFor=$VUEIO_HOME
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=$python_path $UPDATER_FILE --home $VUEIO_HOME --controller $controller
+Restart=on-failure
+RestartSec=3
+KillMode=process
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  chmod 644 "/etc/systemd/system/$unit_name"
+  systemctl daemon-reload
+  systemctl enable "$unit_name"
+  systemctl restart "$unit_name"
+  systemctl is-active --quiet "$unit_name" || die "The updater service could not start; inspect its host service log"
+  # Apply the socket directory mount to an existing managed installation.
+  compose up -d --no-deps vueio_engine
+  wait_for_engine || die "Vueio did not become ready after enabling its updater"
+  for _ in {1..30}; do
+    if curl --fail --silent --max-time 1 --unix-socket "$VUEIO_HOME/updater/control.sock" http://localhost/status >/dev/null; then
+      ready=true
+      break
+    fi
+    sleep 0.1
+  done
+  [[ $ready == true ]] || die "The host updater did not become ready; inspect its service log"
+  success "One-click updates are enabled in Settings → Updates."
 }
 
 exposure_set() {
@@ -1748,6 +2019,12 @@ main() {
   local command=${1:-}
   shift || true
   case "$command" in
+    start|stop|restart|backup|restore|rollback|update|channel|exposure) maintenance_lock ;;
+    storage) [[ ${1:-} == list ]] || maintenance_lock ;;
+    doctor) [[ ${1:-} != --fix ]] || maintenance_lock ;;
+    updater) [[ ${1:-} != enable && ${1:-} != disable ]] || maintenance_lock ;;
+  esac
+  case "$command" in
     install) install_vueio "$@" ;;
     start) require_installed; require_storage_mounts; compose up -d ;;
     stop) require_installed; compose stop ;;
@@ -1770,6 +2047,7 @@ main() {
     rollback) rollback_vueio ;;
     update) run_logged_update "$@" ;;
     channel) set_channel "$@" ;;
+    updater) updater "$@" ;;
     storage)
       require_installed
       local action=${1:-}

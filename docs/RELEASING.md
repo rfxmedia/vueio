@@ -70,4 +70,6 @@ not delete or reuse a tag that reached the public remote.
 
 **Pushing ordinary commits does nothing to installed users. Only publishing a
 GitHub Release makes an update visible in Vueio.** The in-app cache refreshes
-within about 15 minutes, or immediately when an owner presses **Check Again**.
+within about 15 minutes, or immediately when an owner opens Updates or presses
+**Check again**. Owners with the host update service enabled can install the
+offered release with **Update now** and follow its progress in Settings.

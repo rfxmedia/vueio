@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, getCurrentScope, onScopeDispose, reactive, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { invalidateTrackerPayloads } from '../lib/workspacePayloadCache'
 import { notify } from '../utils/toasts'
@@ -132,12 +132,6 @@ export function useTrackerListController(ctx) {
   const currentTrackerRef = () => (
     ctx.currentTracker.value?.id || ctx.currentTracker.value?.slug || ctx.currentTracker.value?.name || ''
   )
-  const invalidateCurrentTrackerPayloads = () => {
-    const projectId = ctx.currentProject.value?.id
-    if (!projectId) return
-    invalidateTrackerPayloads(ctx.currentUser?.value?.id || 'session', projectId)
-  }
-
   const showCategoryPicker = ref(null)
   const categorySearchFilter = ref('')
   const showStatusPicker = ref(null)
@@ -157,18 +151,13 @@ export function useTrackerListController(ctx) {
   const pressedShotId = ref(null)
   const expandedShotId = ref(null)
 
-  const trackerPendingChanges = reactive({
-    categories: false,
-    shots: new Set(),
-  })
+  const trackerPendingChanges = reactive(new Map())
 
   let trackerSaveTimer = null
+  let disposed = false
   const trackerSaving = ref(false)
 
-  const hasPendingChanges = computed(() => (
-    trackerPendingChanges.categories ||
-    trackerPendingChanges.shots.size > 0
-  ))
+  const hasPendingChanges = computed(() => trackerSaving.value || trackerPendingChanges.size > 0)
 
   const trackerCategories = computed(() => [
     TRACKER_UNTAGGED_LABEL,
@@ -298,11 +287,21 @@ export function useTrackerListController(ctx) {
     return ctx.getThumbnailUrl(filePath)
   }
 
-  function queueTrackerSave(changeType, shotId = null) {
+  function queueTrackerSave(changeType, shot = null) {
+    const projectId = ctx.currentProject.value?.id
+    const trackerRef = currentTrackerRef()
+    if (!projectId || !trackerRef || disposed) return
+    const userId = ctx.currentUser?.value?.id || ''
+    const key = JSON.stringify([userId, projectId, trackerRef])
+    let changes = trackerPendingChanges.get(key)
+    if (!changes) {
+      changes = { projectId, trackerRef, userId, tags: null, shots: new Map() }
+      trackerPendingChanges.set(key, changes)
+    }
     if (changeType === 'categories') {
-      trackerPendingChanges.categories = true
-    } else if (changeType === 'shot' && shotId) {
-      trackerPendingChanges.shots.add(shotId)
+      changes.tags = getOrderedTrackerTags()
+    } else if (changeType === 'shot' && shot) {
+      changes.shots.set(shot.id || shot.shot_id, { tag: shot.category, category: shot.category })
     }
 
     if (trackerSaveTimer) clearTimeout(trackerSaveTimer)
@@ -310,51 +309,47 @@ export function useTrackerListController(ctx) {
   }
 
   async function flushTrackerSave() {
-    if (!ctx.currentTracker.value || !ctx.currentProject.value) return
-
-    if (trackerSaving.value) {
-      trackerSaveTimer = setTimeout(flushTrackerSave, 100)
-      return
-    }
-
-    const savingCategories = trackerPendingChanges.categories
-    const savingShots = new Set(trackerPendingChanges.shots)
-
-    trackerPendingChanges.categories = false
-    trackerPendingChanges.shots.clear()
-
-    if (!savingCategories && savingShots.size === 0) return
-
+    if (disposed || trackerSaving.value || !trackerPendingChanges.size) return
+    const [key, changes] = trackerPendingChanges.entries().next().value
+    trackerPendingChanges.delete(key)
+    const canSave = () => !disposed && (ctx.currentUser?.value?.id || '') === changes.userId
+    const endpoint = `/api/projects/${changes.projectId}/trackers/${encodeURIComponent(changes.trackerRef)}`
+    let retry = false
     trackerSaving.value = true
 
     try {
-      if (savingCategories) {
-        const tags = getOrderedTrackerTags()
-        await api.put(
-          `/api/projects/${ctx.currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}`,
-          { tags, categories: tags },
-        )
+      if (!canSave()) return
+      if (changes.tags !== null) {
+        await api.put(endpoint, { tags: changes.tags, categories: changes.tags })
+        changes.tags = null
       }
 
-      for (const shotId of savingShots) {
-        const shot = (ctx.currentTracker.value.shots || []).find(item => item.shot_id === shotId)
-        if (!shot) continue
-        const shotRef = shot.id || shotId
-
-        await api.put(
-          `/api/projects/${ctx.currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/${encodeURIComponent(shotRef)}`,
-          { tag: shot.category, category: shot.category },
-        )
+      for (const [shotRef, patch] of changes.shots) {
+        if (!canSave()) return
+        await api.put(`${endpoint}/shots/${encodeURIComponent(shotRef)}`, patch)
+        changes.shots.delete(shotRef)
       }
-      invalidateCurrentTrackerPayloads()
+      invalidateTrackerPayloads(changes.userId || 'session', changes.projectId)
     } catch (error) {
       console.error('Tracker save failed')
-
-      if (savingCategories) trackerPendingChanges.categories = true
-      for (const shotId of savingShots) trackerPendingChanges.shots.add(shotId)
-      trackerSaveTimer = setTimeout(flushTrackerSave, 1000)
+      if (canSave()) {
+        const newer = trackerPendingChanges.get(key)
+        if (newer) {
+          if (newer.tags === null) newer.tags = changes.tags
+          for (const [shotRef, patch] of changes.shots) {
+            if (!newer.shots.has(shotRef)) newer.shots.set(shotRef, patch)
+          }
+        } else {
+          trackerPendingChanges.set(key, changes)
+        }
+        retry = true
+      }
     } finally {
       trackerSaving.value = false
+      if (trackerPendingChanges.size) {
+        clearTimeout(trackerSaveTimer)
+        trackerSaveTimer = setTimeout(flushTrackerSave, retry ? 1000 : TRACKER_SAVE_DEBOUNCE)
+      }
     }
   }
 
@@ -362,6 +357,12 @@ export function useTrackerListController(ctx) {
     if (trackerSaveTimer) clearTimeout(trackerSaveTimer)
     await flushTrackerSave()
   }
+
+  if (getCurrentScope()) onScopeDispose(() => {
+    disposed = true
+    clearTimeout(trackerSaveTimer)
+    trackerPendingChanges.clear()
+  })
 
   function closeContextMenu() {
     contextMenu.show = false
@@ -425,7 +426,7 @@ export function useTrackerListController(ctx) {
     if (!shot) return
     shot.category = categoryName
     shot.tag = categoryName
-    queueTrackerSave('shot', shot.shot_id)
+    queueTrackerSave('shot', shot)
   }
 
   async function assignCategory(shot, categoryName) {
@@ -750,7 +751,11 @@ export function useTrackerListController(ctx) {
     event.preventDefault()
     const sourceIndex = draggedShotIndex.value
     if (sourceIndex === null || sourceIndex === targetIndex || !ctx.currentProject.value || !ctx.currentTracker.value) return
-    const previous = ctx.currentTracker.value.shots || []
+    const tracker = ctx.currentTracker.value
+    const trackerRef = currentTrackerRef()
+    const projectId = ctx.currentProject.value.id
+    const userId = ctx.currentUser?.value?.id || 'session'
+    const previous = tracker.shots || []
     const shots = [...activeTrackerShots.value]
     if (sourceIndex < 0 || sourceIndex >= shots.length || targetIndex < 0 || targetIndex >= shots.length) {
       draggedShotIndex.value = null
@@ -759,20 +764,23 @@ export function useTrackerListController(ctx) {
     }
     const [moved] = shots.splice(sourceIndex, 1)
     shots.splice(targetIndex, 0, moved)
-    ctx.currentTracker.value.shots = [...shots, ...archivedTrackerShots.value]
+    tracker.shots = [...shots, ...archivedTrackerShots.value]
+    const reorderedShots = tracker.shots
     try {
       const ids = shots.map(shot => shot._originalId || shot.shot_id).filter(Boolean)
       const anchor = moved?._originalId || moved?.shot_id || ids[0]
       if (anchor) {
         await api.put(
-          `/api/projects/${ctx.currentProject.value.id}/trackers/${encodeURIComponent(currentTrackerRef())}/shots/${encodeURIComponent(anchor)}`,
+          `/api/projects/${projectId}/trackers/${encodeURIComponent(trackerRef)}/shots/${encodeURIComponent(anchor)}`,
           { shot_order: ids },
         )
-        invalidateCurrentTrackerPayloads()
-        await ctx.loadTrackerActivity(currentTrackerRef())
+        invalidateTrackerPayloads(userId, projectId)
+        if (ctx.currentTracker.value === tracker && ctx.currentProject.value?.id === projectId) {
+          await ctx.loadTrackerActivity(trackerRef)
+        }
       }
     } catch (error) {
-      ctx.currentTracker.value.shots = previous
+      if (tracker.shots === reorderedShots) tracker.shots = previous
       notify(`Failed to save shot order: ${getApiErrorMessage(error)}`)
     }
     draggedShotIndex.value = null

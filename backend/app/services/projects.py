@@ -250,16 +250,6 @@ def load_project(project_id: str) -> dict:
         return json.load(handle)
 
 
-def save_project(project_id: str, data: dict) -> None:
-    project_dir = get_project_dir(project_id)
-    project_dir.mkdir(parents=True, exist_ok=True)
-    make_project_path_smb_mutable(project_dir)
-    project_file = project_dir / 'project.json'
-    with open(project_file, 'w') as handle:
-        json.dump(data, handle, indent=2)
-    make_project_path_smb_mutable(project_file)
-
-
 def load_project_links(project_id: str) -> dict:
     project_file = project_links_path(project_id)
     if not project_file.exists():

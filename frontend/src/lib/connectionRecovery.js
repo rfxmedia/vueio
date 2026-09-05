@@ -3,7 +3,7 @@ import { readonly, ref } from 'vue'
 const connectionLost = ref(false)
 let retryTimer = null
 let interceptorInstalled = false
-let reloadPage = () => window.location.reload()
+let updateRecoveryActive = false
 
 function isCanceled(error) {
   return error?.name === 'CanceledError' || error?.code === 'ERR_CANCELED'
@@ -21,18 +21,19 @@ async function checkReadiness() {
       cache: 'no-store',
       credentials: 'same-origin',
     })
+    if (updateRecoveryActive) return
     if (response.ok) {
-      reloadPage()
+      window.location.reload()
       return
     }
   } catch {
     // The service is still restarting. The next bounded retry will check again.
   }
-  retryTimer = window.setTimeout(checkReadiness, 2000)
+  if (!updateRecoveryActive) retryTimer = window.setTimeout(checkReadiness, 2000)
 }
 
 function beginConnectionRecovery() {
-  if (connectionLost.value) return
+  if (connectionLost.value || updateRecoveryActive) return
   connectionLost.value = true
   checkReadiness()
 }
@@ -43,7 +44,7 @@ export function installConnectionRecovery(api) {
   api.interceptors.response.use(
     response => response,
     (error) => {
-      if (isConnectionFailure(error)) beginConnectionRecovery()
+      if (!error?.config?.skipConnectionRecovery && isConnectionFailure(error)) beginConnectionRecovery()
       return Promise.reject(error)
     },
   )
@@ -53,14 +54,12 @@ export function useConnectionRecovery() {
   return { connectionLost: readonly(connectionLost) }
 }
 
-export function resetConnectionRecoveryForTests() {
-  if (retryTimer !== null) window.clearTimeout(retryTimer)
-  retryTimer = null
-  interceptorInstalled = false
-  connectionLost.value = false
-  reloadPage = () => window.location.reload()
-}
-
-export function setConnectionRecoveryReloadForTests(reload) {
-  reloadPage = reload
+// The Updates page owns recovery until the host confirms the new version is healthy.
+export function setUpdateRecoveryActive(active) {
+  updateRecoveryActive = active
+  if (active) {
+    if (retryTimer !== null) window.clearTimeout(retryTimer)
+    retryTimer = null
+    connectionLost.value = false
+  }
 }

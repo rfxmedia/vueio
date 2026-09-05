@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
 from pathlib import Path
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_, tuple_
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -212,26 +211,16 @@ def get_horizon_project_access_role(db: Session, project: HorizonProject, user: 
     if is_admin_user(user):
         return 'admin'
 
-    owner_candidates = {value for _stype, value in _subject_candidates_for_user(user)}
+    subjects = _subject_candidates_for_user(user)
+    owner_candidates = {value for _stype, value in subjects}
     if project.created_by and project.created_by in owner_candidates:
         return 'owner'
 
-    explicit_roles = []
-    for subject_type, subject_id in _subject_candidates_for_user(user):
-        grant = (
-            db.query(HorizonProjectGrant)
-            .filter(HorizonProjectGrant.project_id == project.id)
-            .filter(HorizonProjectGrant.subject_type == subject_type)
-            .filter(HorizonProjectGrant.subject_id == subject_id)
-            .first()
-        )
-        if grant:
-            explicit_roles.append(grant.role)
-    if explicit_roles:
-        explicit_roles.sort(key=lambda value: ROLE_RANK.get(value, 0), reverse=True)
-        return explicit_roles[0]
-
-    return None
+    roles = db.query(HorizonProjectGrant.role).filter(
+        HorizonProjectGrant.project_id == project.id,
+        tuple_(HorizonProjectGrant.subject_type, HorizonProjectGrant.subject_id).in_(subjects),
+    ).all()
+    return max((role for role, in roles), key=lambda role: ROLE_RANK.get(role, 0), default=None)
 
 
 def require_horizon_project_access(db: Session, project_id: str, user: dict, auth_mode: str | None = None, required_role: str = 'viewer') -> tuple[HorizonProject, str]:
@@ -245,13 +234,24 @@ def require_horizon_project_access(db: Session, project_id: str, user: dict, aut
 
 
 def list_visible_horizon_projects(db: Session, user: dict, auth_mode: str | None = None) -> list[HorizonProject]:
+    from .team import _subject_candidates_for_user
+
     if is_admin_user(user):
         return list_horizon_projects(db)
-    visible = []
-    for project in list_horizon_projects(db):
-        if get_horizon_project_access_role(db, project, user, auth_mode=auth_mode):
-            visible.append(project)
-    return visible
+    subjects = _subject_candidates_for_user(user)
+    if not subjects:
+        return []
+    granted_projects = db.query(HorizonProjectGrant.project_id).filter(
+        tuple_(HorizonProjectGrant.subject_type, HorizonProjectGrant.subject_id).in_(subjects),
+        HorizonProjectGrant.role != '',
+    )
+    return db.query(HorizonProject).filter(
+        HorizonProject.status != DELETED_PROJECT_STATUS,
+        or_(
+            HorizonProject.created_by.in_([value for _subject_type, value in subjects]),
+            HorizonProject.id.in_(granted_projects),
+        ),
+    ).order_by(HorizonProject.created_at.asc()).all()
 
 
 def list_visible_horizon_project_summaries(db: Session, user: dict, auth_mode: str | None = None) -> list[dict]:

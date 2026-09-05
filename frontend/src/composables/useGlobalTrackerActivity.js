@@ -18,15 +18,23 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
   const readStatus = ref('unread')
   const loadedCalendarDays = ref(INITIAL_ACTIVITY_DAYS)
   let pollTimer = null
+  let activeRequest = null
 
-  const canLoadActivity = computed(() => Boolean(currentUser.value && !shareMode.value))
+  const activityUserId = computed(() => !shareMode.value ? currentUser.value?.id : null)
   const hasMore = computed(() => nextCursor.value !== null)
 
-  async function loadActivity({ append = false, before = null, silent = false, calendarDays = loadedCalendarDays.value } = {}) {
-    if (!canLoadActivity.value) return false
-    if (loading.value && !silent) return false
+  function cancelActivityLoad() {
+    activeRequest?.abort()
+    activeRequest = null
+    loading.value = false
+  }
 
-    if (!silent) loading.value = true
+  async function loadActivity({ append = false, before = null, silent = false, calendarDays = loadedCalendarDays.value } = {}) {
+    if (!activityUserId.value || activeRequest) return false
+
+    const controller = new AbortController()
+    activeRequest = controller
+    loading.value = !silent
     try {
       const params = {
         limit: ACTIVITY_LIMIT,
@@ -37,7 +45,8 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
         params.before_created_at = before.createdAt
         params.before_id = before.id
       }
-      const { data } = await api.get('/api/notifications/feed', { params })
+      const { data } = await api.get('/api/notifications/feed', { params, signal: controller.signal })
+      if (controller.signal.aborted) return false
       const nextItems = Array.isArray(data?.items) ? data.items : []
       items.value = append ? [...items.value, ...nextItems] : nextItems
       unreadCount.value = Number(data?.unread_count || 0)
@@ -47,6 +56,7 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
         : null
       return true
     } catch (error) {
+      if (controller.signal.aborted) return false
       if (!silent) {
         console.error('Failed to load global tracker activity')
       }
@@ -57,7 +67,10 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
       }
       return false
     } finally {
-      if (!silent) loading.value = false
+      if (activeRequest === controller) {
+        activeRequest = null
+        loading.value = false
+      }
     }
   }
 
@@ -74,7 +87,9 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
   async function setActivityReadStatus(nextStatus) {
     const normalized = nextStatus === 'read' ? 'read' : 'unread'
     if (readStatus.value === normalized) return
+    cancelActivityLoad()
     readStatus.value = normalized
+    items.value = []
     nextCursor.value = null
     loadedCalendarDays.value = INITIAL_ACTIVITY_DAYS
     await loadActivity({ silent: false })
@@ -83,12 +98,15 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
   async function markActivitySeen() {
     const latest = items.value[0]
     if (!latest?.id) return
+    const userId = activityUserId.value
     try {
       await api.post('/api/notifications/read', {
         event_id: latest.id,
         scope: 'default',
         filter: 'all',
       })
+      if (activityUserId.value !== userId) return
+      cancelActivityLoad()
       unreadCount.value = 0
       loadError.value = false
       if (readStatus.value === 'unread') {
@@ -123,16 +141,17 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
 
   function startPolling() {
     stopPolling()
-    if (!canLoadActivity.value || !documentVisible.value || typeof window === 'undefined') return
+    if (!activityUserId.value || !documentVisible.value || typeof window === 'undefined') return
     pollTimer = window.setInterval(() => {
       if (!documentVisible.value) return
       refreshActivity({ silent: true })
     }, ACTIVITY_POLL_MS)
   }
 
-  watch([canLoadActivity, documentVisible], ([enabled, visible], previous = []) => {
-    if (!enabled) {
-      stopPolling()
+  watch([activityUserId, documentVisible], ([userId, visible], previous = []) => {
+    const [previousUserId, wasVisible] = previous
+    if (userId !== previousUserId || !userId) {
+      cancelActivityLoad()
       items.value = []
       nextCursor.value = null
       unreadCount.value = 0
@@ -140,24 +159,25 @@ export function useGlobalTrackerActivity({ currentUser, shareMode }) {
       readStatus.value = 'unread'
       loadedCalendarDays.value = INITIAL_ACTIVITY_DAYS
       closeActivityTray()
-      return
     }
 
-    if (!visible) {
+    if (!userId || !visible) {
       stopPolling()
       return
     }
 
-    const [wasEnabled, wasVisible] = previous
-    const isInitialLoad = !wasEnabled && items.value.length === 0
-    const resumed = wasEnabled && wasVisible === false
+    const isInitialLoad = userId !== previousUserId
+    const resumed = wasVisible === false
     if (isInitialLoad || resumed) {
       refreshActivity({ silent: !isInitialLoad })
     }
     startPolling()
   }, { immediate: true })
 
-  if (getCurrentScope()) onScopeDispose(stopPolling)
+  if (getCurrentScope()) onScopeDispose(() => {
+    stopPolling()
+    cancelActivityLoad()
+  })
 
   return {
     globalActivityItems: items,

@@ -10,6 +10,7 @@ The first public alpha supports:
 
 - one x86-64 or ARM64 Linux server;
 - Docker Engine with Docker Compose v2;
+- Python 3.9 or newer on the host for the management command and update service;
 - local disks and NAS folders that are already mounted on Linux;
 - one PostgreSQL database managed by the included Compose project;
 - CPU transcoding; and
@@ -51,8 +52,8 @@ docker compose version
 
 ## Install
 
-Each tagged GitHub release contains `install.sh`, `vueioctl`, and
-`compose.release.yml`. To install from downloaded release assets:
+Each tagged GitHub release contains `install.sh`, `vueioctl`,
+`vueio-updater.py`, and `compose.release.yml`. To install from downloaded release assets:
 
 ```bash
 sudo sh ./install.sh
@@ -75,7 +76,9 @@ The installer:
 5. starts the versioned Vueio containers and runs safety checks; and
 6. prints the local URL and one-time setup token.
 
-It never mounts the Docker socket, the host root, or an unselected drive.
+On hosts running systemd, the installer also enables the update service for
+**Settings → Updates**. The engine receives only the service's local control
+socket. It never mounts the Docker socket, the host root, or an unselected drive.
 
 By default Vueio listens only on `127.0.0.1`. To complete setup from another
 computer, use an SSH tunnel:
@@ -259,6 +262,14 @@ controller writes archives and checksums with owner-only permissions.
 Restore intentionally keeps the current host's paths, storage mounts, database
 password, and session secret. It restores the database and application data;
 the archived configuration is present only for manual recovery or comparison.
+
+An adopted installation can retain a host-specific `compose.installation.yml`
+beside its managed Compose files. The controller applies this file last and
+keeps it through updates. Backups include it as a configuration reference;
+restore retains the current host's configuration. Keep it owned by root, and
+review its storage and environment overrides before changing the installation.
+The controller blocks `storage add` and `storage remove` while this override
+exists, so those commands cannot leave an overridden storage mapping unchanged.
 This prevents a backup moved to another server from silently mounting old host
 paths or breaking the destination database password.
 
@@ -311,8 +322,18 @@ reverse proxy's abuse controls. They can be changed through the corresponding
 
 ## Updates
 
-Updates are explicit during the alpha. The Updates screen gives the owner the
-exact command for the newest release in the selected channel:
+Open **Settings → Updates** and choose **Update now** to install the offered
+release from your selected channel. Only an administrator signed in to Vueio
+can start an update. The progress bar shows completed installation stages;
+the description explains the current step. Download time depends on the
+connection and backup time depends on application data size.
+
+The host service continues the operation while Vueio restarts. The page
+reconnects and reloads after the target version passes its health checks.
+Refreshing the page resumes the current operation. Only one host maintenance
+operation can run at a time; clicking again does not start another update.
+
+The terminal command remains available:
 
 ```bash
 sudo vueioctl update v0.1.1-alpha.1
@@ -325,16 +346,50 @@ short restart window, creates a validated pre-update backup, starts the new
 release, and requires `doctor` to pass. Progress is written to
 `/opt/vueio/logs/update-<timestamp>.log`; the newest ten update logs are kept.
 
-If an update fails after the safety backup is complete, Vueio automatically
-restores the prior application version and data. An interrupted command is
-also detected on the next run and recovered before the update is retried.
-Running the same update command against an already healthy version is a safe
-no-op.
+The engine stays paused from the consistent backup through installation.
+If an update fails before installation, the existing version can restart.
+Once installation begins, failure or interruption requires operator recovery;
+Vueio does not automatically restore an older database or retry installation.
+Check `sudo vueioctl doctor` and the update log, then follow the release's
+recovery instructions. An explicit rollback discards changes after its backup,
+as described below.
 
 Administrators can see the installed version and check for a newer release in
 **Settings → Updates**. When a release is available, Vueio also shows a small
-update indicator at the bottom of the sidebar. The web app provides the exact
-host command to run; it never receives Docker or host-control access.
+update indicator at the bottom of the sidebar. Update requests specify only
+the offered release version. The host independently validates the installed
+channel and published release before invoking its fixed management command.
+
+### Enable updates on an existing installation
+
+An installation from before this feature needs one terminal upgrade to a
+release that includes the update service. Then run:
+
+```bash
+sudo vueioctl updater enable
+sudo vueioctl updater status
+```
+
+`enable` prepares the verified helper and local socket, then installs a
+persistent service when systemd is running. New installations enable it
+automatically on systemd hosts. To disable
+browser updates, run `sudo vueioctl updater disable`; terminal updates remain
+available.
+
+On a host with another service manager, configure it to run
+`sudo vueioctl updater serve` at boot, restart it on failure, and preserve a
+running update process when restarting the service. For a custom installation
+directory, set `VUEIO_HOME` to that directory for both commands and the service.
+The helper must remain independent of the containers it updates. Its code,
+installation directory, and parent directories must be owned by root and not
+writable by other users.
+
+The service supports installations managed by the release installer and its
+Compose model. A source checkout or custom Compose deployment must first be
+adopted into that layout while preserving its database and authorized storage.
+The Updates page shows setup instructions until its host service is available.
+
+### Release channels
 
 Stable is the default channel. Stable releases use immutable
 `vX.Y.Z-alpha.N` tags and are not GitHub prereleases. Nightly releases are test
