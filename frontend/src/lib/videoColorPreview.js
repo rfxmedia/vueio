@@ -27,8 +27,8 @@ const FRAGMENT_SHADER = `#version 300 es
   }
 
   void main() {
-    vec3 source = texture(u_video, v_texCoord).rgb;
-    vec3 position = clamp((source - u_domainMin) / (u_domainMax - u_domainMin), 0.0, 1.0)
+    vec4 source = texture(u_video, v_texCoord);
+    vec3 position = clamp((source.rgb - u_domainMin) / (u_domainMax - u_domainMin), 0.0, 1.0)
       * float(u_size - 1);
     ivec3 base = min(ivec3(floor(position)), ivec3(u_size - 2));
     vec3 f = position - vec3(base);
@@ -57,7 +57,7 @@ const FRAGMENT_SHADER = `#version 300 es
       + (weights.x - weights.y) * sampleLut(base + first)
       + (weights.y - weights.z) * sampleLut(base + second)
       + weights.z * sampleLut(base + ivec3(1));
-    outColor = vec4(color, 1.0);
+    outColor = vec4(color, source.a);
   }
 `
 
@@ -75,7 +75,7 @@ function compileShader(gl, type, source) {
 
 export function createVideoColorPreviewRenderer(canvas) {
   const gl = canvas?.getContext('webgl2', {
-    alpha: false, antialias: false, depth: false, desynchronized: true,
+    alpha: true, antialias: false, depth: false, desynchronized: true,
     preserveDrawingBuffer: false, premultipliedAlpha: false,
   })
   if (!gl) throw new Error('LUT previews need a browser with WebGL 2 support')
@@ -139,17 +139,20 @@ export function createVideoColorPreviewRenderer(canvas) {
   const minLocation = gl.getUniformLocation(program, 'u_domainMin')
   const maxLocation = gl.getUniformLocation(program, 'u_domainMax')
 
-  function render(video, lut, width, height) {
-    if (!video || Number(video.readyState || 0) < 2) return false
+  function render(source, lut, width, height) {
+    const isImage = source && 'naturalWidth' in source
+    if (!source || (isImage ? !source.complete || !source.naturalWidth : Number(source.readyState || 0) < 2)) return false
     if (!lut) throw new Error('Load a .cube file to preview a LUT')
     if (gl.isContextLost()) throw new Error('The LUT preview graphics context was lost. Try enabling it again.')
-    const sourceWidth = Number(video.videoWidth)
-    const sourceHeight = Number(video.videoHeight)
+    const sourceWidth = Number(isImage ? source.naturalWidth : source.videoWidth)
+    const sourceHeight = Number(isImage ? source.naturalHeight : source.videoHeight)
     if (sourceWidth > maxTextureSize || sourceHeight > maxTextureSize) {
-      throw new Error('This video is too large for LUT preview on this device. Select a lower playback quality.')
+      throw new Error(isImage
+        ? 'This image is too large for LUT preview on this device.'
+        : 'This video is too large for LUT preview on this device. Select a lower playback quality.')
     }
-    const targetWidth = Math.max(1, Math.round(width || video.videoWidth || 1))
-    const targetHeight = Math.max(1, Math.round(height || video.videoHeight || 1))
+    const targetWidth = Math.max(1, Math.round(width || sourceWidth || 1))
+    const targetHeight = Math.max(1, Math.round(height || sourceHeight || 1))
     if (canvas.width !== targetWidth) canvas.width = targetWidth
     if (canvas.height !== targetHeight) canvas.height = targetHeight
     gl.viewport(0, 0, targetWidth, targetHeight)
@@ -168,10 +171,10 @@ export function createVideoColorPreviewRenderer(canvas) {
     gl.activeTexture(gl.TEXTURE0)
     gl.bindTexture(gl.TEXTURE_2D, videoTexture)
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true)
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video)
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source)
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4)
-    if (uploadedVideoWidth !== sourceWidth || uploadedVideoHeight !== sourceHeight) {
-      if (gl.getError() !== gl.NO_ERROR) throw new Error('Could not render this video with the LUT on this device')
+    if (isImage || uploadedVideoWidth !== sourceWidth || uploadedVideoHeight !== sourceHeight) {
+      if (gl.getError() !== gl.NO_ERROR) throw new Error('Could not render this media with the LUT on this device')
       uploadedVideoWidth = sourceWidth
       uploadedVideoHeight = sourceHeight
     }

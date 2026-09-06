@@ -498,6 +498,8 @@
 
     <AdminThemeManager v-if="isAdmin && activeTab === 'theme'" />
 
+    <AdminLutsTab v-if="isAdmin && activeTab === 'luts'" />
+
     <AdminUpdatesTab v-if="isAdmin && activeTab === 'updates'" />
 
     <AdminStorageTab
@@ -907,6 +909,7 @@ import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { hasAppAccess, isAdminUser } from '../utils/accountAccess'
 
 const AdminAgentKeysTab = defineAsyncComponent(() => import('../components/admin/AdminAgentKeysTab.vue'))
+const AdminLutsTab = defineAsyncComponent(() => import('../components/admin/AdminLutsTab.vue'))
 const AdminStorageTab = defineAsyncComponent(() => import('../components/admin/AdminStorageTab.vue'))
 const AdminTeamTab = defineAsyncComponent(() => import('../components/admin/AdminTeamTab.vue'))
 const AdminThemeManager = defineAsyncComponent(() => import('../components/admin/AdminThemeManager.vue'))
@@ -926,6 +929,7 @@ const teamTab = { value: 'team', label: 'Team', description: 'Members and access
 const adminOnlyTabs = [
   { value: 'shares', label: 'Shared links', description: 'Client-facing access', icon: '#icon-share', wide: true },
   { value: 'theme', label: 'Theme', description: 'Workspace appearance', icon: '#icon-pen', wide: true },
+  { value: 'luts', label: 'Preview LUTs', description: 'Shared color previews', icon: '#icon-color' },
   { value: 'storage', label: 'Storage', description: 'Locations and capacity', icon: '#icon-package' },
   { value: 'downloads', label: 'Download history', description: 'Transfer activity', icon: '#icon-download', wide: true },
   { value: 'updates', label: 'Updates', description: 'Version and releases', icon: '#icon-refresh' },
@@ -948,10 +952,10 @@ const settingsNavGroups = computed(() => [
     label: 'Workspace',
     tabs: [
       ...(canManageMembers.value ? [teamTab] : []),
-      ...(isAdmin.value ? adminOnlyTabs.slice(0, 2) : []),
+      ...(isAdmin.value ? adminOnlyTabs.slice(0, 3) : []),
     ],
   }] : []),
-  ...(isAdmin.value ? [{ label: 'System', tabs: adminOnlyTabs.slice(2) }] : []),
+  ...(isAdmin.value ? [{ label: 'System', tabs: adminOnlyTabs.slice(3) }] : []),
 ])
 const activeSettingsTab = computed(() => (
   adminTabs.value.find(tab => tab.value === activeTab.value) || userTabs[0]

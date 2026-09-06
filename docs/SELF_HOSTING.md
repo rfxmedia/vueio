@@ -233,6 +233,27 @@ version, and restarts unhealthy services. It never changes project storage or
 restores a backup. Local HTTP produces a warning even when every required
 check passes.
 
+## Workspace preview LUTs
+
+Administrators can upload `.cube` files in **Settings → Preview LUTs**. Saved
+LUTs appear in **Color preview** for images and videos across the workspace,
+including authorized share-link views. Members and share visitors can apply
+them but cannot change the library. Choose a LUT that matches the source
+media's color encoding.
+
+The library is stored in this installation's database and survives restarts
+and updates. It is included in database backups, not shipped with Vueio's
+source or images. The limits are 64 LUTs, 32 MiB per file, and 256 MiB total.
+Only standalone 3D `.cube` files with 2–65 points per axis are supported.
+
+**Load temporary LUT** in the viewer keeps a file in browser memory until the
+page is closed or refreshed. It does not add that file to the saved library.
+LUTs affect the preview and captured video frames; original media and downloads
+stay unchanged.
+
+For animated image files, LUT mode shows a single frame. Select **Source** to
+see the animation.
+
 ## Backups and restores
 
 Create a database backup:
@@ -390,8 +411,14 @@ The Updates page shows setup instructions until its host service is available.
 
 Stable is the default channel. Stable releases use immutable
 `vX.Y.Z-alpha.N` tags and are not GitHub prereleases. Nightly releases are test
-builds, use `vX.Y.Z-alpha.N.dev.M` tags, and are marked prerelease. Select a
-channel with:
+builds, use `vX.Y.Z-alpha.N.dev.M` tags, and are marked prerelease.
+
+Administrators can select **Stable** or **Nightly** in **Settings → Updates →
+Channel**. Vueio briefly restarts to apply the channel and shows its progress.
+This keeps the installed version; use **Update now** to install an offered
+release. Install the latest release first if the channel selector is unavailable.
+
+The terminal commands remain available:
 
 ```bash
 sudo vueioctl channel stable

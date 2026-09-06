@@ -16,6 +16,9 @@ MAX_RESPONSE_BYTES = 16 * 1024
 
 class HostUpdateStatus(BaseModel):
     supported: bool = Field(strict=True)
+    channel_switch_supported: bool = Field(default=False, strict=True)
+    operation: Literal['update', 'channel'] = 'update'
+    target_channel: Literal['stable', 'nightly'] | None = None
     state: Literal['idle', 'running', 'succeeded', 'failed', 'interrupted']
     phase: Literal[
         'idle', 'queued', 'preflight', 'assets', 'images', 'backup', 'install',
@@ -55,7 +58,7 @@ def _host_request(method: str, path: str, payload: dict | None = None) -> dict:
         if len(body) > MAX_RESPONSE_BYTES:
             raise ValueError('Updater response too large')
         if response.status == 409:
-            raise HTTPException(status_code=409, detail='An update is already in progress. Refresh its status.')
+            raise HTTPException(status_code=409, detail='Another host operation is in progress or needs attention. Refresh its status.')
         if response.status not in {200, 202}:
             raise ValueError('Updater rejected the request')
         return HostUpdateStatus.model_validate(json.loads(body)).model_dump()
@@ -83,7 +86,7 @@ def start_host_update(version: str) -> dict:
     if not current['supported']:
         raise HTTPException(status_code=503, detail=current['message'])
     if current['state'] == 'running':
-        if current['version'] == version:
+        if current['operation'] == 'update' and current['version'] == version:
             return current
         raise HTTPException(status_code=409, detail='Another update is already in progress.')
     if current['state'] == 'interrupted':
@@ -98,3 +101,18 @@ def start_host_update(version: str) -> dict:
     if not release['update_available'] or release['latest_version'] != version:
         raise HTTPException(status_code=409, detail='The available release has changed. Check again before updating.')
     return _host_request('POST', '/update', {'version': version})
+
+
+def switch_host_channel(channel: Literal['stable', 'nightly']) -> dict:
+    current = get_host_update_status()
+    if not current['supported']:
+        raise HTTPException(status_code=503, detail=current['message'])
+    if not current['channel_switch_supported']:
+        raise HTTPException(status_code=409, detail='Install the latest release to switch channels here.')
+    if current['state'] == 'running':
+        if current['operation'] == 'channel' and current['target_channel'] == channel:
+            return current
+        raise HTTPException(status_code=409, detail='Another host operation is already in progress.')
+    if current['state'] == 'interrupted':
+        raise HTTPException(status_code=409, detail='Recover the interrupted update before changing channels.')
+    return _host_request('POST', '/channel', {'channel': channel})

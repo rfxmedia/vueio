@@ -494,10 +494,43 @@ show_version() {
   note "UI image: $(env_value VUEIO_UI_IMAGE)"
 }
 
-set_channel() {
+set_channel() (
   require_installed
-  local next=${1:-} current
+  local next=${1:-} current reconcile=false
+  (($# == 1)) || die "Usage: $PROGRAM channel <stable|nightly>"
   validate_channel "$next"
+  [[ ! -e "$UPDATE_STATE_FILE" ]] || die "An interrupted update needs attention on the host before switching channels."
+  require_command python3
+  python3 - "$UPDATE_PROGRESS_FILE" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+if path.exists():
+    if path.stat().st_size > 4096:
+        raise SystemExit('The host update state needs attention.')
+    progress = json.loads(path.read_text(encoding='utf-8'))
+    if progress.get('operation', 'update') == 'update' and progress.get('state') in {'running', 'interrupted'}:
+        raise SystemExit('An interrupted update needs attention on the host before switching channels.')
+PY
+  [[ -z ${VUEIO_UPDATE_OPERATION_ID:-} ]] || reconcile=true
+  VUEIO_HOST_OPERATION=channel
+  VUEIO_TARGET_CHANNEL=$next
+  UPDATE_PREVIOUS_VERSION=$(env_value VUEIO_VERSION)
+  validate_release_tag "$UPDATE_PREVIOUS_VERSION"
+  UPDATE_REQUESTED_VERSION=$UPDATE_PREVIOUS_VERSION
+  VUEIO_UPDATE_OPERATION_ID=${VUEIO_UPDATE_OPERATION_ID:-$(python3 -c 'import uuid; print(uuid.uuid4().hex)')}
+  trap 'status=$?; trap - EXIT INT TERM; if ((status != 0)); then write_update_progress failed failed 0 "The channel switch did not finish. Try switching channels again; the installed version was kept."; fi; exit "$status"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  write_update_progress running preflight 10 "Checking the channel configuration…"
+  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+    reconcile=true
+  fi
+  if [[ $reconcile == true ]]; then
+    require_storage_mounts
+  fi
   current=$(env_value VUEIO_CHANNEL)
   current=${current:-stable}
   if [[ $current == "$next" ]]; then
@@ -505,17 +538,24 @@ set_channel() {
   else
     set_env VUEIO_CHANNEL "$next"
   fi
-  if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
+  if [[ $reconcile == true ]]; then
     step "Applying the $next channel…"
-    compose up -d --no-deps vueio_engine
+    write_update_progress running restart 50 "Applying the channel and restarting Vueio…"
+    compose up -d --no-deps --pull never vueio_engine
+    write_update_progress running health 90 "Waiting for Vueio to be ready…"
     wait_for_engine || die "Vueio did not become ready after changing the update channel"
+    compose exec -T vueio_engine python -c \
+      'import os, sys; sys.exit(0 if os.environ.get("VUEIO_CHANNEL") == sys.argv[1] and os.environ.get("VUEIO_VERSION") == sys.argv[2] else 1)' \
+      "$next" "$UPDATE_PREVIOUS_VERSION" || die "The running engine did not apply the expected channel and version"
   fi
   if [[ $current == stable && $next == nightly ]]; then
     note "Vueio now follows the nightly channel. Check Updates or run the suggested update command when a newer nightly is available."
   elif [[ $current == nightly && $next == stable ]]; then
     note "Vueio now follows the stable channel. Your installed nightly will stay in place until a newer stable release is published. Database migrations are one-way, so switching channels never downgrades the running version."
   fi
-}
+  write_update_progress succeeded complete 100 "Vueio now follows the $next channel. The installed version was kept."
+  trap - EXIT INT TERM
+)
 
 show_setup_token() {
   require_installed
@@ -1398,19 +1438,21 @@ state_value() {
 write_update_progress() {
   local state=$1 phase=$2 progress=$3 message=$4
   python3 - "$UPDATE_PROGRESS_FILE" "$state" "$phase" "$progress" "$message" \
-    "${UPDATE_REQUESTED_VERSION:-}" "${UPDATE_PREVIOUS_VERSION:-}" "${VUEIO_UPDATE_OPERATION_ID:-}" <<'PY'
+    "${UPDATE_REQUESTED_VERSION:-}" "${UPDATE_PREVIOUS_VERSION:-}" "${VUEIO_UPDATE_OPERATION_ID:-}" \
+    "${VUEIO_HOST_OPERATION:-update}" "${VUEIO_TARGET_CHANNEL:-}" <<'PY'
 import json
 import os
 import sys
 import tempfile
 
-path, state, phase, progress, message, version, previous, operation = sys.argv[1:]
+path, state, phase, progress, message, version, previous, operation_id, operation, target_channel = sys.argv[1:]
 descriptor, temporary = tempfile.mkstemp(prefix='.update-progress.', dir=os.path.dirname(path))
 try:
     with os.fdopen(descriptor, 'w', encoding='utf-8') as handle:
         json.dump(dict(supported=True, state=state, phase=phase, progress=int(progress),
                        message=message, version=version or None, previous_version=previous or None,
-                       operation_id=operation or None), handle)
+                       operation_id=operation_id or None, operation=operation,
+                       target_channel=target_channel or None), handle)
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)

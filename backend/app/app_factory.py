@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     from app.routes.horizons_media_objects import router as horizons_media_objects_router
     from app.routes.horizons_project_support import router as horizons_project_support_router
     from app.routes.health import router as health_router
+    from app.routes.luts import router as luts_router
     from app.routes.media_assets import router as media_assets_router
     from app.routes.mention_search import router as mention_search_router
     from app.routes.notifications import router as notifications_router
@@ -140,6 +141,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
     app.include_router(files_router)
     app.include_router(health_router)
+    app.include_router(luts_router)
     app.include_router(horizons_fresh_router)
     app.include_router(horizons_media_objects_router)
     app.include_router(horizons_project_support_router)

@@ -24,6 +24,7 @@
     :show-toolbar="showToolbar"
     :surface-props="surfaceProps"
     :toolbar-props="toolbarProps"
+    :color-preview-props="colorPreviewProps"
     :info-panel-props="infoPanelProps"
     :comments-panel-props="commentsPanelProps"
     :sidebar-tabs="sidebarTabs"
@@ -147,6 +148,21 @@ const surfaceProps = computed(() => ({
   onColorPreviewUnavailable: colorPreview.handleUnavailable,
 }))
 
+const colorPreviewProps = computed(() => ({
+  colorPreviewAvailable: colorPreview.available.value,
+  onSetColorPreviewMode: colorPreview.setMode,
+  colorPreviewPresets: colorPreview.presets.value,
+  colorPreviewLibraryLoading: colorPreview.libraryLoading.value,
+  colorPreviewLibraryError: colorPreview.libraryError.value,
+  onRefreshColorPreviewLibrary: colorPreview.refreshLibrary,
+  colorPreviewSelection: colorPreview.selection.value,
+  colorPreviewCustomLut: colorPreview.customLut.value,
+  colorPreviewLoading: colorPreview.loading.value,
+  colorPreviewError: colorPreview.error.value,
+  onLoadColorPreviewLut: colorPreview.load,
+  onClearColorPreviewLut: colorPreview.clear,
+}))
+
 const toolbarProps = computed(() => ({
   comments: comments.comments.value,
   duration: transport.duration.value,
@@ -183,14 +199,7 @@ const toolbarProps = computed(() => ({
   onSetCurrentFrameAsThumbnail: frames.setCurrentFrameAsThumbnail,
   canSetCurrentFrameAsThumbnail: frames.canSetCurrentFrameAsThumbnail.value,
   frameCaptureComment: frames.frameCaptureComment.value,
-  colorPreviewMode: colorPreview.mode.value,
-  colorPreviewLut: colorPreview.lut.value,
-  colorPreviewAvailable: colorPreview.available.value,
-  onSetColorPreviewMode: colorPreview.setMode,
-  colorPreviewLoading: colorPreview.loading.value,
-  colorPreviewError: colorPreview.error.value,
-  onLoadColorPreviewLut: colorPreview.load,
-  onClearColorPreviewLut: colorPreview.clear,
+  colorPreviewProps: colorPreviewProps.value,
 }))
 
 const infoPanelProps = computed(() => ({

@@ -50,13 +50,23 @@
           :style="imageStageStyle"
         >
           <img
+            ref="imageElementRef"
             :src="mediaStreamUrl"
             :alt="currentMedia?.name || ''"
             class="viewer-image"
+            :class="{ 'is-color-previewed': colorPreviewReady }"
             draggable="false"
             @dragstart.prevent
             @load="handleImageLoad"
           />
+
+          <canvas
+            ref="colorPreviewCanvasRef"
+            class="video-color-preview-canvas image-color-preview-canvas"
+            :class="{ 'is-visible': colorPreviewReady }"
+            aria-hidden="true"
+            @webglcontextlost.prevent="handleColorPreviewContextLost"
+          ></canvas>
 
           <canvas
             :ref="setAnnotationCanvasRef"
@@ -177,6 +187,7 @@ const props = defineProps({
 
 const imageShellRef = ref(null)
 const imageStageRef = ref(null)
+const imageElementRef = ref(null)
 const videoElementRef = ref(null)
 const videoContainerElementRef = ref(null)
 const colorPreviewCanvasRef = ref(null)
@@ -242,6 +253,14 @@ function cancelColorPreviewFrame() {
 }
 
 function getColorPreviewRenderSize() {
+  if (props.isViewingImage) {
+    const image = imageElementRef.value
+    const scale = Math.min(1, 2560 / Math.max(image.naturalWidth, image.naturalHeight))
+    return {
+      width: Math.max(1, Math.round(image.naturalWidth * scale)),
+      height: Math.max(1, Math.round(image.naturalHeight * scale)),
+    }
+  }
   const video = videoElementRef.value
   const container = videoContainerElementRef.value
   const sourceWidth = Math.max(1, Number(video?.videoWidth || 1))
@@ -270,12 +289,14 @@ function ensureColorPreviewRenderer() {
 
 function renderColorPreviewFrame() {
   if (!colorPreviewActive.value) return false
-  const video = videoElementRef.value
-  if (!video || Number(video.readyState || 0) < 2) return false
+  const source = props.isViewingImage ? imageElementRef.value : videoElementRef.value
+  if (!source || (props.isViewingImage
+    ? !source.complete || !source.naturalWidth
+    : Number(source.readyState || 0) < 2)) return false
   try {
     const size = getColorPreviewRenderSize()
     const rendered = ensureColorPreviewRenderer().render(
-      video,
+      source,
       props.colorPreviewLut,
       size.width,
       size.height,
@@ -290,7 +311,7 @@ function renderColorPreviewFrame() {
 
 function requestColorPreviewFrame() {
   const video = videoElementRef.value
-  if (!colorPreviewActive.value || !video || video.paused || video.ended) return
+  if (!props.isViewingVideo || !colorPreviewActive.value || !video || video.paused || video.ended) return
   if (typeof video.requestVideoFrameCallback === 'function') {
     colorPreviewFrameHandle = video.requestVideoFrameCallback(() => {
       colorPreviewFrameHandle = 0
@@ -313,7 +334,7 @@ function scheduleColorPreviewFrame() {
 }
 
 function scheduleColorPreviewResize() {
-  if (!colorPreviewActive.value) return
+  if (props.isViewingImage || !colorPreviewActive.value) return
   window.requestAnimationFrame(renderColorPreviewFrame)
 }
 
@@ -569,6 +590,7 @@ function handleImageGestureEnd() {
 function handleImageLoad(event) {
   resetImageTransform()
   props.onImageLoaded(event)
+  scheduleColorPreviewFrame()
 }
 
 function clampImagePanToBounds() {
@@ -602,12 +624,14 @@ watch([() => props.colorPreviewMode, () => props.colorPreviewLut], () => {
     return
   }
   scheduleColorPreviewFrame()
-})
+}, { flush: 'post' })
 
-watch(() => props.currentMedia?.path, () => {
+watch([() => props.currentMedia?.path, () => props.mediaStreamUrl, colorPreviewCanvasRef], (current, previous) => {
   cancelColorPreviewFrame()
   colorPreviewReady.value = false
-})
+  destroyColorPreviewRenderer()
+  if (props.isViewingImage || current[2] !== previous[2]) scheduleColorPreviewFrame()
+}, { flush: 'post' })
 
 onMounted(() => {
   window.addEventListener('resize', scheduleImagePanClamp)
@@ -663,6 +687,10 @@ onUnmounted(() => {
 
 .viewer-image {
   object-fit: contain;
+}
+
+.viewer-image.is-color-previewed {
+  opacity: 0;
 }
 
 .viewer-image-shell {
@@ -769,6 +797,14 @@ onUnmounted(() => {
 
 .video-color-preview-canvas.is-visible {
   opacity: 1;
+}
+
+.image-color-preview-canvas {
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  height: auto;
+  transform: translate(-50%, -50%);
 }
 
 .stream-overlay {

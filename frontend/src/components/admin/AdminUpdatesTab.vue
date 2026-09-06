@@ -19,16 +19,24 @@
             <dd>{{ status?.latest_version || (loading ? 'Checking…' : 'Unavailable') }}</dd>
           </div>
           <div>
-            <dt>Channel</dt>
+            <dt><label for="updates-channel">Channel</label></dt>
             <dd>
-              <a v-if="status?.source_url" class="updates-link" :href="status.source_url" target="_blank" rel="noreferrer" :aria-label="`View ${channelLabel} branch on GitHub`">
-                {{ channelLabel }}
-                <svg class="icon" aria-hidden="true"><use href="#icon-external-link" /></svg>
-              </a>
-              <span v-else>{{ status ? channelLabel : 'Checking…' }}</span>
+              <select
+                id="updates-channel"
+                class="v-input updates-channel-select"
+                :value="selectedChannel"
+                :disabled="!canSwitchChannel"
+                aria-describedby="updates-channel-note"
+                @change="changeChannel"
+              >
+                <option value="stable">Stable</option>
+                <option value="nightly">Nightly</option>
+              </select>
             </dd>
           </div>
         </dl>
+        <p id="updates-channel-note" class="updates-muted">The channel controls the releases offered. Switching briefly restarts Vueio and never downgrades the installed version.</p>
+        <p v-if="progress?.supported && !progress.channel_switch_supported" class="updates-muted">Install the latest release to switch channels here.</p>
 
         <div class="updates-action-row">
           <p class="updates-status" :class="{ 'is-current': state === 'current' && !showProgress, 'is-warning': updateFailed }" role="status">
@@ -42,7 +50,7 @@
             @click="startUpdate"
           >
             <svg class="icon" :class="{ spinning: busy }" aria-hidden="true"><use :href="busy ? '#icon-refresh' : '#icon-download'" /></svg>
-            {{ starting ? 'Starting…' : busy ? 'Updating…' : updateFailed ? 'Try again' : 'Update now' }}
+            {{ switchingChannel ? 'Applying channel…' : starting ? 'Starting…' : busy ? 'Updating…' : updateFailed && !channelOperation ? 'Try again' : 'Update now' }}
           </button>
         </div>
         <p v-if="state === 'error' && showProgress && !busy" class="updates-error" role="status">Could not check for updates. {{ statusDescription }}</p>
@@ -58,7 +66,7 @@
             v-if="!updateFailed"
             class="v-progress"
             role="progressbar"
-            aria-label="Installation progress"
+            :aria-label="channelOperation ? 'Channel change progress' : 'Installation progress'"
             :aria-valuenow="progressPercent"
             aria-valuemin="0"
             aria-valuemax="100"
@@ -66,6 +74,13 @@
           >
             <div class="v-progress-fill" :style="{ width: `${progressPercent}%` }"></div>
           </div>
+          <button
+            v-if="channelOperation && progress?.state === 'failed' && !busy"
+            class="v-btn v-btn-secondary v-btn-sm updates-channel-retry"
+            type="button"
+            :disabled="!canSwitchChannel"
+            @click="switchChannel(progress.target_channel)"
+          >Try channel again</button>
           <div v-if="needsHostAttention || progress?.state === 'interrupted'" class="updates-command-row">
             <code>{{ hostStatusCommand }}</code>
             <button class="v-btn v-btn-secondary v-btn-sm" type="button" aria-label="Copy host status command" @click="copyCommand(hostStatusCommand, 'Status command copied.')">Copy</button>
@@ -129,11 +144,11 @@
           <div>
             <h4>Release channel</h4>
             <p>{{ channelDescription }}</p>
-            <p>{{ channelSwitchNote }}</p>
-          </div>
-          <div class="updates-command-row">
-            <code>{{ channelSwitchCommand }}</code>
-            <button class="v-btn v-btn-secondary v-btn-sm" type="button" :aria-label="`Copy command to switch to ${otherChannelLabel}`" :disabled="busy" @click="copyCommand(channelSwitchCommand, 'Channel command copied.')">Copy</button>
+            <p>Switching channels does not install a release. If Stable is behind, the installed version stays in place until Stable catches up.</p>
+            <a v-if="status?.source_url" class="updates-link" :href="status.source_url" target="_blank" rel="noreferrer">
+              View {{ channelLabel }} branch on GitHub
+              <svg class="icon" aria-hidden="true"><use href="#icon-external-link" /></svg>
+            </a>
           </div>
         </div>
       </details>
@@ -149,17 +164,28 @@ import { notify } from '../../utils/toasts'
 
 const {
   status, loading, progress, starting, offline, updateError, updating, awaitingReload, needsHostAttention,
-  check, readProgress, startUpdate, setVisible,
+  switchingChannel, pendingChannel, switchChannel, check, readProgress, startUpdate, setVisible,
 } = useUpdateStatusStore()
 const setupCommand = 'sudo vueioctl updater enable'
 const hostStatusCommand = 'sudo vueioctl updater status'
 const busy = computed(() => updating.value || awaitingReload.value)
-const updateFailed = computed(() => ['failed', 'interrupted'].includes(progress.value?.state))
+const updateFailed = computed(() => !busy.value && ['failed', 'interrupted'].includes(progress.value?.state))
 const showProgress = computed(() => busy.value || updateFailed.value)
 const canOfferUpdate = computed(() => progress.value?.supported
   && status.value?.update_available && progress.value?.state !== 'interrupted')
+const canSwitchChannel = computed(() => progress.value?.supported && progress.value?.channel_switch_supported
+  && status.value?.channel && !busy.value && !offline.value && progress.value?.state !== 'interrupted')
+const selectedChannel = computed(() => pendingChannel.value
+  || (switchingChannel.value ? progress.value?.target_channel : status.value?.channel) || 'stable')
+const channelOperation = computed(() => switchingChannel.value || (!busy.value && progress.value?.operation === 'channel'))
+const targetChannelLabel = computed(() => (pendingChannel.value || progress.value?.target_channel) === 'nightly' ? 'Nightly' : 'Stable')
 const progressPercent = computed(() => Math.min(100, Math.max(0, Number(progress.value?.progress) || 0)))
 const installTitle = computed(() => {
+  if (channelOperation.value) {
+    if (busy.value) return `Switching to ${targetChannelLabel.value}`
+    if (progress.value?.state === 'interrupted') return 'This channel change needs attention'
+    if (progress.value?.state === 'failed') return 'The channel could not be changed'
+  }
   if (starting.value) return 'Starting your update'
   if (busy.value) return `Updating to ${progress.value?.version || status.value?.latest_version}`
   if (progress.value?.state === 'interrupted') return 'This update needs attention'
@@ -167,12 +193,18 @@ const installTitle = computed(() => {
   return 'Update available'
 })
 const progressDescription = computed(() => {
-  if (needsHostAttention.value) return 'Vueio has not reconnected yet. The update may still be running or need attention. Check its status on the host.'
-  if (offline.value && busy.value) return 'Vueio is temporarily unavailable. Waiting for the update to reconnect…'
-  if (awaitingReload.value) return 'The update is installed. Reconnecting to the new version…'
-  if (starting.value) return 'Asking your host to start the update…'
-  return progress.value?.message || 'Preparing the update…'
+  if (needsHostAttention.value) return 'Vueio has not reconnected yet. Check its status on the host.'
+  if (offline.value && busy.value) return 'Vueio is temporarily unavailable. Waiting to reconnect…'
+  if (awaitingReload.value) return channelOperation.value ? 'Channel changed. Reconnecting…' : 'The update is installed. Reconnecting to the new version…'
+  if (starting.value) return channelOperation.value ? 'Asking your host to switch channels…' : 'Asking your host to start the update…'
+  return progress.value?.message || (channelOperation.value ? 'Applying channel…' : 'Preparing the update…')
 })
+
+function changeChannel(event) {
+  const channel = event.target.value
+  event.target.value = selectedChannel.value
+  if (canSwitchChannel.value) switchChannel(channel)
+}
 
 function refreshUpdates() {
   check({ refresh: true })
@@ -181,16 +213,9 @@ function refreshUpdates() {
 
 const state = computed(() => status.value?.status || (loading.value ? 'checking' : 'unavailable'))
 const channelLabel = computed(() => status.value?.channel === 'nightly' ? 'Nightly' : 'Stable')
-const otherChannelLabel = computed(() => status.value?.channel === 'nightly' ? 'Stable' : 'Nightly')
-const channelSwitchCommand = computed(() => `sudo vueioctl channel ${otherChannelLabel.value.toLowerCase()}`)
 const channelDescription = computed(() => status.value?.channel === 'nightly'
   ? 'Nightly follows published test builds from the public nightly branch and includes Stable releases.'
   : 'Stable follows reviewed releases from the public stable branch. Switch to Nightly to receive test builds earlier.')
-const channelSwitchNote = computed(() => status.value?.channel === 'nightly'
-  ? 'Returning to Stable never downgrades Vue.io. If Nightly is ahead, Vue.io stays on it until a newer Stable release is available.'
-  : state.value === 'ahead'
-    ? 'Vue.io is following Stable now. The installed Nightly stays in place until Stable catches up.'
-  : 'Switching channels changes which releases Vue.io offers. It does not install an update by itself.')
 const releaseNotes = computed(() => {
   const pending = Array.isArray(status.value?.releases_between) ? status.value.releases_between : []
   const releases = pending.length ? pending : status.value?.current_release ? [status.value.current_release] : []
@@ -301,6 +326,13 @@ onUnmounted(() => setVisible(false))
   overflow-wrap: anywhere;
 }
 
+.updates-channel-select {
+  width: auto;
+  min-height: var(--v-btn-height);
+  font-size: var(--v-text-sm);
+}
+.updates-channel-select:disabled { color: var(--v-text-muted); cursor: not-allowed; }
+
 .updates-action-row,
 .updates-progress-label,
 .updates-notes-heading,
@@ -330,6 +362,7 @@ onUnmounted(() => setVisible(false))
 .updates-error { color: var(--v-warning); }
 
 .updates-install-button { flex: none; }
+.updates-channel-retry { justify-self: start; }
 
 .updates-link {
   color: var(--v-text-secondary);
@@ -442,8 +475,10 @@ onUnmounted(() => setVisible(false))
   .updates-versions { grid-template-columns: minmax(0, 1fr); gap: var(--v-space-3); }
   .updates-versions > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); align-items: baseline; gap: var(--v-space-2); }
   .updates-versions dt { margin: 0; }
+  .updates-channel-select { width: 100%; min-height: var(--v-btn-height-lg); }
   .updates-action-row { flex-wrap: wrap; }
   .updates-install-button { width: 100%; min-height: var(--v-btn-height-lg); }
+  .updates-channel-retry { min-height: var(--v-btn-height-lg); }
   .updates-notes-heading { flex-wrap: wrap; }
   .updates-summary { padding: var(--v-space-3); }
 }

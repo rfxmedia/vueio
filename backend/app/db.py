@@ -347,6 +347,12 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
         'columns': {'tracker_events': {'state_snapshot', 'state_hash'}},
         'indexes': {},
     },
+    {
+        'revision': '20260906_0024',
+        'stamp_before': '20260824_0023',
+        'owned_tables': {'workspace_luts': {'id', 'name', 'size', 'byte_size', 'cube_text'}},
+        'indexes': {},
+    },
 )
 
 

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,7 +23,7 @@ from app.services.auth import get_user_from_session, load_users, require_admin
 from app.services.download_audit import list_download_events
 from app.services.external_urls import normalize_http_origin
 from app.services.horizons_fresh import get_horizon_project
-from app.services.host_updates import get_host_update_status, start_host_update
+from app.services.host_updates import get_host_update_status, start_host_update, switch_host_channel
 from app.services.media import VIDEO_EXTENSIONS, get_safe_path
 from app.services.media_pipeline import trigger_auto_hls_package
 from app.services.release_updates import ALPHA_TAG, get_update_status
@@ -84,12 +84,17 @@ class InstallUpdateRequest(BaseModel):
     version: str = Field(strict=True, max_length=100, pattern=ALPHA_TAG.pattern)
 
 
+class SwitchChannelRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    channel: Literal['stable', 'nightly']
+
+
 def _require_admin_session(vueio_session: str | None) -> dict:
     return require_admin(vueio_session)
 
 
 def _require_update_session(vueio_session: str | None) -> None:
-    # Installing software requires a browser session, never an agent API key.
+    # Host maintenance requires a browser session, never an agent API key.
     user = get_user_from_session(vueio_session, allow_agent_fallback=False)
     if not user:
         raise HTTPException(status_code=401, detail='Sign in to manage updates.')
@@ -397,6 +402,19 @@ def install_update(
     _require_update_origin(request)
     response.headers['Cache-Control'] = 'no-store'
     return start_host_update(data.version)
+
+
+@router.post('/api/admin/update-channel', status_code=202)
+def switch_update_channel(
+    data: SwitchChannelRequest,
+    request: Request,
+    response: Response,
+    vueio_session: str | None = Cookie(None),
+):
+    _require_update_session(vueio_session)
+    _require_update_origin(request)
+    response.headers['Cache-Control'] = 'no-store'
+    return switch_host_channel(data.channel)
 
 
 @router.delete('/api/admin/transcodes')

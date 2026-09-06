@@ -9,6 +9,7 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
   const loading = ref(false)
   const progress = ref(null)
   const starting = ref(false)
+  const pendingChannel = ref(null)
   const offline = ref(false)
   const offlineFor = ref(0)
   const updateError = ref('')
@@ -19,11 +20,15 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
   const awaitingConfirmation = ref(false)
   const updating = computed(() => starting.value || awaitingConfirmation.value || progress.value?.state === 'running')
   const awaitingReload = ref(false)
+  const switchingChannel = computed(() => (updating.value || awaitingReload.value)
+    && (starting.value || awaitingConfirmation.value
+      ? Boolean(pendingChannel.value) : progress.value?.operation === 'channel'))
   const needsHostAttention = computed(() => offlineFor.value >= 120000 && (updating.value || awaitingReload.value))
   let controller = new AbortController()
   let pollTimer = null
   let polling = false
   let observedOperation = null
+  let requestedOperation = null
   let progressRevision = 0
   let offlineSince = 0
 
@@ -85,11 +90,26 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
         return
       }
       progress.value = response.data
+      // A restart can lose the POST response and complete between progress polls.
+      // Match the new operation to our request, never to a historical success.
+      if (requestedOperation && progress.value.operation_id
+        && progress.value.operation_id !== requestedOperation.previousId
+        && (progress.value.operation || 'update') === requestedOperation.kind
+        && (requestedOperation.kind === 'channel'
+          ? progress.value.target_channel === requestedOperation.target
+          : progress.value.version === requestedOperation.target)) {
+        observedOperation = progress.value.operation_id
+        requestedOperation = null
+        updateError.value = ''
+      }
       offline.value = false
       offlineSince = 0
       offlineFor.value = 0
       // A poll made while the start request is pending cannot rule out its acceptance.
-      if (!starting.value) awaitingConfirmation.value = false
+      if (!starting.value) {
+        awaitingConfirmation.value = false
+        pendingChannel.value = null
+      }
       if (progress.value.state === 'running') {
         observedOperation = progress.value.operation_id
         updateError.value = ''
@@ -98,8 +118,9 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
         && progress.value.operation_id === observedOperation) {
         awaitingReload.value = true
         const release = await check({ refresh: true })
-        if (!options.signal.aborted && release?.current_version === progress.value.version) {
-          // The host has completed its health check and this API serves the target version.
+        if (!options.signal.aborted && release?.current_version === progress.value.version
+          && (progress.value.operation !== 'channel' || release?.channel === progress.value.target_channel)) {
+          // Reconnect only after the API serves the verified target version and channel.
           window.location.reload()
         }
       } else {
@@ -123,17 +144,37 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
     }
   }
 
+  function canStartOperation() {
+    return isAdmin.value && !updating.value && !awaitingReload.value && progress.value?.supported
+      && !offline.value && progress.value?.state !== 'interrupted'
+  }
+
   async function startUpdate() {
-    if (!isAdmin.value || updating.value || awaitingReload.value || !progress.value?.supported
-      || !updateAvailable.value || offline.value || progress.value?.state === 'interrupted') return
+    if (!canStartOperation() || !updateAvailable.value) return
+    await startOperation('/api/admin/update', { version: latestVersion.value })
+  }
+
+  async function switchChannel(channel) {
+    if (!canStartOperation() || !progress.value?.channel_switch_supported
+      || !['stable', 'nightly'].includes(channel)) return
+    if (channel === status.value?.channel && progress.value?.state !== 'failed') return
+    await startOperation('/api/admin/update-channel', { channel })
+  }
+
+  async function startOperation(endpoint, payload) {
+    pendingChannel.value = payload.channel || null
+    requestedOperation = {
+      kind: payload.channel ? 'channel' : 'update',
+      target: payload.channel || payload.version,
+      previousId: progress.value?.operation_id,
+    }
     const options = requestOptions()
-    const version = latestVersion.value
     progressRevision += 1
     starting.value = true
     awaitingConfirmation.value = true
     updateError.value = ''
     try {
-      const response = await apiClient.post('/api/admin/update', { version }, options)
+      const response = await apiClient.post(endpoint, payload, options)
       if (!options.signal.aborted) {
         progress.value = response.data
         awaitingConfirmation.value = false
@@ -141,9 +182,10 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
       }
     } catch (error) {
       if (options.signal.aborted) return
+      if (error?.response?.status >= 400 && error?.response?.status < 500) requestedOperation = null
       const detail = error?.response?.data?.detail
       updateError.value = typeof detail === 'string' ? detail
-        : 'Could not confirm that the update started. Checking its status before you try again.'
+        : 'Could not confirm that the host operation started. Checking its status before you try again.'
       await readProgress()
     } finally {
       if (!options.signal.aborted) {
@@ -177,10 +219,12 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
     pollTimer = null
     polling = false
     observedOperation = null
+    requestedOperation = null
     status.value = null
     progress.value = null
     loading.value = false
     starting.value = false
+    pendingChannel.value = null
     awaitingConfirmation.value = false
     offline.value = false
     offlineSince = 0
@@ -201,7 +245,7 @@ export function createUpdateStatusStore({ session, apiClient = api }) {
 
   return {
     status, loading, progress, starting, offline, updateError, updating, awaitingReload, needsHostAttention,
-    updateAvailable, latestVersion, check, readProgress, startUpdate, setVisible,
+    updateAvailable, latestVersion, check, readProgress, startUpdate, switchChannel, switchingChannel, pendingChannel, setVisible,
   }
 }
 

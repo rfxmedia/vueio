@@ -9,7 +9,7 @@
     }"
     :aria-label="hostAriaLabel"
   >
-    <section class="player-stage">
+    <section class="player-stage" :class="{ 'has-image-preview': isViewingImage }">
       <MediaVersionCompareSurface
         v-if="versionCompareActive && versionComparePrimaryMedia && versionCompareSecondaryMedia"
         :mode="versionCompareMode"
@@ -29,6 +29,9 @@
         @exit="$emit('exit-version-compare')"
       />
       <MediaViewerSurface v-else v-bind="surfaceProps" />
+      <div v-if="isViewingImage && !versionCompareActive && !surfaceProps.mediaUnavailable" class="image-color-preview-controls">
+        <MediaColorPreviewMenu :key="currentMedia?.path" v-bind="colorPreviewProps" />
+      </div>
 
       <Transition name="v-attachment-lightbox-fade">
         <div
@@ -131,6 +134,7 @@
 import { computed } from 'vue'
 import { VTabs } from '../primitives'
 import MediaViewerToolbar from './MediaViewerToolbar.vue'
+import MediaColorPreviewMenu from './MediaColorPreviewMenu.vue'
 import MediaViewerSurface from './MediaViewerSurface.vue'
 import MediaVersionCompareSurface from './MediaVersionCompareSurface.vue'
 import MediaViewerInfoPanel from './MediaViewerInfoPanel.vue'
@@ -159,6 +163,7 @@ const props = defineProps({
   showToolbar: { type: Boolean, default: false },
   surfaceProps: { type: Object, required: true },
   toolbarProps: { type: Object, required: true },
+  colorPreviewProps: { type: Object, default: () => ({}) },
   infoPanelProps: { type: Object, required: true },
   commentsPanelProps: { type: Object, required: true },
   sidebarTab: { type: String, default: 'comments' },
@@ -190,3 +195,18 @@ const hostAriaLabel = computed(() => {
   return currentTracker.value?.name || currentProject.value?.title || props.currentMedia?.name || 'Media viewer'
 })
 </script>
+
+<style scoped>
+.has-image-preview { position: relative; }
+.image-color-preview-controls {
+  --viewer-control-size: var(--v-btn-height-lg);
+  position: absolute;
+  bottom: var(--v-space-3);
+  right: var(--v-space-3);
+  z-index: 5;
+  padding: var(--v-space-1);
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-panel);
+}
+</style>

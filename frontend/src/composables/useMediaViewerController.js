@@ -1,6 +1,6 @@
 import { computed, getCurrentScope, nextTick, onScopeDispose, ref, shallowRef, watch } from 'vue'
 
-import api, { buildShareCredentialQuery, resolveAccessEndpoint } from '../lib/api'
+import api, { buildShareCredentialQuery, getApiErrorMessage, resolveAccessEndpoint } from '../lib/api'
 import { getCanonicalMediaRefs, getMediaKind, normalizeMediaEntity } from '../lib/mediaEntity'
 import { parseCubeLut } from '../lib/cubeLut'
 import { formatSizeBytes, formatTimecodeWithFrames } from '../utils/formatters'
@@ -111,6 +111,19 @@ export function useMediaViewerController({
   const colorPreviewMode = ref('source')
   const colorPreviewAvailable = ref(true)
   const colorPreviewLut = shallowRef(null)
+  const customColorPreviewLut = shallowRef(null)
+  const workspaceLuts = ref([])
+  const libraryLoading = ref(false)
+  const libraryError = ref('')
+  let libraryLoadId = 0
+  const libraryEndpoint = computed(() => readRef(shareMode)
+    ? (readRef(pendingShareId) ? `/api/shared/${encodeURIComponent(readRef(pendingShareId))}/luts` : null)
+    : '/api/luts')
+  const colorPreviewPresets = computed(() => workspaceLuts.value.map(lut => ({
+    value: lut.id, label: lut.name, hint: `Workspace · ${lut.size}-point 3D LUT`,
+  })))
+  const colorPreviewSelection = computed(() => colorPreviewMode.value === 'source'
+    ? 'source' : colorPreviewLut.value?.presetId || 'lut')
   const colorPreviewLoading = ref(false)
   const colorPreviewError = ref('')
   let colorPreviewLoadId = 0
@@ -125,17 +138,56 @@ export function useMediaViewerController({
 
   const reportError = (message, error) => onError?.(message, error)
 
-  function setColorPreviewMode(mode) {
-    if (mode === 'lut' && colorPreviewLut.value) {
-      colorPreviewAvailable.value = true
-      colorPreviewError.value = ''
-      colorPreviewMode.value = 'lut'
-    } else {
-      colorPreviewMode.value = 'source'
+  function applyColorPreviewLut(lut) {
+    colorPreviewLut.value = lut
+    colorPreviewAvailable.value = true
+    colorPreviewError.value = ''
+    colorPreviewMode.value = 'lut'
+  }
+
+  async function refreshColorPreviewLibrary() {
+    if (!libraryEndpoint.value) return
+    const loadId = ++libraryLoadId
+    libraryLoading.value = true
+    libraryError.value = ''
+    try {
+      const { data } = await api.get(libraryEndpoint.value)
+      if (loadId !== libraryLoadId) return
+      workspaceLuts.value = data.luts
+      const activeId = colorPreviewLut.value?.presetId
+      if (activeId && !data.luts.some(lut => lut.id === activeId)) {
+        setColorPreviewMode('source')
+        colorPreviewLut.value = null
+      }
+    } catch (error) {
+      if (loadId !== libraryLoadId) return
+      workspaceLuts.value = []
+      libraryError.value = getApiErrorMessage(error, 'Could not load workspace LUTs.')
+      if (colorPreviewLut.value?.presetId) {
+        setColorPreviewMode('source')
+        colorPreviewLut.value = null
+      }
+    } finally {
+      if (loadId === libraryLoadId) libraryLoading.value = false
     }
   }
 
-  async function loadColorPreviewLut(file) {
+  function setColorPreviewMode(mode) {
+    const preset = workspaceLuts.value.find(item => item.id === mode)
+    if (preset) {
+      const endpoint = `${libraryEndpoint.value}/${encodeURIComponent(preset.id)}`
+      return loadColorPreviewLut({
+        name: `${preset.id}.cube`, size: preset.byte_size,
+        text: async () => (await api.get(endpoint, { responseType: 'text' })).data,
+      }, preset)
+    }
+    colorPreviewLoadId++
+    colorPreviewLoading.value = false
+    if (mode === 'lut' && customColorPreviewLut.value) applyColorPreviewLut(customColorPreviewLut.value)
+    else colorPreviewMode.value = 'source'
+  }
+
+  async function loadColorPreviewLut(file, preset = null) {
     if (!file) return
     const loadId = ++colorPreviewLoadId
     colorPreviewLoading.value = true
@@ -146,10 +198,14 @@ export function useMediaViewerController({
       const text = await file.text()
       if (loadId !== colorPreviewLoadId) return
       const lut = parseCubeLut(text, file.name)
-      colorPreviewLut.value = lut
-      setColorPreviewMode('lut')
+      if (preset) {
+        if (!workspaceLuts.value.some(item => item.id === preset.id)) throw new Error('This workspace LUT is no longer available.')
+        lut.name = preset.name
+        lut.presetId = preset.id
+      } else customColorPreviewLut.value = lut
+      applyColorPreviewLut(lut)
     } catch (error) {
-      if (loadId === colorPreviewLoadId) colorPreviewError.value = error.message || 'Could not read this LUT file.'
+      if (loadId === colorPreviewLoadId) colorPreviewError.value = getApiErrorMessage(error, 'Could not read this LUT file.')
     } finally {
       if (loadId === colorPreviewLoadId) colorPreviewLoading.value = false
     }
@@ -157,9 +213,12 @@ export function useMediaViewerController({
 
   function clearColorPreviewLut() {
     colorPreviewLoadId++
-    colorPreviewMode.value = 'source'
-    colorPreviewLut.value = null
     colorPreviewLoading.value = false
+    if (colorPreviewLut.value === customColorPreviewLut.value) {
+      setColorPreviewMode('source')
+      colorPreviewLut.value = null
+    }
+    customColorPreviewLut.value = null
     colorPreviewError.value = ''
   }
 
@@ -638,7 +697,13 @@ export function useMediaViewerController({
   }
 
   function cleanup() {
+    setColorPreviewMode('source')
     clearColorPreviewLut()
+    colorPreviewLut.value = null
+    libraryLoadId++
+    workspaceLuts.value = []
+    libraryLoading.value = false
+    libraryError.value = ''
     if (activityFocusCommentTimer) {
       windowTarget?.clearTimeout?.(activityFocusCommentTimer)
       activityFocusCommentTimer = null
@@ -647,6 +712,16 @@ export function useMediaViewerController({
     annotations.cleanupCanvasResize()
     transport.stopSmoothProgress()
   }
+
+  watch([libraryEndpoint, () => readRef(currentUser)?.id], () => {
+    setColorPreviewMode('source')
+    colorPreviewLut.value = null
+    customColorPreviewLut.value = null
+    libraryLoadId++
+    workspaceLuts.value = []
+    libraryLoading.value = false
+    libraryError.value = ''
+  }, { flush: 'sync' })
 
   watch(media.currentMedia, () => {
     frames.frameCaptureCommentId.value = null
@@ -728,6 +803,12 @@ export function useMediaViewerController({
       mode: colorPreviewMode,
       available: colorPreviewAvailable,
       lut: colorPreviewLut,
+      customLut: customColorPreviewLut,
+      presets: colorPreviewPresets,
+      libraryLoading,
+      libraryError,
+      refreshLibrary: refreshColorPreviewLibrary,
+      selection: colorPreviewSelection,
       loading: colorPreviewLoading,
       error: colorPreviewError,
       load: loadColorPreviewLut,

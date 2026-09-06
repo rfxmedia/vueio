@@ -8,6 +8,15 @@ from sqlalchemy.orm import declarative_base, deferred
 Base = declarative_base()
 
 
+class WorkspaceLut(Base):
+    __tablename__ = 'workspace_luts'
+    id = Column(String, primary_key=True)
+    name = Column(String(200), nullable=False)
+    size = Column(Integer, nullable=False)
+    byte_size = Column(Integer, nullable=False)
+    cube_text = deferred(Column(Text, nullable=False))
+
+
 class Comment(Base):
     __tablename__ = 'comments'
     id = Column(Integer, primary_key=True, index=True)

@@ -93,11 +93,15 @@ class Updater(socketserver.UnixStreamServer):
             result = json.loads(self.progress_file.read_text(encoding="utf-8"))
             if not isinstance(result, dict):
                 raise ValueError("Invalid update state.")
+            result.setdefault("operation", "update")
+            result.setdefault("target_channel", None)
+            result["channel_switch_supported"] = True
             return result
         except FileNotFoundError:
             return dict(supported=True, state="idle", phase="complete", progress=0,
                         message="Ready to update.", version=None, previous_version=None,
-                        operation_id=None)
+                        operation_id=None, operation="update", target_channel=None,
+                        channel_switch_supported=True)
 
     def write_progress(self, result):
         descriptor, temporary = tempfile.mkstemp(prefix=".update-progress.", dir=self.home)
@@ -126,7 +130,11 @@ class Updater(socketserver.UnixStreamServer):
                         for field, key in (("version", "requested_version"), ("previous_version", "previous_version")):
                             if TAG.fullmatch(values.get(key, "")):
                                 result[field] = values[key]
-                    result.update(state="interrupted", message="The update needs attention on the host before another update can start.")
+                        result.update(operation="update", target_channel=None)
+                    if result.get("operation") == "channel" and not pending.exists():
+                        result.update(state="failed", phase="failed", message="The channel switch was interrupted. Try switching channels again.")
+                    else:
+                        result.update(state="interrupted", message="The update needs attention on the host before another update can start.")
                     self.write_progress(result)
             finally:
                 lock.close()
@@ -150,29 +158,55 @@ class Updater(socketserver.UnixStreamServer):
                 return 409, {"message": "An interrupted update needs attention on the host before another update can start."}
             result = dict(supported=True, state="running", phase="queued", progress=0,
                           message="Preparing the update…", version=version,
-                          previous_version=previous, operation_id=uuid.uuid4().hex)
-            self.write_progress(result)
-            environment = {
-                "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-                "LANG": "C.UTF-8", "NO_COLOR": "1", "VUEIO_HOME": str(self.home),
-                "VUEIO_NONINTERACTIVE": "1", "VUEIO_MAINTENANCE_FD": str(lock.fileno()),
-                "VUEIO_UPDATE_OPERATION_ID": result["operation_id"],
-            }
-            if config.get("VUEIO_UPDATE_GITHUB_TOKEN"):
-                environment["VUEIO_UPDATE_GITHUB_TOKEN"] = config["VUEIO_UPDATE_GITHUB_TOKEN"]
-            try:
-                self.child = subprocess.Popen(
-                    [str(self.controller), "update", version], env=environment,
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    pass_fds=(lock.fileno(),), start_new_session=True,
-                )
-            except OSError:
-                result.update(state="failed", phase="failed", message="The host could not start its update command.")
-                self.write_progress(result)
-                return 503, result
-            return 202, result
+                          previous_version=previous, operation_id=uuid.uuid4().hex,
+                          operation="update", target_channel=None, channel_switch_supported=True)
+            return self.launch_operation(lock, config, result, ["update", version])
         finally:
             lock.close()
+
+    def start_channel(self, channel):
+        if channel not in {"stable", "nightly"}:
+            raise ValueError("Invalid update channel.")
+        lock = self.acquire_lock()
+        if lock is None:
+            return 409, {"message": "Another host operation is in progress. Try again when it finishes."}
+        try:
+            progress = self.read_progress()
+            if ((self.home / ".update-state").exists()
+                    or (progress.get("operation") == "update" and progress.get("state") in {"running", "interrupted"})):
+                return 409, {"message": "An interrupted update needs attention on the host before switching channels."}
+            config = self.config()
+            previous = config.get("VUEIO_VERSION", "")
+            version_key(previous)
+            result = dict(supported=True, state="running", phase="queued", progress=0,
+                          message="Preparing to switch update channels…", version=previous,
+                          previous_version=previous, operation_id=uuid.uuid4().hex,
+                          operation="channel", target_channel=channel, channel_switch_supported=True)
+            return self.launch_operation(lock, config, result, ["channel", channel])
+        finally:
+            lock.close()
+
+    def launch_operation(self, lock, config, result, arguments):
+        self.write_progress(result)
+        environment = {
+            "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "LANG": "C.UTF-8", "NO_COLOR": "1", "VUEIO_HOME": str(self.home),
+            "VUEIO_NONINTERACTIVE": "1", "VUEIO_MAINTENANCE_FD": str(lock.fileno()),
+            "VUEIO_UPDATE_OPERATION_ID": result["operation_id"],
+        }
+        if config.get("VUEIO_UPDATE_GITHUB_TOKEN"):
+            environment["VUEIO_UPDATE_GITHUB_TOKEN"] = config["VUEIO_UPDATE_GITHUB_TOKEN"]
+        try:
+            self.child = subprocess.Popen(
+                [str(self.controller), *arguments], env=environment,
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                pass_fds=(lock.fileno(),), start_new_session=True,
+            )
+        except OSError:
+            result.update(state="failed", phase="failed", message="The host could not start its maintenance command.")
+            self.write_progress(result)
+            return 503, result
+        return 202, result
 
     def reap_child(self):
         if self.child is not None and self.child.poll() is not None:
@@ -210,7 +244,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply(503, {"message": "The host update state needs attention."})
 
     def do_POST(self):
-        if self.path != "/update":
+        if self.path not in {"/update", "/channel"}:
             self.reply(404, {"message": "Unknown updater endpoint."})
             return
         try:
@@ -219,16 +253,23 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     or self.headers.get_content_type() != "application/json"):
                 raise ValueError("Invalid request.")
             payload = json.loads(self.rfile.read(length))
-            if not isinstance(payload, dict) or set(payload) != {"version"}:
+            field = "channel" if self.path == "/channel" else "version"
+            if not isinstance(payload, dict) or set(payload) != {field}:
                 raise ValueError("Invalid request.")
-            version = payload["version"]
-            if not isinstance(version, str) or len(version) > 100 or not TAG.fullmatch(version):
+            value = payload[field]
+            if not isinstance(value, str) or len(value) > 100:
+                raise ValueError("Invalid request.")
+            if field == "channel":
+                if value not in {"stable", "nightly"}:
+                    raise ValueError("Invalid update channel.")
+            elif not TAG.fullmatch(value):
                 raise ValueError("Invalid release version.")
         except (ValueError, OSError):
-            self.reply(400, {"message": "Provide a valid release version as JSON."})
+            message = "Provide a stable or nightly channel as JSON." if self.path == "/channel" else "Provide a valid release version as JSON."
+            self.reply(400, {"message": message})
             return
         try:
-            code, result = self.server.start_update(version)
+            code, result = self.server.start_channel(value) if field == "channel" else self.server.start_update(value)
             self.reply(code, result)
         except (OSError, ValueError):
             self.reply(503, {"message": "The host updater configuration needs attention."})
