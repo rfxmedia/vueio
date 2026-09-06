@@ -1,4 +1,4 @@
-import { computed, getCurrentScope, nextTick, onScopeDispose, ref, shallowRef, watch } from 'vue'
+import { computed, getCurrentScope, nextTick, onMounted, onScopeDispose, ref, shallowRef, watch } from 'vue'
 
 import api, { buildShareCredentialQuery, getApiErrorMessage, resolveAccessEndpoint } from '../lib/api'
 import { getCanonicalMediaRefs, getMediaKind, normalizeMediaEntity } from '../lib/mediaEntity'
@@ -713,15 +713,18 @@ export function useMediaViewerController({
     transport.stopSmoothProgress()
   }
 
-  watch([libraryEndpoint, () => readRef(currentUser)?.id], () => {
-    setColorPreviewMode('source')
-    colorPreviewLut.value = null
-    customColorPreviewLut.value = null
-    libraryLoadId++
-    workspaceLuts.value = []
-    libraryLoading.value = false
-    libraryError.value = ''
-  }, { flush: 'sync' })
+  // App creates the session after this controller; read its lazy getter after setup.
+  onMounted(() => {
+    watch([libraryEndpoint, () => readRef(currentUser)?.id], () => {
+      setColorPreviewMode('source')
+      colorPreviewLut.value = null
+      customColorPreviewLut.value = null
+      libraryLoadId++
+      workspaceLuts.value = []
+      libraryLoading.value = false
+      libraryError.value = ''
+    }, { flush: 'sync' })
+  })
 
   watch(media.currentMedia, () => {
     frames.frameCaptureCommentId.value = null
