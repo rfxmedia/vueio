@@ -36,6 +36,7 @@ export function useViewerFrameActions({
   previewCanvas,
   showAnnotationPreview,
   colorPreviewMode,
+  colorPreviewLut,
   shareMode,
   getFallbackSourceName = () => '',
   triggerBlobDownload,
@@ -136,6 +137,7 @@ export function useViewerFrameActions({
       includeAnnotations,
       comment: includeComment ? getFrameCaptureCommentSnapshot({ requireCurrentFrame: true }) : null,
       colorPreviewMode: includeColorPreview ? readSource(colorPreviewMode) : 'source',
+      colorPreviewLut: readSource(colorPreviewLut),
     })
   }
 

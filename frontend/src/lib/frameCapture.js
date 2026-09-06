@@ -252,6 +252,7 @@ export function renderVideoFrame({
   includeAnnotations = false,
   comment = null,
   colorPreviewMode = 'source',
+  colorPreviewLut = null,
 } = {}) {
   if (!video || video.readyState < 2) {
     throw new Error('No video frame is ready yet')
@@ -272,7 +273,7 @@ export function renderVideoFrame({
   }
 
   if (isVideoColorPreviewActive(colorPreviewMode)) {
-    drawVideoColorPreviewFrame(ctx, video, colorPreviewMode, width, height)
+    drawVideoColorPreviewFrame(ctx, video, colorPreviewLut, width, height)
   } else {
     ctx.drawImage(video, 0, 0, width, height)
   }

@@ -148,6 +148,7 @@ const props = defineProps({
   isDrawingMode: { type: Boolean, default: false },
   showAnnotationPreview: { type: Boolean, default: false },
   colorPreviewMode: { type: String, default: 'source' },
+  colorPreviewLut: { type: Object, default: null },
   pdfFocusRequest: { type: Object, default: null },
   onPdfLoaded: { type: Function, default: null },
   onPdfAnnotationTargetChange: { type: Function, default: null },
@@ -199,7 +200,7 @@ let colorPreviewFrameHandle = 0
 let colorPreviewFallbackFrame = 0
 let colorPreviewResizeObserver = null
 
-const colorPreviewActive = computed(() => isVideoColorPreviewActive(props.colorPreviewMode))
+const colorPreviewActive = computed(() => isVideoColorPreviewActive(props.colorPreviewMode) && !!props.colorPreviewLut)
 
 function setVideoElement(element) {
   cancelColorPreviewFrame()
@@ -275,7 +276,7 @@ function renderColorPreviewFrame() {
     const size = getColorPreviewRenderSize()
     const rendered = ensureColorPreviewRenderer().render(
       video,
-      props.colorPreviewMode,
+      props.colorPreviewLut,
       size.width,
       size.height,
     )
@@ -593,7 +594,7 @@ watch(() => props.isViewingImage, (isViewingImage) => {
   }
 })
 
-watch(() => props.colorPreviewMode, () => {
+watch([() => props.colorPreviewMode, () => props.colorPreviewLut], () => {
   cancelColorPreviewFrame()
   colorPreviewReady.value = false
   if (!colorPreviewActive.value) {

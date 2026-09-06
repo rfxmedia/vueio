@@ -1,8 +1,8 @@
-import { computed, getCurrentScope, nextTick, onScopeDispose, ref, watch } from 'vue'
+import { computed, getCurrentScope, nextTick, onScopeDispose, ref, shallowRef, watch } from 'vue'
 
 import api, { buildShareCredentialQuery, resolveAccessEndpoint } from '../lib/api'
 import { getCanonicalMediaRefs, getMediaKind, normalizeMediaEntity } from '../lib/mediaEntity'
-import { normalizeVideoColorPreviewMode, VIDEO_COLOR_PREVIEW_OPTIONS } from '../lib/videoColorPreview'
+import { parseCubeLut } from '../lib/cubeLut'
 import { formatSizeBytes, formatTimecodeWithFrames } from '../utils/formatters'
 import { useMediaComments } from './useMediaComments'
 import { useViewerAnnotationOverlay } from './useViewerAnnotationOverlay'
@@ -110,6 +110,10 @@ export function useMediaViewerController({
   const commentReferenceHistory = ref([])
   const colorPreviewMode = ref('source')
   const colorPreviewAvailable = ref(true)
+  const colorPreviewLut = shallowRef(null)
+  const colorPreviewLoading = ref(false)
+  const colorPreviewError = ref('')
+  let colorPreviewLoadId = 0
   const canReturnToCommentOrigin = computed(() => commentReferenceHistory.value.length > 0)
   const commentReferenceOriginContext = computed(() => commentReferenceHistory.value.at(-1)?.context || null)
 
@@ -122,16 +126,48 @@ export function useMediaViewerController({
   const reportError = (message, error) => onError?.(message, error)
 
   function setColorPreviewMode(mode) {
-    const normalized = normalizeVideoColorPreviewMode(mode)
-    if (normalized !== 'source' && !colorPreviewAvailable.value) return
-    colorPreviewMode.value = normalized
+    if (mode === 'lut' && colorPreviewLut.value) {
+      colorPreviewAvailable.value = true
+      colorPreviewError.value = ''
+      colorPreviewMode.value = 'lut'
+    } else {
+      colorPreviewMode.value = 'source'
+    }
+  }
+
+  async function loadColorPreviewLut(file) {
+    if (!file) return
+    const loadId = ++colorPreviewLoadId
+    colorPreviewLoading.value = true
+    colorPreviewError.value = ''
+    try {
+      if (!/\.cube$/i.test(file.name)) throw new Error('Select a .cube LUT file.')
+      if (file.size > 32 * 1024 * 1024) throw new Error('The LUT file must be 32 MiB or smaller.')
+      const text = await file.text()
+      if (loadId !== colorPreviewLoadId) return
+      const lut = parseCubeLut(text, file.name)
+      colorPreviewLut.value = lut
+      setColorPreviewMode('lut')
+    } catch (error) {
+      if (loadId === colorPreviewLoadId) colorPreviewError.value = error.message || 'Could not read this LUT file.'
+    } finally {
+      if (loadId === colorPreviewLoadId) colorPreviewLoading.value = false
+    }
+  }
+
+  function clearColorPreviewLut() {
+    colorPreviewLoadId++
+    colorPreviewMode.value = 'source'
+    colorPreviewLut.value = null
+    colorPreviewLoading.value = false
+    colorPreviewError.value = ''
   }
 
   function handleColorPreviewUnavailable(error) {
-    if (!colorPreviewAvailable.value) return
     colorPreviewAvailable.value = false
     colorPreviewMode.value = 'source'
-    reportError('Color preview unavailable', error)
+    colorPreviewError.value = error?.message || 'LUT preview is unavailable in this browser.'
+    reportError('LUT preview unavailable', error)
   }
 
   const media = useViewerMediaCore({
@@ -152,6 +188,8 @@ export function useMediaViewerController({
     suppressViewerAutoplay,
     viewerAutoplayPending,
     isVideoActive: () => media.isViewingVideo.value,
+    canUseNativeVideoFullscreen: () => colorPreviewMode.value === 'source',
+    onNativeFullscreenBlocked: () => reportError('Turn off LUT preview to use native fullscreen on this browser.'),
     isSeekBlocked: () => annotations?.isDrawingMode.value || false,
     onPlayingTimeUpdate: () => {
       if (mediaComments?.showAnnotationPreview.value) {
@@ -317,6 +355,7 @@ export function useMediaViewerController({
     previewCanvas: annotations.previewCanvas,
     showAnnotationPreview: mediaComments.showAnnotationPreview,
     colorPreviewMode,
+    colorPreviewLut,
     shareMode,
     getFallbackSourceName: getFallbackFrameSourceName,
     triggerBlobDownload,
@@ -599,6 +638,7 @@ export function useMediaViewerController({
   }
 
   function cleanup() {
+    clearColorPreviewLut()
     if (activityFocusCommentTimer) {
       windowTarget?.clearTimeout?.(activityFocusCommentTimer)
       activityFocusCommentTimer = null
@@ -687,7 +727,11 @@ export function useMediaViewerController({
     colorPreview: Object.freeze({
       mode: colorPreviewMode,
       available: colorPreviewAvailable,
-      options: VIDEO_COLOR_PREVIEW_OPTIONS,
+      lut: colorPreviewLut,
+      loading: colorPreviewLoading,
+      error: colorPreviewError,
+      load: loadColorPreviewLut,
+      clear: clearColorPreviewLut,
       setMode: setColorPreviewMode,
       handleUnavailable: handleColorPreviewUnavailable,
     }),

@@ -19,6 +19,8 @@ export function useViewerTransport({
   onLoadedMedia,
   onPlaybackStarted,
   getFullscreenTarget = () => document.querySelector('.player-main'),
+  canUseNativeVideoFullscreen = () => true,
+  onNativeFullscreenBlocked,
 }) {
   const currentTime = ref(0)
   const duration = ref(0)
@@ -344,7 +346,8 @@ export function useViewerTransport({
     } else if (target?.webkitRequestFullscreen) {
       target.webkitRequestFullscreen()
     } else if (videoEl.value?.webkitEnterFullscreen) {
-      videoEl.value.webkitEnterFullscreen()
+      if (canUseNativeVideoFullscreen()) videoEl.value.webkitEnterFullscreen()
+      else onNativeFullscreenBlocked?.()
     }
   }
 

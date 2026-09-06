@@ -243,6 +243,7 @@
                 {{ frameCopyFeedbackLabel }}
               </div>
             </div>
+            <input ref="colorPreviewFileInput" type="file" accept=".cube" hidden @change="loadColorPreviewFile" />
             <VMenu
               :open="colorPreviewMenuOpen"
               align="end"
@@ -264,18 +265,18 @@
                   <svg class="icon" aria-hidden="true"><use href="#icon-color"/></svg>
                 </button>
               </template>
-              <div class="viewer-color-preview-panel">
+              <div class="viewer-color-preview-panel" :aria-busy="colorPreviewLoading">
                 <div class="viewer-color-preview-heading">
                   <span class="v-section-label">Color preview</span>
                   <span>Display only</span>
                 </div>
                 <button
-                  v-for="option in colorPreviewOptions"
+                  v-for="option in colorPreviewChoices"
                   :key="option.value"
                   type="button"
                   class="v-dropdown-item viewer-color-preview-option"
                   :class="{ active: option.value === colorPreviewMode }"
-                  :disabled="option.value !== 'source' && !colorPreviewAvailable"
+                  :disabled="option.value !== 'source' && colorPreviewLoading"
                   role="menuitemradio"
                   :aria-checked="option.value === colorPreviewMode ? 'true' : 'false'"
                   @click.stop="selectColorPreview(option.value)"
@@ -287,8 +288,28 @@
                   </span>
                   <svg v-if="option.value === colorPreviewMode" class="icon viewer-color-preview-option__check"><use href="#icon-check"/></svg>
                 </button>
+                <div class="viewer-color-preview-actions">
+                  <button
+                    type="button"
+                    class="v-dropdown-item"
+                    role="menuitem"
+                    :disabled="colorPreviewLoading"
+                    @click.stop="colorPreviewFileInput?.click()"
+                  >{{ colorPreviewLut ? 'Replace LUT…' : 'Load LUT…' }}</button>
+                  <button
+                    v-if="colorPreviewLut"
+                    type="button"
+                    class="v-dropdown-item"
+                    role="menuitem"
+                    :disabled="colorPreviewLoading"
+                    @click.stop="onClearColorPreviewLut?.()"
+                  >Remove LUT</button>
+                </div>
+                <p class="viewer-color-preview-hint">3D .cube files · 2–65 points</p>
+                <p v-if="colorPreviewLoading" class="viewer-color-preview-hint" role="status">Loading LUT…</p>
+                <p v-if="colorPreviewError" class="viewer-color-preview-error" role="alert">{{ colorPreviewError }}</p>
                 <p class="viewer-color-preview-note">
-                  {{ colorPreviewAvailable ? 'Viewer and screenshots only. Media stays unchanged.' : 'Color preview is unavailable in this browser.' }}
+                  {{ colorPreviewAvailable ? 'Viewer and screenshots only. LUT files stay in this browser.' : 'Color preview is unavailable in this browser.' }}
                 </p>
               </div>
             </VMenu>
@@ -392,10 +413,14 @@ const props = defineProps({
   onSetCurrentFrameAsThumbnail: { type: Function, default: null },
   canSetCurrentFrameAsThumbnail: { type: Boolean, default: false },
   frameCaptureComment: { type: Object, default: null },
-  colorPreviewOptions: { type: Array, default: () => [] },
   colorPreviewMode: { type: String, default: 'source' },
+  colorPreviewLut: { type: Object, default: null },
   colorPreviewAvailable: { type: Boolean, default: true },
+  colorPreviewLoading: { type: Boolean, default: false },
+  colorPreviewError: { type: String, default: '' },
   onSetColorPreviewMode: { type: Function, default: null },
+  onLoadColorPreviewLut: { type: Function, default: null },
+  onClearColorPreviewLut: { type: Function, default: null },
 })
 
 const {
@@ -467,6 +492,7 @@ const scrubPreviewVideoEl = ref(null)
 const volumeSliderEl = ref(null)
 const qualityMenuOpen = ref(false)
 const colorPreviewMenuOpen = ref(false)
+const colorPreviewFileInput = ref(null)
 const frameCaptureMenuOpen = ref(false)
 const frameCaptureIncludeAnnotations = ref(true)
 const frameCaptureIncludeComment = ref(true)
@@ -531,12 +557,13 @@ const frameCopyButtonTitle = computed(() => {
   if (frameCopyState.value === 'error') return frameCopyError.value || 'Could not take screenshot'
   return 'Take Screenshot'
 })
-const selectedColorPreviewLabel = computed(() => (
-  props.colorPreviewOptions.find(option => option.value === props.colorPreviewMode)?.label || 'Source'
-))
+const colorPreviewChoices = computed(() => [
+  { value: 'source', label: 'Source', hint: 'Original colors' },
+  ...(props.colorPreviewLut ? [{ value: 'lut', label: props.colorPreviewLut.name, hint: `${props.colorPreviewLut.size}-point 3D LUT` }] : []),
+])
 const colorPreviewButtonLabel = computed(() => (
   props.colorPreviewAvailable
-    ? `Color preview. ${selectedColorPreviewLabel.value}`
+    ? `Color preview. ${props.colorPreviewMode === 'lut' ? props.colorPreviewLut?.name || 'LUT' : 'Source'}`
     : 'Color preview unavailable'
 ))
 const frameCopyTooltipLabel = computed(() => {
@@ -781,9 +808,17 @@ function toggleColorPreviewMenu() {
 }
 
 function selectColorPreview(value) {
-  if (value !== 'source' && !props.colorPreviewAvailable) return
+  if (value !== 'source' && props.colorPreviewLoading) return
   props.onSetColorPreviewMode?.(value)
   colorPreviewMenuOpen.value = false
+}
+
+function loadColorPreviewFile(event) {
+  const file = event.target.files?.[0]
+  event.target.value = ''
+  if (file && !props.colorPreviewLoading) {
+    props.onLoadColorPreviewLut?.(file)
+  }
 }
 
 function selectQuality(value) {
@@ -1667,6 +1702,7 @@ onUnmounted(() => {
 }
 
 .viewer-color-preview-menu {
+  width: min(320px, calc(100vw - var(--v-space-4)));
   max-height: min(70vh, 440px);
   padding: 7px;
   overflow-y: auto;
@@ -1738,6 +1774,7 @@ onUnmounted(() => {
   font-size: var(--v-text-sm);
   font-weight: 600;
   line-height: 1.2;
+  overflow-wrap: anywhere;
 }
 
 .viewer-color-preview-option__hint {
@@ -1761,6 +1798,28 @@ onUnmounted(() => {
   font-size: var(--v-text-xs);
   line-height: 1.35;
 }
+
+.viewer-color-preview-actions {
+  margin-top: var(--v-space-1);
+  padding-top: var(--v-space-1);
+  border-top: 1px solid var(--v-border);
+}
+
+.viewer-color-preview-actions .v-dropdown-item {
+  min-height: var(--v-btn-height-lg);
+}
+
+.viewer-color-preview-hint,
+.viewer-color-preview-error {
+  margin: 0;
+  padding: var(--v-space-1) var(--v-space-3);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.viewer-color-preview-error { color: var(--v-danger-text); }
 
 .viewer-settings-panel {
   display: flex;

@@ -188,6 +188,7 @@ function handleDocumentKeydown(event) {
 // instantiated per row in large lists, so mount-time registration would pile
 // hundreds of window-level handlers onto every scroll/keystroke/click.
 let globalListenersActive = false
+let panelResizeObserver = null
 
 function attachGlobalListeners() {
   if (globalListenersActive || typeof window === 'undefined') return
@@ -196,6 +197,10 @@ function attachGlobalListeners() {
   window.addEventListener('scroll', updateFloatingPosition, { capture: true, passive: true })
   document.addEventListener('pointerdown', handleDocumentPointerDown, true)
   document.addEventListener('keydown', handleDocumentKeydown)
+  if (props.teleport && panelRef.value && typeof ResizeObserver !== 'undefined') {
+    panelResizeObserver = new ResizeObserver(updateFloatingPosition)
+    panelResizeObserver.observe(panelRef.value)
+  }
 }
 
 function detachGlobalListeners() {
@@ -205,6 +210,8 @@ function detachGlobalListeners() {
   window.removeEventListener('scroll', updateFloatingPosition, { capture: true })
   document.removeEventListener('pointerdown', handleDocumentPointerDown, true)
   document.removeEventListener('keydown', handleDocumentKeydown)
+  panelResizeObserver?.disconnect()
+  panelResizeObserver = null
 }
 
 watch(() => props.open, async (isOpen) => {

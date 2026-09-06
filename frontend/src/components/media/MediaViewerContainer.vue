@@ -120,6 +120,7 @@ const surfaceProps = computed(() => ({
   isDrawingMode: annotations.isDrawingMode.value,
   showAnnotationPreview: comments.showAnnotationPreview.value,
   colorPreviewMode: colorPreview.mode.value,
+  colorPreviewLut: colorPreview.lut.value,
   pdfFocusRequest: annotations.pdfFocusRequest.value,
   onPdfLoaded: annotations.handlePdfLoaded,
   onPdfAnnotationTargetChange: annotations.handlePdfAnnotationTargetChange,
@@ -182,10 +183,14 @@ const toolbarProps = computed(() => ({
   onSetCurrentFrameAsThumbnail: frames.setCurrentFrameAsThumbnail,
   canSetCurrentFrameAsThumbnail: frames.canSetCurrentFrameAsThumbnail.value,
   frameCaptureComment: frames.frameCaptureComment.value,
-  colorPreviewOptions: colorPreview.options,
   colorPreviewMode: colorPreview.mode.value,
+  colorPreviewLut: colorPreview.lut.value,
   colorPreviewAvailable: colorPreview.available.value,
   onSetColorPreviewMode: colorPreview.setMode,
+  colorPreviewLoading: colorPreview.loading.value,
+  colorPreviewError: colorPreview.error.value,
+  onLoadColorPreviewLut: colorPreview.load,
+  onClearColorPreviewLut: colorPreview.clear,
 }))
 
 const infoPanelProps = computed(() => ({
