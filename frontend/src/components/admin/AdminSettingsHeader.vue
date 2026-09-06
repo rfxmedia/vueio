@@ -1,13 +1,13 @@
 <template>
-  <header class="settings-view-header">
+  <header class="settings-view-header" :class="{ 'is-compact': !eyebrow && !description }">
     <div class="settings-view-heading">
       <div class="settings-view-icon" aria-hidden="true">
         <svg class="icon"><use :href="icon" /></svg>
       </div>
       <div class="settings-view-copy">
-        <p class="settings-eyebrow">{{ eyebrow }}</p>
+        <p v-if="eyebrow" class="settings-eyebrow">{{ eyebrow }}</p>
         <h2 class="settings-view-title">{{ title }}</h2>
-        <p class="settings-view-description">{{ description }}</p>
+        <p v-if="description" class="settings-view-description">{{ description }}</p>
       </div>
     </div>
     <div v-if="$slots.default" class="settings-view-actions">
@@ -18,8 +18,8 @@
 
 <script setup>
 defineProps({
-  description: { type: String, required: true },
-  eyebrow: { type: String, required: true },
+  description: { type: String, default: '' },
+  eyebrow: { type: String, default: '' },
   icon: { type: String, required: true },
   title: { type: String, required: true },
 })
@@ -95,6 +95,11 @@ defineProps({
   padding-top: 3px;
 }
 
+.settings-view-header.is-compact,
+.is-compact .settings-view-heading {
+  align-items: center;
+}
+
 @media (max-width: 768px) {
   .settings-view-header {
     align-items: flex-start;
@@ -130,6 +135,14 @@ defineProps({
     width: 100%;
     justify-content: flex-start;
     padding-top: 0;
+  }
+
+  .settings-view-header.is-compact {
+    flex-direction: row;
+  }
+
+  .is-compact .settings-view-actions {
+    width: auto;
   }
 
   .settings-view-actions :deep(.v-btn) {
