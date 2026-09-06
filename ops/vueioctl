@@ -76,9 +76,9 @@ Usage: $PROGRAM <command> [arguments]
   setup-token                    Show the one-time first-run setup token
   logs [service]                  Follow container logs
   doctor [--fix]                  Check configuration, storage, and services
-  backup [archive.tar.gz]         Back up Vueio state (not source media)
+  backup [archive.tar.gz]         Back up the PostgreSQL database only
   backups                         List available backups
-  restore <archive.tar.gz>        Restore Vueio state after confirmation
+  restore <archive.tar.gz>        Restore the database; keep current files
   rollback                        Restore the latest pre-update backup
   update <release-tag>            Back up, refresh release files, and update
   channel <stable|nightly>        Select which releases Vueio follows
@@ -1027,17 +1027,33 @@ list_backups() {
   [[ $found == true ]] || note "(no backups available)"
 }
 
+database_size_bytes() {
+  local bytes
+  bytes=$(compose exec -T vueio_postgres psql -XAt -v ON_ERROR_STOP=1 \
+    -U "$(env_value VUEIO_POSTGRES_USER)" -d "$(env_value VUEIO_POSTGRES_DB)" \
+    -c 'SELECT pg_database_size(current_database())') || die "Could not measure the PostgreSQL database"
+  [[ $bytes =~ ^[0-9]+$ ]] || die "PostgreSQL returned an invalid database size"
+  printf '%s\n' "$bytes"
+}
+
 backup_vueio() (
   set -Eeuo pipefail
   umask 077
   require_installed
   local destination=${1:-} stamp tmp archive_tmp='' checksum_tmp='' was_running=false
+  local database_bytes required_kb available_kb
   local kind=${VUEIO_BACKUP_KIND:-manual} target_version=${VUEIO_BACKUP_TARGET_VERSION:-}
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   destination=${destination:-"$BACKUP_DIR/vueio-$stamp.tar.gz"}
   [[ $destination = /* ]] || destination="$(pwd)/$destination"
   [[ ! -d $destination ]] || die "Backup destination is a directory: $destination"
   mkdir -p "$(dirname "$destination")"
+  database_bytes=$(database_size_bytes)
+  required_kb=$(((2 * database_bytes + 1023) / 1024 + 16384))
+  for tmp in "$VUEIO_HOME" "$(dirname "$destination")"; do
+    available_kb=$(df -Pk "$tmp" | awk 'NR == 2 {print $4}')
+    ((available_kb > required_kb)) || die "Database backup needs about $((required_kb / 1024)) MiB free"
+  done
   archive_tmp=$(mktemp "$(dirname "$destination")/.vueio-backup.XXXXXX")
   checksum_tmp=$(mktemp "$(dirname "$destination")/.vueio-checksum.XXXXXX") || {
     rm -f -- "$archive_tmp"
@@ -1047,7 +1063,9 @@ backup_vueio() (
     rm -f -- "$archive_tmp" "$checksum_tmp"
     die "Could not create backup staging"
   }
-  trap 'rm -rf "$tmp"; rm -f -- "${archive_tmp:-}" "${checksum_tmp:-}"; if [[ $was_running == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT INT TERM
+  trap 'rm -rf "$tmp"; rm -f -- "${archive_tmp:-}" "${checksum_tmp:-}"; if [[ $was_running == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
     was_running=true
@@ -1060,131 +1078,20 @@ backup_vueio() (
   [[ -s "$tmp/database.dump" ]] || die "PostgreSQL produced an empty backup"
   compose exec -T vueio_postgres pg_restore --list <"$tmp/database.dump" >/dev/null ||
     die "PostgreSQL backup validation failed"
-  cp "$ENV_FILE" "$tmp/environment"
-  cp "$COMPOSE_FILE" "$STORAGE_COMPOSE_FILE" "$tmp/"
-  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || cp "$INSTALLATION_COMPOSE_FILE" "$tmp/"
-  cp -a "$STORAGE_DIR" "$tmp/storage.d"
   {
-    printf 'format=1\n'
+    printf 'format=2\n'
     printf 'created_at=%s\n' "$stamp"
     printf 'version=%s\n' "$(env_value VUEIO_VERSION)"
     printf 'kind=%s\n' "$kind"
     printf 'target_version=%s\n' "$target_version"
-    printf 'scope=database,application-data,configuration-reference\n'
-    printf 'source_media_included=false\n'
-    printf 'rebuildable_cache_included=false\n'
+    printf 'scope=database\n'
   } >"$tmp/manifest"
-  # Stream application data directly; staging contains only the database and configuration.
-  python3 - "$tmp" "$(env_value VUEIO_DATA_PATH)" "$archive_tmp" <<'PY' || die "Application data could not be backed up safely"
-import gzip
-import hashlib
-import io
-import os
-import pathlib
-import stat
-import sys
-import tarfile
-
-root, data, destination = map(pathlib.Path, sys.argv[1:])
-entries = []
-total_bytes = 0
-
-
-def include(path, relative):
-    global total_bytes
-    encoded = ('./' + relative).encode('utf-8', errors='surrogateescape')
-    if (
-        len(encoded) > 4096
-        or '\\' in relative
-        or any(ord(character) < 32 or ord(character) == 127 for character in relative)
-        or any(len(part.encode('utf-8', errors='surrogateescape')) > 255 for part in relative.split('/'))
-    ):
-        raise ValueError('unsafe path')
-    entry = path.lstat()
-    if stat.S_ISREG(entry.st_mode):
-        total_bytes += entry.st_size
-    elif not stat.S_ISDIR(entry.st_mode):
-        raise ValueError('link or special entry')
-    entries.append((path, relative))
-    # Reserve the archive root and checksum manifest.
-    if len(entries) > 99_998 or total_bytes > 2 * 1024 ** 4:
-        raise ValueError('archive limit')
-
-
-def walk_error(error):
-    raise error
-
-
-class HashingReader:
-    def __init__(self, source):
-        self.source = source
-        self.digest = hashlib.sha256()
-
-    def read(self, size):
-        chunk = self.source.read(size)
-        self.digest.update(chunk)
-        return chunk
-
-
-try:
-    for base, prefix in ((root, ''), (data, 'data')):
-        if prefix:
-            include(base, prefix)
-        for directory, subdirectories, filenames in os.walk(base, followlinks=False, onerror=walk_error):
-            relative_directory = pathlib.Path(directory).relative_to(base)
-            for name in [*subdirectories, *filenames]:
-                relative = (relative_directory / name).as_posix()
-                if prefix and relative in {'cache', 'packages/tmp'}:
-                    if name in subdirectories:
-                        subdirectories.remove(name)
-                    continue
-                include(pathlib.Path(directory, name), f'{prefix}/{relative}' if prefix else relative)
-
-    checksums = []
-    archived_bytes = 0
-    with gzip.open(destination, 'wb', compresslevel=6) as compressed, tarfile.open(
-        fileobj=compressed, mode='w|', format=tarfile.GNU_FORMAT, dereference=True,
-    ) as archive:
-        archive.addfile(archive.gettarinfo(str(root), arcname='.'))
-        for path, relative in entries:
-            entry = path.lstat()
-            if not (stat.S_ISREG(entry.st_mode) or stat.S_ISDIR(entry.st_mode)):
-                raise ValueError('link or special entry')
-            info = archive.gettarinfo(str(path), arcname='./' + relative)
-            if info.isdir():
-                archive.addfile(info)
-            elif info.isfile():
-                with os.fdopen(os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), 'rb') as source:
-                    before = os.fstat(source.fileno())
-                    if not stat.S_ISREG(before.st_mode) or (
-                        before.st_dev, before.st_ino, before.st_size,
-                    ) != (entry.st_dev, entry.st_ino, info.size):
-                        raise ValueError('file changed before backup')
-                    archived_bytes += info.size
-                    if archived_bytes > 2 * 1024 ** 4:
-                        raise ValueError('expanded size limit')
-                    reader = HashingReader(source)
-                    archive.addfile(info, reader)
-                    after = os.fstat(source.fileno())
-                    if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (
-                        after.st_size, after.st_mtime_ns, after.st_ctime_ns,
-                    ):
-                        raise ValueError('file changed during backup')
-                    checksums.append(f'{reader.digest.hexdigest()}  ./{relative}\n')
-            else:
-                raise ValueError('link or special entry')
-        contents = ''.join(sorted(checksums, key=lambda line: line[66:])).encode('utf-8')
-        if len(contents) > 256 * 1024 ** 2 or archived_bytes + len(contents) > 2 * 1024 ** 4:
-            raise ValueError('archive limit')
-        info = tarfile.TarInfo('./checksums.sha256')
-        info.size = len(contents)
-        info.mode = 0o600
-        archive.addfile(info, io.BytesIO(contents))
-except Exception:
-    raise SystemExit(1)
-PY
-  sha256sum "$archive_tmp" |
-    sed "s#  .*#  $(basename "$destination")#" >"$checksum_tmp"
+  (
+    cd "$tmp"
+    sha256sum ./database.dump ./manifest >checksums.sha256
+    tar -czf "$archive_tmp" ./database.dump ./manifest ./checksums.sha256
+  )
+  printf '%s  %s\n' "$(sha256sum "$archive_tmp" | cut -d ' ' -f 1)" "$(basename "$destination")" >"$checksum_tmp"
   mv -f -- "$archive_tmp" "$destination"
   archive_tmp=
   mv -f -- "$checksum_tmp" "$destination.sha256"
@@ -1198,9 +1105,9 @@ PY
   fi
   trap - EXIT INT TERM
   rm -rf "$tmp"
-  note "Backup created: $destination"
+  note "Database backup created: $destination"
   note "Checksum created: $destination.sha256"
-  warn "Original project media is not included; back up storage roots separately."
+  note "Application files, media, and existing backups are not included."
   case "$destination" in
     "$BACKUP_DIR"/*) prune_backups ;;
   esac
@@ -1211,222 +1118,167 @@ restore_vueio() (
   umask 077
   require_installed
   require_command python3
-  # An explicit restore owns any pending update's recovery marker. Doctor must
-  # still check actual health before that marker can be cleared.
   VUEIO_UPDATE_IN_PROGRESS=1
   export VUEIO_UPDATE_IN_PROGRESS
-  local archive=${1:-} source_archive confirmation tmp safety data_path data_parent staged_data='' old_data stamp
-  local safety_db required_kb available_kb archive_bytes engine_stopped=false old_data_moved=false db_restored=false environment_changed=false engine_was_running=false
+  local archive=${1:-} confirmation tmp safety safety_db stamp
+  local engine_stopped=false db_restored=false environment_changed=false engine_was_running=false
+  local previous_version previous_engine_image previous_ui_image
   [[ -f $archive ]] || die "Usage: $PROGRAM restore <archive.tar.gz>"
+  note "This restores only the database. Current application files and media stay in place."
   if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
-    printf 'Restore this backup and replace current Vueio state? Type RESTORE: '
+    printf 'Replace the current database with this backup? Type RESTORE: '
     read -r confirmation
     [[ $confirmation == RESTORE ]] || return 0
   elif [[ ${VUEIO_RESTORE_CONFIRM:-} != RESTORE ]]; then
     die "Set VUEIO_RESTORE_CONFIRM=RESTORE for a non-interactive restore"
   fi
 
-  source_archive=$(cd -P -- "$(dirname -- "$archive")" && pwd)/$(basename -- "$archive")
+  archive=$(cd -P -- "$(dirname -- "$archive")" && pwd)/$(basename -- "$archive")
   tmp=$(mktemp -d "$VUEIO_HOME/.restore.XXXXXX")
-  trap 'rm -rf "$tmp"; [[ -z ${staged_data:-} ]] || rm -rf -- "$staged_data"; if [[ $engine_stopped == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT INT TERM
-  archive="$tmp/input.tar.gz"
-  cp -- "$source_archive" "$archive"
-  chmod 0600 "$archive"
-  if [[ -f "$source_archive.sha256" ]]; then
-    if ! python3 - "$archive" "$source_archive.sha256" "$(basename -- "$source_archive")" <<'PY'
+  trap 'rm -rf "$tmp"; if [[ $engine_stopped == true && $engine_was_running == true ]]; then compose start vueio_engine >/dev/null 2>&1 || true; fi' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  [[ -f "$archive.sha256" ]] || warn "No adjacent archive checksum was found; validating internal contents only"
+  # Validate every member/checksum, including legacy archives, but write only
+  # the database and its two manifests. Never stage or replace application files.
+  python3 - "$archive" "$tmp" <<'PY' || die "Backup archive or contents failed validation"
 import hashlib
-import pathlib
-import re
-import sys
-
-archive = pathlib.Path(sys.argv[1])
-checksum = pathlib.Path(sys.argv[2])
-expected_name = sys.argv[3]
-try:
-    if checksum.stat().st_size > 4096:
-        raise ValueError('oversized checksum file')
-    lines = [line for line in checksum.read_text(encoding='utf-8').splitlines() if line]
-    if len(lines) != 1:
-        raise ValueError('invalid checksum file')
-    match = re.fullmatch(r'([0-9a-fA-F]{64}) [ *](.+)', lines[0])
-    if not match or match.group(2) != expected_name:
-        raise ValueError('checksum target mismatch')
-    digest = hashlib.sha256()
-    with archive.open('rb') as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b''):
-            digest.update(chunk)
-    if not __import__('hmac').compare_digest(digest.hexdigest(), match.group(1).lower()):
-        raise ValueError('checksum mismatch')
-except Exception:
-    raise SystemExit(1)
-PY
-    then
-      die "Backup archive checksum failed"
-    fi
-  else
-    warn "No adjacent archive checksum was found; validating internal contents only"
-  fi
-  archive_bytes=$(python3 - "$archive" <<'PY'
-import posixpath
-import sys
-import tarfile
-
-allowed_files = {
-    'checksums.sha256',
-    'compose.storage.yml',
-    'compose.installation.yml',
-    'compose.yml',
-    'database.dump',
-    'environment',
-    'manifest',
-}
-allowed_roots = {'data', 'storage.d'}
-seen = set()
-total_bytes = 0
-member_count = 0
-max_member_count = 100_000
-max_total_bytes = 2 * 1024 * 1024 * 1024 * 1024
-
-try:
-    with tarfile.open(sys.argv[1], mode='r|gz') as archive:
-        while True:
-            member = archive.next()
-            if member is None:
-                break
-            archive.members.clear()
-            member_count += 1
-            if member_count > max_member_count:
-                raise ValueError('member limit')
-            raw_name = member.name
-            encoded_name = raw_name.encode('utf-8', errors='surrogateescape')
-            raw_parts = raw_name.split('/')
-            normalized = posixpath.normpath(raw_name)
-            while normalized.startswith('./'):
-                normalized = normalized[2:]
-            if (
-                not normalized
-                or normalized == '.'
-                or raw_name.startswith('/')
-                or len(encoded_name) > 4096
-                or any(part == '..' for part in raw_parts)
-                or any(
-                    len(part.encode('utf-8', errors='surrogateescape')) > 255
-                    for part in raw_parts
-                    if part not in {'', '.'}
-                )
-                or any(ord(character) < 32 or ord(character) == 127 for character in raw_name)
-                or normalized == '..'
-                or normalized.startswith('../')
-                or '\\' in raw_name
-            ):
-                if member.isdir() and normalized in {'', '.'}:
-                    continue
-                raise ValueError('unsafe member path')
-            if normalized in seen:
-                raise ValueError('duplicate member')
-            seen.add(normalized)
-            if member.issym() or member.islnk() or member.isdev():
-                raise ValueError('link or special member')
-            if not (member.isfile() or member.isdir()):
-                raise ValueError('unsupported member type')
-            top_level = normalized.split('/', 1)[0]
-            if top_level in allowed_roots:
-                if normalized == top_level and not member.isdir():
-                    raise ValueError('invalid root member')
-            elif normalized in allowed_files:
-                if not member.isfile():
-                    raise ValueError('invalid required member')
-            else:
-                raise ValueError('unexpected top-level member')
-            if member.isfile():
-                if member.size < 0 or member.size > max_total_bytes:
-                    raise ValueError('member size limit')
-                if normalized == 'checksums.sha256' and member.size > 256 * 1024 * 1024:
-                    raise ValueError('checksum manifest size limit')
-                total_bytes += member.size
-                if total_bytes > max_total_bytes:
-                    raise ValueError('expanded size limit')
-except Exception:
-    print('Backup archive violates the Vueio restore policy.', file=sys.stderr)
-    raise SystemExit(1)
-
-print(total_bytes)
-PY
-  ) || die "Backup archive preflight failed"
-  required_kb=$(((archive_bytes + 1023) / 1024))
-  available_kb=$(df -Pk "$VUEIO_HOME" | awk 'NR == 2 {print $4}')
-  ((available_kb > required_kb)) ||
-    die "Restore staging needs at least ${required_kb} KiB free"
-  tar -C "$tmp" \
-    --extract --gzip --file "$archive" \
-    --no-same-owner --no-same-permissions --no-overwrite-dir
-  [[ -f "$tmp/manifest" && -f "$tmp/database.dump" && -f "$tmp/checksums.sha256" && -d "$tmp/data" ]] ||
-    die "Not a valid Vueio backup"
-  grep -qx 'format=1' "$tmp/manifest" || die "Unsupported backup format"
-  python3 - "$tmp" <<'PY' || die "Backup checksum manifest is unsafe"
+import hmac
 import os
 import pathlib
 import posixpath
 import re
+import shutil
 import sys
+import tarfile
 
-root = pathlib.Path(sys.argv[1])
-expected = set()
-line_pattern = re.compile(r'^([0-9a-f]{64}) ([ *])(\./.+)$')
+source, root = map(pathlib.Path, sys.argv[1:])
+selected = {'database.dump', 'manifest', 'checksums.sha256'}
+legacy_files = {'environment', 'compose.yml', 'compose.storage.yml', 'compose.installation.yml'}
+seen = set()
+hashes = {}
+total_bytes = 0
+member_count = 0
+
+
+class DigestReader:
+    def __init__(self, handle):
+        self.handle = handle
+        self.digest = hashlib.sha256()
+
+    def read(self, size):
+        chunk = self.handle.read(size)
+        self.digest.update(chunk)
+        return chunk
+
+
 try:
+    with source.open('rb') as handle:
+        before = os.fstat(handle.fileno())
+        reader = DigestReader(handle)
+        with tarfile.open(fileobj=reader, mode='r|gz') as archive:
+            for member in archive:
+                archive.members.clear()
+                member_count += 1
+                if member_count > 100_000:
+                    raise ValueError('member limit')
+                raw = member.name
+                name = posixpath.normpath(raw)
+                if member.isdir() and member.size != 0:
+                    raise ValueError('invalid directory member')
+                if member.isdir() and raw in {'.', './'}:
+                    continue
+                if (
+                    raw.startswith('/') or name in {'', '.', '..'} or name.startswith('../')
+                    or len(raw.encode('utf-8', errors='surrogateescape')) > 4096
+                    or '..' in raw.split('/') or '\\' in raw
+                    or any(ord(character) < 32 or ord(character) == 127 for character in raw)
+                    or any(len(part.encode('utf-8', errors='surrogateescape')) > 255 for part in raw.split('/'))
+                    or name in seen
+                    or not (member.isfile() or member.isdir())
+                ):
+                    raise ValueError('unsafe member')
+                seen.add(name)
+                top = name.split('/', 1)[0]
+                if top in {'data', 'storage.d'}:
+                    if name == top and not member.isdir():
+                        raise ValueError('invalid root member')
+                elif name not in selected | legacy_files or not member.isfile():
+                    raise ValueError('unexpected member')
+                if not member.isfile():
+                    continue
+                total_bytes += member.size
+                if member.size < 0 or total_bytes > 2 * 1024 ** 4:
+                    raise ValueError('expanded size limit')
+                if (name == 'manifest' and member.size > 4096) or (name == 'checksums.sha256' and member.size > 256 * 1024 ** 2):
+                    raise ValueError('manifest size limit')
+                output = None
+                if name in selected:
+                    if shutil.disk_usage(root).free <= member.size + 16 * 1024 ** 2:
+                        raise ValueError('insufficient database staging space')
+                    output = (root / name).open('xb')
+                digest = hashlib.sha256()
+                try:
+                    with archive.extractfile(member) as entry:
+                        for chunk in iter(lambda: entry.read(1024 * 1024), b''):
+                            digest.update(chunk)
+                            if output is not None:
+                                output.write(chunk)
+                finally:
+                    if output is not None:
+                        output.close()
+                if name != 'checksums.sha256':
+                    hashes[name] = digest.hexdigest()
+        while reader.read(1024 * 1024):
+            pass
+        after = os.fstat(handle.fileno())
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns):
+            raise ValueError('archive changed during validation')
+    checksum = source.with_name(source.name + '.sha256')
+    if checksum.exists():
+        if checksum.stat().st_size > 4096:
+            raise ValueError('oversized checksum file')
+        match = re.fullmatch(r'([0-9a-fA-F]{64}) [ *](.+)\n?', checksum.read_text(encoding='utf-8'))
+        if not match or match[2] != source.name or not hmac.compare_digest(reader.digest.hexdigest(), match[1].lower()):
+            raise ValueError('archive checksum mismatch')
+    if not selected <= seen:
+        raise ValueError('missing database or manifest')
+    manifest = {}
+    for line in (root / 'manifest').read_text(encoding='utf-8').splitlines():
+        key, separator, value = line.partition('=')
+        if not separator or key in manifest:
+            raise ValueError('invalid backup manifest')
+        manifest[key] = value
+    if manifest.get('format') == '2':
+        if manifest.get('scope') != 'database' or seen != selected:
+            raise ValueError('invalid database-only backup')
+    elif manifest.get('format') != '1' or 'data' not in seen:
+        raise ValueError('unsupported backup format')
+    expected = {}
     for line in (root / 'checksums.sha256').read_text(encoding='utf-8').splitlines():
-        match = line_pattern.fullmatch(line)
-        if not match or line.startswith('\\'):
+        match = re.fullmatch(r'([0-9a-f]{64}) [ *](\./.+)', line)
+        if not match:
             raise ValueError('invalid checksum line')
-        relative = match.group(3)[2:]
-        normalized = posixpath.normpath(relative)
-        if (
-            normalized in {'', '.', '..'}
-            or normalized.startswith('../')
-            or normalized.startswith('/')
-            or '\\' in relative
-            or normalized == 'input.tar.gz'
-            or normalized in expected
-        ):
-            raise ValueError('unsafe checksum path')
-        target = root / normalized
-        if target.is_symlink() or not target.is_file():
-            raise ValueError('checksum target is not a regular file')
-        expected.add(normalized)
-
-    actual = {
-        pathlib.Path(directory, filename).relative_to(root).as_posix()
-        for directory, _subdirectories, filenames in os.walk(root, followlinks=False)
-        for filename in filenames
-        if pathlib.Path(directory, filename)
-        not in {root / 'checksums.sha256', root / 'input.tar.gz'}
-    }
-    if expected != actual:
+        name = posixpath.normpath(match[2])
+        if name in expected or name not in hashes:
+            raise ValueError('invalid checksum target')
+        expected[name] = match[1]
+    if expected != hashes:
         raise ValueError('checksum inventory mismatch')
 except Exception:
-    print('Backup checksum manifest violates the Vueio restore policy.', file=sys.stderr)
     raise SystemExit(1)
 PY
-  (cd "$tmp" && sha256sum --strict --quiet -c checksums.sha256) ||
-    die "Backup contents failed validation"
-  cp "$ENV_FILE" "$tmp/environment.before-restore"
+  compose exec -T vueio_postgres pg_restore --list <"$tmp/database.dump" >/dev/null ||
+    die "PostgreSQL backup validation failed"
+  if grep -qx 'format=1' "$tmp/manifest"; then
+    note "Legacy backup: archived application files and configuration will not be restored."
+  fi
+  previous_version=$(env_value VUEIO_VERSION)
+  previous_engine_image=$(env_value VUEIO_ENGINE_IMAGE)
+  previous_ui_image=$(env_value VUEIO_UI_IMAGE)
+  [[ -z ${VUEIO_RESTORE_REPIN_VERSION:-} ]] || validate_release_tag "$VUEIO_RESTORE_REPIN_VERSION"
 
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
-  data_path=$(env_value VUEIO_DATA_PATH)
-  data_parent=$(dirname "$data_path")
-  staged_data="${data_path}.restore-$stamp"
-  old_data="${data_path}.pre-restore-$stamp"
-
-  required_kb=$(du -sk "$tmp/data" | awk '{print $1}')
-  available_kb=$(df -Pk "$data_parent" | awk 'NR == 2 {print $4}')
-  ((available_kb > required_kb)) ||
-    die "Restore needs at least ${required_kb} KiB free beside $data_path"
-  mkdir "$staged_data"
-  tar -C "$tmp/data" -cf - . | tar -C "$staged_data" -xf -
-  chown -R "$(env_value VUEIO_PUID):$(env_value VUEIO_PGID)" "$staged_data"
-
-  # Take the recovery point only after staging, then keep the engine stopped.
-  # No application writes can occur between this snapshot and the state swap.
   safety="$BACKUP_DIR/pre-restore-$stamp.tar.gz"
   if compose ps --status running -q vueio_engine 2>/dev/null | grep -q .; then
     engine_was_running=true
@@ -1437,54 +1289,46 @@ PY
   tar -xOzf "$safety" ./database.dump >"$safety_db"
   [[ -s $safety_db ]] || die "Safety backup did not contain a database dump"
 
-  # Invoked by the EXIT/INT/TERM trap below.
+  # Invoked by the EXIT trap below. All file content remains untouched.
   # shellcheck disable=SC2317,SC2329
   rollback_restore() {
-    local status=$?
+    local status=$? recovered=true
     trap - EXIT INT TERM
     set +e
-    warn "Restore did not complete; attempting to return Vueio to its previous state."
+    warn "Restore did not complete; recovering the previous database and release."
     compose stop vueio_engine >/dev/null 2>&1
-    local recovered=true
     if [[ $db_restored == true ]]; then
       compose exec -T vueio_postgres pg_restore \
         --clean --if-exists --single-transaction --no-owner --no-acl \
         -U "$(env_value VUEIO_POSTGRES_USER)" \
-        -d "$(env_value VUEIO_POSTGRES_DB)" <"$safety_db" ||
-        recovered=false
-    fi
-    if [[ $old_data_moved == true ]]; then
-      rm -rf -- "$data_path"
-      mv "$old_data" "$data_path" || recovered=false
+        -d "$(env_value VUEIO_POSTGRES_DB)" <"$safety_db" || recovered=false
     fi
     if [[ $environment_changed == true ]]; then
-      install -m 0600 "$tmp/environment.before-restore" "$ENV_FILE" || recovered=false
+      set_env VUEIO_VERSION "$previous_version" || recovered=false
+      set_env VUEIO_ENGINE_IMAGE "$previous_engine_image" || recovered=false
+      set_env VUEIO_UI_IMAGE "$previous_ui_image" || recovered=false
     fi
-    rm -rf -- "$staged_data"
     if [[ $recovered == true && $engine_was_running == true ]]; then
-      compose up -d >/dev/null 2>&1 || recovered=false
+      compose up -d >/dev/null 2>&1 && wait_for_engine >/dev/null 2>&1 || recovered=false
     fi
     rm -rf "$tmp"
     if [[ $recovered == true ]]; then
-      warn "The previous Vueio state was restored. Safety backup: $safety"
+      warn "The previous database and release were restored. Safety backup: $safety"
     else
-      warn "Automatic recovery was incomplete. Vueio was left stopped to protect the data."
-      warn "Use the safety backup for recovery: $safety"
+      compose stop vueio_engine >/dev/null 2>&1
+      warn "Automatic recovery was incomplete. Vueio was left stopped. Safety backup: $safety"
     fi
     exit "$status"
   }
-  trap rollback_restore EXIT INT TERM
+  trap rollback_restore EXIT
 
-  mv "$data_path" "$old_data"
-  old_data_moved=true
-  mv "$staged_data" "$data_path"
+  # Mark the database as possibly changed before pg_restore can commit.
+  db_restored=true
   compose exec -T vueio_postgres pg_restore \
     --clean --if-exists --single-transaction --no-owner --no-acl \
     -U "$(env_value VUEIO_POSTGRES_USER)" \
     -d "$(env_value VUEIO_POSTGRES_DB)" <"$tmp/database.dump"
-  db_restored=true
   if [[ -n ${VUEIO_RESTORE_REPIN_VERSION:-} ]]; then
-    validate_release_tag "$VUEIO_RESTORE_REPIN_VERSION"
     environment_changed=true
     set_env VUEIO_VERSION "$VUEIO_RESTORE_REPIN_VERSION"
     set_env VUEIO_ENGINE_IMAGE "$(env_value VUEIO_ENGINE_REPOSITORY):$VUEIO_RESTORE_REPIN_VERSION"
@@ -1496,15 +1340,8 @@ PY
   trap - EXIT INT TERM
   rm -f "$UPDATE_STATE_FILE" "$UPDATE_PROGRESS_FILE"
   rm -rf "$tmp"
-  note "Restore completed. Safety backup: $safety"
-  if [[ ${VUEIO_RESTORE_DISCARD_REPLACED_DATA:-0} == 1 ]]; then
-    rm -rf -- "$old_data"
-    note "The failed candidate's replaced application data was discarded after recovery."
-  else
-    note "Previous application data retained temporarily at: $old_data"
-    note "After you verify the restore, reclaim its space with: sudo rm -rf -- '$old_data'"
-  fi
-  note "Current host paths and secrets were retained; the archived configuration is reference-only."
+  note "Database restore completed. Safety backup: $safety"
+  note "Current application files, media, and host configuration were retained."
 )
 
 pull_release_images() {
@@ -1530,8 +1367,8 @@ rollback_vueio() {
   created=$(backup_manifest_value "$archive" created_at)
   validate_release_tag "$version"
 
-  note "This returns Vueio to version $version and the data as it was at $created."
-  warn "Anything created or changed since that backup will be lost. Project files and media are not changed."
+  note "This returns Vueio to version $version and the database as it was at $created."
+  warn "Database changes since that backup will be lost. All current application files and media stay in place."
   if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
     printf 'Type RESTORE to continue: '
     read -r confirmation
@@ -1668,7 +1505,7 @@ PY
 }
 
 update_preflight() {
-  local version=$1 data_kb available_kb required_kb probe
+  local version=$1 database_bytes available_kb required_kb probe
   require_command curl
   require_command docker
   require_command python3
@@ -1677,9 +1514,9 @@ update_preflight() {
   mkdir -p "$BACKUP_DIR" "$LOG_DIR"
   probe=$(mktemp "$BACKUP_DIR/.write-test.XXXXXX") || die "The backup directory is not writable"
   rm -f "$probe"
-  data_kb=$(du -sk "$(env_value VUEIO_DATA_PATH)" | awk '{print $1}')
+  database_bytes=$(database_size_bytes)
   available_kb=$(df -Pk "$VUEIO_HOME" | awk 'NR == 2 {print $4}')
-  required_kb=$((data_kb + 2 * 1024 * 1024))
+  required_kb=$(((2 * database_bytes + 1023) / 1024 + 2 * 1024 * 1024))
   ((available_kb > required_kb)) ||
     die "The update needs about $((required_kb / 1024)) MiB free for its backup and container images"
   verify_release_for_channel "$version"
@@ -1788,7 +1625,7 @@ update_vueio() (
   update_stage 3 images "Downloading the update…"
   pull_release_images "$version"
 
-  update_stage 4 backup "Pausing Vueio and backing up your database and application data…"
+  update_stage 4 backup "Pausing Vueio and backing up your database…"
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   local backup_destination="$BACKUP_DIR/pre-update-$stamp.tar.gz"
   VUEIO_BACKUP_KIND=pre-update VUEIO_BACKUP_TARGET_VERSION="$version" \

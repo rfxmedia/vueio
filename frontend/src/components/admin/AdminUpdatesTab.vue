@@ -46,7 +46,7 @@
         <div class="updates-install-heading">
           <div>
             <h3 id="updates-install-title">{{ installTitle }}</h3>
-            <p v-if="!showProgress">A backup comes first. Vueio will restart briefly during the update.</p>
+            <p v-if="!showProgress">A database backup comes first. Vueio will restart briefly during the update.</p>
           </div>
           <button
             v-if="canOfferUpdate"
@@ -285,7 +285,7 @@ const statusTitle = computed(() => ({
   error: 'Vue.io could not reach the release service',
 }[state.value] || (loading.value ? 'Checking for updates' : 'Update checks are not configured')))
 const statusDescription = computed(() => ({
-  available: `A newer ${channelLabel.value} release is available for this installation.`,
+  available: 'A newer release is available for this installation.',
   current: 'No action is needed.',
   ahead: `Vue.io will stay on this version until a newer ${channelLabel.value} release is published.`,
   development: 'Tagged release comparisons begin when this installation runs an immutable alpha version.',

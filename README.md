@@ -67,10 +67,14 @@ Administrators can install the latest release in their selected Nightly or
 Stable channel from **Settings → Updates → Update now**. A progress bar shows
 each stage, and the page reconnects after the restart. Existing installations
 need a one-time [update-service setup](docs/SELF_HOSTING.md#enable-updates-on-an-existing-installation).
+Older host controllers must be replaced with the checksum-verified release
+controller before their first database-only update; the setup guide explains
+this transition.
 
 Application updates use database migrations and are designed to preserve
-projects, trackers, accounts, comments, shares, and settings. Source media is
-never copied into a backup automatically. Before upgrading a production
+projects, trackers, accounts, comments, shares, and settings. Update backups
+contain the database only. Application files, uploads, attachments, and media
+stay in place and are not copied into the backup. Before upgrading a production
 installation:
 
 ```bash
@@ -79,7 +83,7 @@ sudo vueioctl doctor
 sudo vueioctl update <release-tag>
 ```
 
-Keep a separate backup of the authorized project folders on independent storage. See
+Back up application files and authorized project folders separately on independent storage. See
 [Backups and restores](docs/SELF_HOSTING.md#backups-and-restores) for the exact
 boundary. Once an update may have run a database migration, Vue.io does not
 automatically start older application code. Follow that release's recovery

@@ -43,5 +43,6 @@ claims, and raw test output. If no preparation is required, write “Nothing —
 the updater handles this release automatically.”
 
 Rollback must be described honestly whenever migrations or compatibility are
-relevant: `vueioctl rollback` restores the pre-update backup, so Vueio data
-created after that backup is lost. Project files and media are not modified.
+relevant: `vueioctl rollback` restores the pre-update database backup, so
+database changes made after that backup are lost. Application files, uploads,
+attachments, project files, and media are not modified or restored.

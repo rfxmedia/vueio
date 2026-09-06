@@ -235,69 +235,59 @@ check passes.
 
 ## Backups and restores
 
-Create an application-state backup:
+Create a database backup:
 
 ```bash
 sudo vueioctl backup
 sudo vueioctl backups
 ```
 
-The archive contains:
+The archive contains a consistent PostgreSQL dump, a manifest identifying its
+version and creation time, and internal checksums. The finished archive also
+has an adjacent SHA-256 checksum. The controller validates the dump and
+checksums before accepting the backup.
 
-- a consistent PostgreSQL dump;
-- accounts and Vueio-managed application data;
-- a reference copy of configuration and authorized-storage definitions.
+**Backups contain the database only.** They do not include application files,
+uploads, comment attachments, project files, media, caches, or host
+configuration. Those files stay in place during backup, restore, and rollback.
+Back up files and host configuration separately with your storage system.
+Restoring database records cannot recover a missing file.
 
-It deliberately does **not** copy source footage or other files in authorized
-storage roots. It also excludes reproducible thumbnails, transcodes, and
-temporary package files so a backup cannot silently grow to media-library
-size. Back source storage up with the NAS or storage system. Every regular file
-inside the backup payload is covered by an internal SHA-256 manifest, the
-finished archive has an adjacent SHA-256 checksum, and the PostgreSQL dump is
-validated before the backup is accepted.
+Database backups contain private account and project records. Keep them
+private; the controller writes archives and checksums with owner-only
+permissions.
 
-Backups contain account and installation secrets. Keep them private; the
-controller writes archives and checksums with owner-only permissions.
+Restore preserves the current host's paths, storage mounts, database password,
+session secret, and application files. An adopted installation can retain a
+root-owned `compose.installation.yml` beside its managed Compose files. The
+controller applies this file last and keeps it through updates and restores.
+It blocks `storage add` and `storage remove` while the override exists, so an
+operator must review its storage mapping before making changes.
 
-Restore intentionally keeps the current host's paths, storage mounts, database
-password, and session secret. It restores the database and application data;
-the archived configuration is present only for manual recovery or comparison.
-
-An adopted installation can retain a host-specific `compose.installation.yml`
-beside its managed Compose files. The controller applies this file last and
-keeps it through updates. Backups include it as a configuration reference;
-restore retains the current host's configuration. Keep it owned by root, and
-review its storage and environment overrides before changing the installation.
-The controller blocks `storage add` and `storage remove` while this override
-exists, so those commands cannot leave an overridden storage mapping unchanged.
-This prevents a backup moved to another server from silently mounting old host
-paths or breaking the destination database password.
-
-The engine pauses briefly so account files and the database cannot change
-during the backup. Restore is intentionally guarded:
+The engine pauses briefly to create a consistent backup. Restore is
+intentionally guarded:
 
 ```bash
 sudo vueioctl restore /opt/vueio/backups/vueio-20260729T120000Z.tar.gz
 ```
 
-Restore requires typing `RESTORE`. Before changing the current installation,
-it validates the archive and checks that enough free space exists beside the
-application data directory to stage the restored copy. It then:
+Restore requires typing `RESTORE`. It validates the archive and available
+space before changing the database. It then:
 
-1. stages restored application data without replacing the current copy;
-2. stops the engine and creates a fresh safety backup;
-3. switches to the staged application data;
-4. restores the database in one transaction; and
-5. starts Vueio and requires `doctor` to pass.
+1. stops the engine and creates a fresh database safety backup;
+2. restores the selected database in one transaction; and
+3. starts Vueio and requires `doctor` to pass.
 
-If a later step fails, Vueio attempts to restore the safety database and old
-application data. If automatic recovery cannot complete, Vueio stays stopped
-and prints the safety-backup path instead of continuing with mixed state. A
-successful restore keeps the replaced data directory temporarily and prints
-the exact cleanup command. Run that command only after verifying accounts,
-projects, and playback.
+If a later step fails, Vueio attempts to restore the safety database and prior
+image settings. If recovery cannot complete, Vueio stays stopped and prints
+the safety-backup path. Application files are never staged, moved, replaced,
+or removed by restore.
 
-Test both backup and restore on a disposable installation before relying on
+Older archives that include application files remain usable as database
+restore sources. The controller validates their contents but restores only
+the database; archived files and configuration are ignored.
+
+Rehearse backup and restore on a disposable installation before relying on
 them for production.
 
 Vueio keeps the five newest controller-managed backups by default and always
@@ -326,7 +316,7 @@ Open **Settings → Updates** and choose **Update now** to install the offered
 release from your selected channel. Only an administrator signed in to Vueio
 can start an update. The progress bar shows completed installation stages;
 the description explains the current step. Download time depends on the
-connection and backup time depends on application data size.
+connection and backup time depends on database size.
 
 The host service continues the operation while Vueio restarts. The page
 reconnects and reloads after the target version passes its health checks.
@@ -342,7 +332,7 @@ sudo vueioctl update v0.1.1-alpha.1
 The command checks the current installation, available space, Docker, release
 metadata, and target images before changing anything. It downloads and
 checksum-verifies the release files, pulls the versioned images before the
-short restart window, creates a validated pre-update backup, starts the new
+short restart window, creates a validated pre-update database backup, starts the new
 release, and requires `doctor` to pass. Progress is written to
 `/opt/vueio/logs/update-<timestamp>.log`; the newest ten update logs are kept.
 
@@ -351,7 +341,7 @@ If an update fails before installation, the existing version can restart.
 Once installation begins, failure or interruption requires operator recovery;
 Vueio does not automatically restore an older database or retry installation.
 Check `sudo vueioctl doctor` and the update log, then follow the release's
-recovery instructions. An explicit rollback discards changes after its backup,
+recovery instructions. An explicit rollback discards database changes after its backup,
 as described below.
 
 Administrators can see the installed version and check for a newer release in
@@ -362,8 +352,15 @@ channel and published release before invoking its fixed management command.
 
 ### Enable updates on an existing installation
 
-An installation from before this feature needs one terminal upgrade to a
-release that includes the update service. Then run:
+If the installed host controller predates database-only backups, replace it
+with the `vueioctl` asset from the selected release after verifying that file
+against the release's `SHA256SUMS`. Do this before starting an update from
+Settings or the terminal. An older controller uses its previous backup
+behavior until it is replaced; downloading new application images does not
+change that behavior.
+
+An installation from before the update-service feature then needs one terminal
+upgrade to the selected release. Afterward, run:
 
 ```bash
 sudo vueioctl updater enable
@@ -420,12 +417,13 @@ To undo an update that completed successfully, use:
 sudo vueioctl rollback
 ```
 
-Rollback is not an in-place downgrade. It restores the newest pre-update
-backup and repins the matching application images. The command prints the
-version and backup time and requires typing `RESTORE`. **Anything created or
-changed in Vueio after that backup is discarded.** Source project files and
-media are not changed. Database migrations are one-way, so never run an older
-image against a newer database without restoring its matching backup.
+Rollback restores the newest pre-update database backup and repins the
+matching application images. The command prints the version and backup time
+and requires typing `RESTORE`. **Database changes made after that backup are
+discarded.** Application files, uploads, attachments, project files, and media
+remain unchanged; they are not restored from the archive. Database migrations
+are one-way, so never run an older image against a newer database without
+restoring its matching backup.
 
 Every release must be tested in two paths:
 
