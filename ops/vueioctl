@@ -1,12 +1,38 @@
 #!/usr/bin/env bash
+# macOS ships Bash 3.2. Use the installed host tools, not a different app build.
+if [[ $(command -p uname -s) == Darwin ]]; then
+  if [[ $(id -u) == 0 ]]; then
+    [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]] || { printf 'Run Vueio as your Mac login account, not root.\n' >&2; exit 1; }
+    if [[ -n ${VUEIO_HOME:-} ]]; then
+      exec /usr/bin/sudo -H -u "$SUDO_USER" /usr/bin/env "VUEIO_HOME=$VUEIO_HOME" "$0" "$@"
+    fi
+    exec /usr/bin/sudo -H -u "$SUDO_USER" "$0" "$@"
+  fi
+  export PATH="/Applications/Docker.app/Contents/Resources/bin:$PATH"
+  for vueio_tools in /opt/homebrew /usr/local; do
+    if [[ -x $vueio_tools/bin/brew ]]; then
+      export PATH="$vueio_tools/opt/coreutils/libexec/gnubin:$vueio_tools/opt/findutils/libexec/gnubin:$vueio_tools/bin:$PATH"
+      if ((BASH_VERSINFO[0] < 4)); then exec "$vueio_tools/bin/bash" "$0" "$@"; fi
+      break
+    fi
+  done
+fi
 set -Eeuo pipefail
 
 PROGRAM=${0##*/}
 SCRIPT_DIR=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-VUEIO_HOME=${VUEIO_HOME:-/opt/vueio}
+if [[ $(uname -s) == Darwin ]]; then
+  VUEIO_HOME=${VUEIO_HOME:-"$HOME/Library/Application Support/Vueio"}
+else
+  VUEIO_HOME=${VUEIO_HOME:-/opt/vueio}
+fi
+export VUEIO_HOME
+ORIGINAL_ARGUMENTS=("$@")
 COMPOSE_FILE="$VUEIO_HOME/compose.yml"
 STORAGE_COMPOSE_FILE="$VUEIO_HOME/compose.storage.yml"
 INSTALLATION_COMPOSE_FILE="$VUEIO_HOME/compose.installation.yml"
+DATA_COMPOSE_FILE="$VUEIO_HOME/compose.data.yml"
+GPU_COMPOSE_FILE="$VUEIO_HOME/compose.gpu.yml"
 ENV_FILE="$VUEIO_HOME/.env"
 STORAGE_DIR="$VUEIO_HOME/storage.d"
 BACKUP_DIR="$VUEIO_HOME/backups"
@@ -17,18 +43,20 @@ UPDATER_FILE="$VUEIO_HOME/vueio-updater.py"
 LICENSE_FILE="$VUEIO_HOME/LICENSE.md"
 RELEASE_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)(\.dev\.(0|[1-9][0-9]*))?$'
 
-if [[ -t 1 && -z ${NO_COLOR:-} ]]; then
+if [[ -t 1 && ${TERM:-dumb} != dumb && ${VUEIO_PLAIN:-0} != 1 && -z ${NO_COLOR:-} ]]; then
   RESET=$'\033[0m'
   BOLD=$'\033[1m'
   GREEN=$'\033[32m'
   MINT=$'\033[38;5;121m'
   YELLOW=$'\033[33m'
+  MUTED=$'\033[2m'
 else
   RESET=
   BOLD=
   GREEN=
   MINT=
   YELLOW=
+  MUTED=
 fi
 
 die() {
@@ -56,10 +84,43 @@ success() {
   printf '%s✓%s %s\n' "$GREEN" "$RESET" "$*"
 }
 
+# One decision per screen. Plain output keeps the complete transcript.
+screen() {
+  if [[ ${3:-} != keep && -t 0 && -t 1 && ${TERM:-dumb} != dumb && ${VUEIO_PLAIN:-0} != 1 ]]; then
+    printf '\033[H\033[2J'
+  fi
+  printf '\n  %s%svueio%s   %s%s%s\n' "$BOLD" "$MINT" "$RESET" "$MUTED" "$1" "$RESET"
+  local width=${COLUMNS:-80}
+  [[ $width =~ ^[0-9]{1,3}$ ]] || width=80
+  width=$((10#$width))
+  ((width > 76)) && width=76
+  ((width < 20)) && width=20
+  printf '  %s' "$MUTED"
+  printf '%*s' "$((width - 4))" '' | tr ' ' '-'
+  printf '%s\n' "$RESET"
+  title "  $2"
+  printf '\n'
+}
+
+option() {
+  if [[ -n $1 ]]; then
+    printf '  %s[%s]%s  %s\n' "$MINT" "$1" "$RESET" "$2"
+  else
+    printf '  %s%s%s\n' "$BOLD" "$2" "$RESET"
+  fi
+  [[ -z ${3:-} ]] || printf '       %s%s%s\n' "$MUTED" "$3" "$RESET"
+  printf '\n'
+}
+
+choose_hint() {
+  printf '  Enter  Use default   ·   ?  Details   ·   q  Cancel\n'
+  printf '  Or enter a drive number or a full folder path.\n'
+}
+
 confirm() {
   local answer
   printf '%s [Y/n] ' "$1"
-  read -r answer
+  read -r answer || return 1
   [[ -z $answer || $answer == y || $answer == Y || $answer == yes || $answer == YES ]]
 }
 
@@ -71,27 +132,31 @@ usage() {
 Usage: $PROGRAM <command> [arguments]
 
   install                         Configure and start a new installation
+  menu                            Open the guided terminal menu (/help to return)
   start | stop | restart | status
   version                         Show the installed release and images
-  setup-token                    Show the one-time first-run setup token
+  data                            Show database, app files and backup locations
+  setup-token                     Show the one-time first-run setup token
+  setup-info                      Show the browser address and setup instructions
   logs [service]                  Follow container logs
   doctor [--fix]                  Check configuration, storage, and services
   backup [archive.tar.gz]         Back up the PostgreSQL database only
   backups                         List available backups
   restore <archive.tar.gz>        Restore the database; keep current files
   rollback                        Restore the latest pre-update backup
-  update <release-tag>            Back up, refresh release files, and update
+  update [release-tag]            Install the latest release on your channel
   channel <stable|nightly>        Select which releases Vueio follows
-  updater enable | disable       Configure one-click updates on systemd hosts
+  updater enable | disable       Enable browser updates and storage on Linux/Mac
   updater status | serve         Inspect or run the host updater
   storage list
   storage add <label> <path> [ro|rw]
+  storage reconnect              Recheck registered drives and reconnect them
   storage remove <label> [--yes]
   exposure set <https://url> [--cloudflare]
                                   Prepare Vueio for an HTTPS proxy or tunnel
   exposure local                  Return to local HTTP bootstrap mode
 
-Set VUEIO_HOME to use a location other than /opt/vueio.
+Set VUEIO_HOME to select a different private installation directory.
 EOF
 }
 
@@ -100,18 +165,54 @@ require_command() {
 }
 
 require_installed() {
+  if [[ $(uname -s) == Linux && $(id -u) != 0 && ! -r $ENV_FILE ]]; then
+    die "This Linux installation needs administrator access. Run: sudo $PROGRAM"
+  fi
   [[ -f "$COMPOSE_FILE" && -f "$ENV_FILE" ]] ||
     die "Vueio is not configured in $VUEIO_HOME. Run '$PROGRAM install' first."
+  local state_path
+  state_path=$(env_value VUEIO_STATE_PATH)
+  [[ -z $state_path ]] || BACKUP_DIR="$state_path/backups"
 }
 
 maintenance_lock() {
   require_installed
-  require_command flock
   # The daemon passes its already-held lock through this exact descriptor.
   if [[ ${VUEIO_MAINTENANCE_FD:-} =~ ^[0-9]+$ ]] &&
-    [[ /proc/$$/fd/$VUEIO_MAINTENANCE_FD -ef "$VUEIO_HOME/.maintenance.lock" ]]; then
+    python3 - "$VUEIO_MAINTENANCE_FD" "$VUEIO_HOME/.maintenance.lock" <<'PY'
+import fcntl, os, sys
+try:
+    fd = int(sys.argv[1])
+    actual, expected = os.fstat(fd), os.stat(sys.argv[2])
+    if (actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino):
+        raise ValueError('Wrong lock')
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except (OSError, ValueError):
+    raise SystemExit(1)
+PY
+  then
     return 0
   fi
+  if [[ $(uname -s) == Darwin ]]; then
+    # fcntl works on both hosts; macOS has no flock command. Hold the same
+    # descriptor across exec so CLI and browser operations share one lock.
+    local input_fd
+    exec {input_fd}<&0
+    exec python3 - "$input_fd" "$VUEIO_HOME/.maintenance.lock" "$0" "${ORIGINAL_ARGUMENTS[@]}" <<'PY'
+import fcntl, os, sys
+os.dup2(int(sys.argv[1]), 0)
+os.close(int(sys.argv[1]))
+fd = os.open(sys.argv[2], os.O_CREAT | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    raise SystemExit('Another host operation is in progress. Wait for it to finish.')
+os.set_inheritable(fd, True)
+os.environ['VUEIO_MAINTENANCE_FD'] = str(fd)
+os.execv(sys.argv[3], sys.argv[3:])
+PY
+  fi
+  require_command flock
   exec {VUEIO_MAINTENANCE_FD}>"$VUEIO_HOME/.maintenance.lock"
   chmod 600 "$VUEIO_HOME/.maintenance.lock"
   flock -n "$VUEIO_MAINTENANCE_FD" || die "Another host operation is in progress. Wait for it to finish."
@@ -124,8 +225,18 @@ prepare_updater_directory() {
   [[ ! -L "$VUEIO_HOME/updater" ]] || die "The updater directory must not be a symbolic link"
   mkdir -p "$VUEIO_HOME/updater"
   chmod 750 "$VUEIO_HOME/updater"
-  chown "0:$pgid" "$VUEIO_HOME/updater"
+  chown "$(id -u):$pgid" "$VUEIO_HOME/updater"
   set_env VUEIO_UPDATER_DIR "$VUEIO_HOME/updater"
+  if [[ $(uname -s) == Darwin && ! -f $VUEIO_HOME/updater/access-token ]]; then
+    local helper_port
+    helper_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+    (umask 077; random_hex 32 >"$VUEIO_HOME/updater/access-token")
+    chmod 640 "$VUEIO_HOME/updater/access-token"
+    chown "$(id -u):$pgid" "$VUEIO_HOME/updater/access-token"
+    set_env VUEIO_UPDATER_PORT "$helper_port"
+    set_env VUEIO_UPDATER_URL "http://host.docker.internal:$helper_port"
+    set_env VUEIO_UPDATER_TOKEN_FILE /run/vueio-updater/access-token
+  fi
 }
 
 validate_release_tag() {
@@ -155,8 +266,11 @@ version_is_newer() {
 }
 
 compose() {
+  case ${1:-} in up|start|restart) require_data_mount; render_gpu_access ;; esac
   local installation=()
-  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation=(-f "$INSTALLATION_COMPOSE_FILE")
+  [[ ! -f "$DATA_COMPOSE_FILE" ]] || installation+=(-f "$DATA_COMPOSE_FILE")
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation+=(-f "$INSTALLATION_COMPOSE_FILE")
+  [[ ! -f "$GPU_COMPOSE_FILE" ]] || installation+=(-f "$GPU_COMPOSE_FILE")
   docker compose \
     --env-file "$ENV_FILE" \
     -f "$COMPOSE_FILE" \
@@ -224,8 +338,9 @@ validate_mode() {
 }
 
 validate_label() {
-  [[ -n $1 && $1 =~ ^[[:alnum:]][[:alnum:]\ ._-]*$ ]] ||
+  [[ ${#1} -le 80 && $1 =~ ^[A-Za-z0-9][A-Za-z0-9\ ._-]*$ ]] ||
     die "Labels may contain letters, numbers, spaces, dots, underscores, and dashes"
+  [[ $(normalized_storage_label "$1") != data ]] || die "The storage name 'data' is reserved"
 }
 
 normalized_storage_label() {
@@ -244,12 +359,122 @@ validate_storage_path() {
     die "Storage paths cannot contain control characters"
   fi
   [[ $path != / ]] || die "The host root cannot be registered as project storage"
-  for internal in "$VUEIO_HOME" /dev /proc /run /sys; do
+  for internal in "$VUEIO_HOME" "${VUEIO_INSTALL_STATE_PATH:-$(env_value VUEIO_STATE_PATH 2>/dev/null || true)}" /dev /proc /sys; do
+    [[ -n $internal ]] || continue
     internal=$(realpath -m "$internal")
     if paths_overlap "$path" "$internal"; then
       die "Storage must not overlap Vueio or operating-system internals: $internal"
     fi
   done
+  # Desktop Linux commonly mounts removable drives below /run/media.
+  [[ $path != /run && ( $path != /run/* || $path == /run/media/*/* ) ]] ||
+    die "Storage must not overlap operating-system internals"
+}
+
+require_data_mount() {
+  local state_path identity
+  state_path=$(env_value VUEIO_STATE_PATH)
+  [[ -n $state_path ]] || return 0 # Existing named-volume installations stay unchanged.
+  if [[ $(env_value VUEIO_DATABASE_INITIALIZING) == true && ${VUEIO_INSTALL_IN_PROGRESS:-false} != true ]]; then
+    die "Setup did not complete. Its data and configuration were preserved. Review that installation before starting it; Vueio will not initialize another database."
+  fi
+  identity=$(env_value VUEIO_STATE_ID)
+  storage_marker_matches "$state_path/.vueio-storage-id" "$identity" ||
+    die "The Vue data folder is missing or belongs to a different drive. Reconnect the original drive at $state_path. No new database was created."
+  [[ -d $state_path/postgres && -d $state_path/app && -f $DATA_COMPOSE_FILE ]] ||
+    die "The Vue data folder is incomplete. Restore it from your backup; Vueio will not create an empty replacement."
+}
+
+render_gpu_access() {
+  # Device access does not enable GPU processing. CPU remains the app default.
+  [[ $(uname -s) == Linux ]] || return 0
+  python3 - "$GPU_COMPOSE_FILE" <<'PY'
+import json, os, pathlib, re, subprocess, sys, tempfile
+target = pathlib.Path(sys.argv[1])
+if target.exists():
+    try:
+        if json.loads(target.read_text()).get('x-vueio-generated') != 'gpu-access':
+            sys.exit(0)
+    except (ValueError, OSError):
+        sys.exit(0)  # Preserve operator-managed overrides.
+devices = [p for p in sorted(pathlib.Path('/dev/dri').glob('renderD*')) if re.fullmatch(r'renderD[0-9]+', p.name) and p.is_char_device()]
+service = {}
+if devices:
+    service['devices'] = [f'{p}:{p}:rw' for p in devices]
+    service['group_add'] = sorted({str(p.stat().st_gid) for p in devices})
+try:
+    runtimes = json.loads(subprocess.check_output(['docker', 'info', '--format', '{{json .Runtimes}}'], timeout=5))
+    if 'nvidia' in runtimes:
+        check = subprocess.run(['nvidia-smi', '-L'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
+        if check.returncode == 0:
+            service['deploy'] = {'resources': {'reservations': {'devices': [{'driver': 'nvidia', 'count': 'all', 'capabilities': ['gpu']}]}}}
+            service['environment'] = {'NVIDIA_DRIVER_CAPABILITIES': 'video,compute,utility'}
+except (OSError, ValueError, subprocess.SubprocessError):
+    pass
+if service or target.exists():
+    # Refresh generated access when a GPU is removed. Missing hardware must not
+    # leave a stale device mount that prevents CPU-only startup.
+    with tempfile.NamedTemporaryFile(mode='w', dir=target.parent, delete=False) as handle:
+        temporary = pathlib.Path(handle.name)
+        json.dump({'x-vueio-generated': 'gpu-access', 'services': {'vueio_engine': service}}, handle)
+    try:
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+PY
+}
+
+show_data_location() {
+  require_installed
+  local state_path
+  state_path=$(env_value VUEIO_STATE_PATH)
+  title "Your Vue data"
+  if [[ -n $state_path ]]; then
+    note "Data folder: $state_path"
+    note "Database: $state_path/postgres"
+  else
+    note "Database: Docker volume $(env_value VUEIO_POSTGRES_VOLUME)"
+    note "This existing installation has not been moved."
+  fi
+  note "App files and previews: $(env_value VUEIO_DATA_PATH)"
+  note "Private configuration: $VUEIO_HOME"
+  note "Database backups: $BACKUP_DIR"
+  note ""
+  note "The database holds accounts, comments, projects, members and history."
+  note "Use '$PROGRAM backup' for a consistent database backup. Copy it to a separate drive."
+  note "Also protect app files, source media and private configuration. Database backups do not include them."
+  note "Stop Vueio before copying its live database folder. Never unplug its data drive while Vueio is running."
+}
+
+render_data_mount() {
+  # Only fresh installations get this override. The base Compose file retains
+  # the legacy named volume, so an update cannot relocate an existing database.
+  cat >"$DATA_COMPOSE_FILE" <<'EOF'
+services:
+  vueio_postgres:
+    environment:
+      PGDATA: /vueio-state/postgres
+      VUEIO_STATE_ID: ${VUEIO_STATE_ID:?Missing data identity}
+      VUEIO_DATABASE_INITIALIZING: ${VUEIO_DATABASE_INITIALIZING:-false}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        test ! -L /vueio-state/.vueio-storage-id
+        test "$$(cat /vueio-state/.vueio-storage-id)" = "$$VUEIO_STATE_ID" || { echo 'The original Vue data drive is not connected.' >&2; exit 1; }
+        test -f "$$PGDATA/PG_VERSION" || test "$$VUEIO_DATABASE_INITIALIZING" = true || { echo 'The Vue database is missing. Restore it; an empty replacement will not be created.' >&2; exit 1; }
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - type: bind
+        source: ${VUEIO_STATE_PATH:?Missing data folder}
+        target: /vueio-state
+        bind:
+          create_host_path: false
+  vueio_engine:
+    environment:
+      VUEIO_HOST_STATE_PATH: ${VUEIO_STATE_PATH}
+      VUEIO_HOST_CONFIG_PATH: ${VUEIO_HOME_PATH}
+EOF
 }
 
 yaml_quote() {
@@ -262,13 +487,14 @@ yaml_quote() {
 }
 
 storage_records() {
+  local extension=${1:-root}
   [[ -d "$STORAGE_DIR" ]] || return 0
-  find "$STORAGE_DIR" -maxdepth 1 -type f -name '*.root' -print0 |
+  find "$STORAGE_DIR" -maxdepth 1 -type f -name "*.$extension" -print0 |
     sort -z |
     while IFS= read -r -d '' record; do
       local id label path mode sentinel
       id=${record##*/}
-      id=${id%.root}
+      id=${id%.*}
       {
         IFS= read -r label
         IFS= read -r path
@@ -292,15 +518,19 @@ require_storage_mounts() {
   local _id label path _mode sentinel marker
   while IFS=$'\t' read -r _id label path _mode sentinel; do
     marker="$path/.vueio-storage-id"
-    if [[ ! -d $path || ! $sentinel =~ ^[a-f0-9]{32,128}$ ]] ||
-      ! storage_marker_matches "$marker" "$sentinel"; then
-      die "Storage '$label' is unavailable or mounted with a different identity. Reconnect the expected filesystem before starting Vueio."
+    [[ $sentinel =~ ^[a-f0-9]{32,128}$ ]] || die "Storage '$label' has an invalid identity record. Check its configuration on the host."
+    if [[ ! -d $path ]] || ! storage_marker_matches "$marker" "$sentinel"; then
+      if [[ -f $INSTALLATION_COMPOSE_FILE ]]; then
+        die "Storage '$label' is offline. This installation has custom mounts; reconnect the expected drive before starting Vueio."
+      fi
+      warn "Storage '$label' is offline. Its projects are kept, but its files cannot be opened until it is reconnected."
     fi
   done < <(storage_records)
+  [[ -f $INSTALLATION_COMPOSE_FILE ]] || render_storage
 }
 
 render_storage() {
-  local tmp roots first record id label path mode sentinel
+  local tmp roots first record id label path mode sentinel mounted=false
   local -a records=()
   mapfile -t records < <(storage_records)
   for record in "${records[@]}"; do
@@ -316,24 +546,24 @@ render_storage() {
   {
     printf 'services:\n'
     printf '  vueio_engine:\n'
-    if ((${#records[@]} == 0)); then
-      printf '    volumes: []\n'
-    else
-      printf '    volumes:\n'
-    fi
     for record in "${records[@]}"; do
       IFS=$'\t' read -r id label path mode sentinel <<<"$record"
       [[ -n ${id:-} ]] || continue
-      printf '      - type: bind\n'
-      printf '        source: %s\n' "$(yaml_quote "$path")"
-      printf '        target: /storage/root-%s\n' "$id"
-      if [[ $mode == ro ]]; then
-        printf '        read_only: true\n'
-      else
-        printf '        read_only: false\n'
+      # Keep every identity in the catalog, but never mount a missing drive's
+      # empty mountpoint (or a different disk that reused its name). /storage
+      # is a read-only tmpfs in the base Compose file, so writes fail closed.
+      if storage_marker_matches "$path/.vueio-storage-id" "$sentinel"; then
+        if [[ $mounted == false ]]; then
+          printf '    volumes:\n'
+          mounted=true
+        fi
+        printf '      - type: bind\n'
+        printf '        source: %s\n' "$(yaml_quote "$path")"
+        printf '        target: /storage/root-%s\n' "$id"
+        [[ $mode == ro ]] && printf '        read_only: true\n' || printf '        read_only: false\n'
+        printf '        bind:\n'
+        printf '          create_host_path: false\n'
       fi
-      printf '        bind:\n'
-      printf '          create_host_path: false\n'
       if [[ $first == true ]]; then
         first=false
       else
@@ -341,6 +571,7 @@ render_storage() {
       fi
       roots+="\"$label\":{\"path\":\"/storage/root-$id\",\"sentinel\":\"$sentinel\"}"
     done
+    [[ $mounted == true ]] || printf '    volumes: []\n'
   } >"$tmp"
   roots+='}'
   mv "$tmp" "$STORAGE_COMPOSE_FILE"
@@ -352,13 +583,27 @@ next_storage_id() {
   while IFS=$'\t' read -r id _; do
     [[ $id =~ ^[0-9]+$ ]] || continue
     ((10#$id > max)) && max=$((10#$id))
-  done < <(storage_records)
+  done < <(storage_records; storage_records removed)
   printf '%03d\n' "$((max + 1))"
+}
+
+verify_storage_connection() {
+  compose exec -T vueio_engine python - "$(normalized_storage_label "$1")" "${2:-ro}" <<'PY' ||
+import sys
+from app.services.projects import configured_project_storage_catalog, storage_root_is_available, storage_location_is_read_only
+
+item = configured_project_storage_catalog().get(sys.argv[1])
+ready = item is not None and storage_root_is_available(item)
+if ready and sys.argv[2] == 'rw':
+    ready = not storage_location_is_read_only(item['path'])
+raise SystemExit(0 if ready else 1)
+PY
+    die "The connection was saved, but Vueio cannot access the expected drive. Check Storage in Settings and the drive's permissions on this computer."
 }
 
 storage_add() {
   [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || die "This installation has host-specific overrides. Review its storage mapping on the host before adding storage."
-  local label=${1:-} path=${2:-} mode=${3:-rw} id record sentinel sentinel_file sentinel_tmp normalized_label
+  local label=${1:-} path=${2:-} mode=${3:-rw} id record sentinel sentinel_file normalized_label retired_id='' record_tmp
   local marker_created=false duplicate=false
   [[ -n $label && -n $path ]] || die "Usage: $PROGRAM storage add <label> <path> [ro|rw]"
   validate_label "$label"
@@ -366,6 +611,12 @@ storage_add() {
   [[ -d "$path" ]] || die "Storage path does not exist or is not a directory: $path"
   path=$(realpath "$path")
   validate_storage_path "$path"
+  if [[ -n ${VUEIO_STORAGE_DEVICE_ID:-} ]]; then
+    # The web picker can select a mounted device, never supply arbitrary host
+    # paths. Recheck after the asynchronous handoff from the host helper.
+    python3 "$UPDATER_FILE" --home "$VUEIO_HOME" --check-drive "$VUEIO_STORAGE_DEVICE_ID" "$path" ||
+      die "The selected drive changed. Check for drives again before connecting it."
+  fi
   normalized_label=$(normalized_storage_label "$label")
   while IFS=$'\t' read -r _ existing_label existing_path _ _; do
     [[ $existing_label != "$label" ]] || die "A storage root named '$label' already exists"
@@ -375,6 +626,17 @@ storage_add() {
       die "Storage roots cannot overlap: $existing_path"
     fi
   done < <(storage_records)
+
+  # A removed name must not silently point existing database records at an
+  # unrelated disk. The original drive can reclaim its name and mount ID.
+  while IFS=$'\t' read -r existing_id existing_label _ _ existing_sentinel; do
+    if [[ $(normalized_storage_label "$existing_label") == "$normalized_label" ]]; then
+      storage_marker_matches "$path/.vueio-storage-id" "$existing_sentinel" ||
+        die "This storage name belongs to a disconnected drive. Reconnect the original drive or choose a new name."
+      retired_id=$existing_id
+      break
+    fi
+  done < <(storage_records removed)
 
   sentinel_file="$path/.vueio-storage-id"
   if [[ -L $sentinel_file ]]; then
@@ -400,21 +662,33 @@ storage_add() {
       [[ $duplicate == false ]] && break
     done
 
-    sentinel_tmp=$(mktemp "$path/.vueio-storage-id.XXXXXX") ||
-      die "Vueio could not prepare a storage identity marker in: $path"
-    if ! printf '%s\n' "$sentinel" >"$sentinel_tmp" ||
-      ! chmod 0444 "$sentinel_tmp"; then
-      rm -f -- "$sentinel_tmp"
-      die "Vueio could not prepare the storage identity marker: $sentinel_file"
-    fi
-    if ! ln -- "$sentinel_tmp" "$sentinel_file" 2>/dev/null; then
-      rm -f -- "$sentinel_tmp"
-      if [[ -e $sentinel_file || -L $sentinel_file ]]; then
-        die "Storage identity marker appeared while storage was being added; verify it and retry: $sentinel_file"
-      fi
-      die "Vueio could not atomically create the storage identity marker: $sentinel_file"
-    fi
-    rm -f -- "$sentinel_tmp"
+    # O_EXCL works on exFAT/FAT USB drives, unlike hard links. It also refuses
+    # to overwrite another installation's marker or follow a symbolic link.
+    python3 - "$sentinel_file" "$sentinel" <<'PY' || die "Could not create the drive identity marker. Check write access and try again."
+import os
+import sys
+
+path, token = sys.argv[1:]
+descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o444)
+identity = os.fstat(descriptor)
+try:
+    with os.fdopen(descriptor, 'wb') as handle:
+        handle.write((token + '\n').encode('ascii'))
+        handle.flush()
+        # The host service uses umask 0077. The non-root media engine must
+        # still be able to read this identity (it is not a secret).
+        os.fchmod(handle.fileno(), 0o444)
+        os.fsync(handle.fileno())
+except BaseException:
+    # Only this newly-created marker is removed, never existing media.
+    try:
+        current = os.stat(path, follow_symlinks=False)
+        if (current.st_dev, current.st_ino) == (identity.st_dev, identity.st_ino):
+            os.unlink(path)
+    except FileNotFoundError:
+        pass
+    raise
+PY
     marker_created=true
     if [[ ${VUEIO_INSTALL_IN_PROGRESS:-false} == true ]]; then
       VUEIO_INSTALL_CREATED_STORAGE_MARKER=$sentinel_file
@@ -433,17 +707,51 @@ storage_add() {
     fi
   done < <(storage_records)
 
-  id=$(next_storage_id)
+  id=${retired_id:-$(next_storage_id)}
   record="$STORAGE_DIR/$id.root"
-  printf '%s\n%s\n%s\n%s\n' "$label" "$path" "$mode" "$sentinel" >"$record"
-  chmod 600 "$record"
+  record_tmp=$(mktemp "$STORAGE_DIR/.add.XXXXXX")
+  printf '%s\n%s\n%s\n%s\n' "$label" "$path" "$mode" "$sentinel" >"$record_tmp"
+  mv -- "$record_tmp" "$record"
+  [[ -z $retired_id ]] || rm -f -- "$STORAGE_DIR/$retired_id.removed"
   render_storage
   note "Added '$label' ($mode): $path"
   if compose ps -q vueio_engine 2>/dev/null | grep -q .; then
     note "Applying storage changes requires a brief Vueio restart."
     compose up -d --no-deps --force-recreate vueio_engine vueio_ui
-    doctor
+    wait_for_engine || die "Storage was registered, but Vueio has not restarted. Run '$PROGRAM doctor' on the host."
+    verify_storage_connection "$label" "$mode"
   fi
+}
+
+storage_reconnect() {
+  (($# == 0 || $# == 2)) || die "Usage: $PROGRAM storage reconnect [label path]"
+  [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || die "This installation has custom mounts. Reconnect its storage on the host."
+  if (($# == 2)); then
+    local label=$1 path=$2 id existing_label existing_path mode sentinel record='' tmp
+    [[ -d $path ]] || die "The original drive is not connected"
+    path=$(realpath "$path")
+    validate_storage_path "$path"
+    while IFS=$'\t' read -r id existing_label existing_path mode sentinel; do
+      if [[ $existing_label == "$label" ]]; then
+        if [[ $path != "$existing_path" ]] && storage_marker_matches "$existing_path/.vueio-storage-id" "$sentinel"; then
+          die "The original drive is still connected. Vueio will not replace it with another copy."
+        fi
+        storage_marker_matches "$path/.vueio-storage-id" "$sentinel" || die "This is not the original drive"
+        record="$STORAGE_DIR/$id.root"
+        tmp=$(mktemp "$STORAGE_DIR/.reconnect.XXXXXX")
+        printf '%s\n%s\n%s\n%s\n' "$label" "$path" "$mode" "$sentinel" >"$tmp"
+      elif paths_overlap "$existing_path" "$path"; then
+        [[ -z ${tmp:-} ]] || rm -f -- "$tmp"
+        die "This path overlaps another registered storage location"
+      fi
+    done < <(storage_records)
+    [[ -n $record ]] || die "This storage location is not registered"
+    mv -- "$tmp" "$record"
+  fi
+  require_storage_mounts
+  compose up -d --no-deps --force-recreate vueio_engine vueio_ui
+  wait_for_engine || die "Vueio has not restarted. Run '$PROGRAM doctor' on the host."
+  if (($# == 2)); then verify_storage_connection "$1"; fi
 }
 
 storage_list() {
@@ -476,7 +784,7 @@ storage_remove() {
     die "Pass --yes when removing storage non-interactively"
   fi
 
-  rm -f "$record"
+  mv -- "$record" "${record%.root}.removed"
   render_storage
   note "Removed '$label'. No source files were changed."
   if compose ps -q vueio_engine 2>/dev/null | grep -q .; then
@@ -562,13 +870,32 @@ show_setup_token() {
   note "$(env_value VUEIO_SETUP_TOKEN)"
 }
 
+show_setup_info() {
+  require_installed
+  screen "SETUP · 5 / 5" "Open your workspace" keep
+  success "Vueio is running"
+  printf '\n  Open: %s%s%s\n' "$BOLD" "$(env_value VUEIO_CORS_ALLOW_ORIGINS)" "$RESET"
+  printf '  Setup code: %s%s%s\n\n' "$BOLD" "$(env_value VUEIO_SETUP_TOKEN)" "$RESET"
+  note "  Open this address on this computer."
+  note "  Enter the setup code. Then create your account."
+  note ""
+  note "  Keep this code private. You can close this terminal."
+  title "  Before you share"
+  note "  Internet access is not set up. See the self-hosting guide."
+}
+
 install_vueio() {
+  if [[ $(uname -s) == Darwin && $(uname -m) != arm64 ]]; then
+    die "The Mac preview needs Apple Silicon. Intel Macs are not supported."
+  fi
   require_command docker
   docker compose version >/dev/null 2>&1 || die "Docker Compose v2 is required"
   docker info >/dev/null 2>&1 || die "Docker is installed but is not running"
 
   local source_compose source_license version channel port bind local_url puid pgid default_uid default_gid
-  local initial_path initial_label initial_mode default_initial_path candidate
+  local initial_path initial_label initial_mode default_initial_path candidate state_path state_id default_state_path
+  local drive_choice source_helper drive_number=0
+  local -a drive_choices=()
   local compose_project postgres_volume
   local create_initial_path=false port_was_explicit=false
   source_compose=${VUEIO_RELEASE_COMPOSE:-"$SCRIPT_DIR/../compose.release.yml"}
@@ -576,13 +903,7 @@ install_vueio() {
   version=${VUEIO_VERSION:-}
   validate_release_tag "$version"
   channel=${VUEIO_CHANNEL:-stable}
-  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 && -z ${VUEIO_CHANNEL:-} ]]; then
-    title "Update channel"
-    note "Stable receives reviewed releases. Nightly receives newer test builds too."
-    printf 'Channel [stable]: '
-    read -r channel
-    channel=${channel:-stable}
-  fi
+  if [[ -z ${VUEIO_CHANNEL:-} ]] && is_nightly_tag "$version"; then channel=nightly; fi
   validate_channel "$channel"
   if [[ $channel == stable ]] && is_nightly_tag "$version"; then
     die "A nightly release requires VUEIO_CHANNEL=nightly"
@@ -613,8 +934,13 @@ install_vueio() {
     default_uid=1000
     default_gid=1000
   fi
-  puid=${VUEIO_PUID:-${SUDO_UID:-$default_uid}}
-  pgid=${VUEIO_PGID:-${SUDO_GID:-$default_gid}}
+  if [[ $(uname -s) == Darwin ]]; then
+    puid=${VUEIO_PUID:-$default_uid}
+    pgid=${VUEIO_PGID:-$default_gid}
+  else
+    puid=${VUEIO_PUID:-${SUDO_UID:-$default_uid}}
+    pgid=${VUEIO_PGID:-${SUDO_GID:-$default_gid}}
+  fi
   [[ $puid =~ ^[0-9]+$ && $pgid =~ ^[0-9]+$ ]] || die "PUID and PGID must be numeric"
   local_url=${VUEIO_LOCAL_URL:-http://127.0.0.1:$port}
   compose_project=${VUEIO_COMPOSE_PROJECT:-vueio}
@@ -622,20 +948,111 @@ install_vueio() {
   [[ $compose_project =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] ||
     die "VUEIO_COMPOSE_PROJECT contains unsupported characters"
 
-  title "Vueio setup"
-  note "This will install Vueio $version with its own database and private configuration."
+  source_helper=${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"}
+  default_state_path=${VUEIO_STATE_PATH:-$VUEIO_HOME/state}
+  state_path=$default_state_path
+  screen "SETUP · 2 / 5" "Where should Vueio keep its data?"
+  note "  Accounts, projects, comments and history live here."
+  note "  Keep this folder connected. Back up your data."
+  printf '\n'
+  if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+    option 0 "Default folder (recommended)" "$default_state_path"
+    mapfile -t drive_choices < <(python3 "$source_helper" --home "$VUEIO_HOME" --list-drives data 2>/dev/null || true)
+    for candidate in "${drive_choices[@]}"; do
+      drive_number=$((drive_number + 1))
+      option "$drive_number" "${candidate##*/}" "$candidate"
+    done
+    choose_hint
+  fi
+  while true; do
+    if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
+      printf '\n  %sData folder [0] ›%s ' "$MINT" "$RESET"
+      read -r candidate || { note "Setup cancelled. Nothing was installed."; return 0; }
+      if [[ $candidate == q ]]; then note "Setup cancelled. Nothing was installed."; return 0
+      elif [[ $candidate == '?' ]]; then
+        note "The data folder also holds app files, previews and database backups."
+        note "Use internal storage if possible. Copy backups to another drive."
+        note "An external data drive must stay connected while Vueio runs."
+        continue
+      elif [[ -z $candidate || $candidate == 0 ]]; then
+        state_path=$default_state_path
+      elif [[ $candidate =~ ^[1-9][0-9]{0,2}$ ]]; then
+        if ((candidate > ${#drive_choices[@]})); then warn "That drive number is not listed."; continue; fi
+        state_path="${drive_choices[$((candidate - 1))]}/Vueio data"
+        printf 'Folder on this drive [%s]: ' "$state_path"
+        read -r candidate || { note "Setup cancelled. Nothing was installed."; return 0; }
+        [[ $candidate != q ]] || { note "Setup cancelled. Nothing was installed."; return 0; }
+        state_path=${candidate:-$state_path}
+      else
+        state_path=${candidate:-$state_path}
+      fi
+    fi
+    if candidate=$(python3 "$source_helper" --home "$VUEIO_HOME" --data-folder "$state_path"); then
+      state_path=$candidate
+      break
+    fi
+    [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]] || die "Choose a suitable VUEIO_STATE_PATH."
+  done
+  # Media must never expose the selected database or its enclosing directory.
+  VUEIO_INSTALL_STATE_PATH=$state_path
+  if paths_overlap "$state_path" "$(realpath -m "$VUEIO_HOME")" && [[ $state_path != "$(realpath -m "$VUEIO_HOME")/state" ]]; then
+    die "Choose a separate data folder, or use the default $VUEIO_HOME/state. Do not place data over the private configuration."
+  fi
+  state_id=$(random_hex 24)
+  BACKUP_DIR="$state_path/backups"
 
-  default_initial_path=${VUEIO_DEFAULT_STORAGE_PATH:-/var/lib/vueio/projects}
+  if [[ $(uname -s) == Darwin ]]; then
+    default_initial_path=${VUEIO_DEFAULT_STORAGE_PATH:-"$HOME/Movies/Vueio projects"}
+  else
+    default_initial_path=${VUEIO_DEFAULT_STORAGE_PATH:-/var/lib/vueio/projects}
+  fi
   initial_path=${VUEIO_INITIAL_STORAGE_PATH:-}
   initial_label=${VUEIO_INITIAL_STORAGE_LABEL:-Projects}
   initial_mode=${VUEIO_INITIAL_STORAGE_MODE:-rw}
   if [[ -z $initial_path && ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
-    title "Project storage"
-    note "This is where Vueio will keep original project files."
-    note "Press Enter to use the safe local default, or enter an existing mounted folder."
-    printf 'Storage folder [%s]: ' "$default_initial_path"
-    read -r initial_path
-    initial_path=${initial_path:-$default_initial_path}
+    screen "SETUP · 3 / 5" "Where are your media files?"
+    note "  Use a folder on this computer or a connected drive."
+    note "  No drive is erased. Add more drives later in Settings."
+    printf '\n'
+    option 0 "This computer" "$default_initial_path"
+    source_helper=${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"}
+    if [[ -f $source_helper ]]; then
+      drive_choices=()
+      drive_number=0
+      while IFS= read -r candidate; do
+        paths_overlap "$candidate" "$state_path" || drive_choices+=("$candidate")
+      done < <(python3 "$source_helper" --home "$VUEIO_HOME" --list-drives 2>/dev/null || true)
+      for candidate in "${drive_choices[@]}"; do
+        drive_number=$((drive_number + 1))
+        option "$drive_number" "${candidate##*/}" "$candidate"
+      done
+    fi
+    choose_hint
+    while true; do
+      printf '\n  %sMedia folder [0] ›%s ' "$MINT" "$RESET"
+      read -r drive_choice || { note "Setup cancelled. Nothing was installed."; return 0; }
+      if [[ $drive_choice == q ]]; then note "Setup cancelled. Nothing was installed."; return 0
+      elif [[ $drive_choice == '?' ]]; then
+        note "Only the selected folder is connected. Existing files stay in place."
+        note "Keep media separate from your Vue data folder."
+        continue
+      elif [[ -z $drive_choice || $drive_choice == 0 ]]; then
+        initial_path=$default_initial_path
+      elif [[ $drive_choice =~ ^[1-9][0-9]{0,2}$ ]]; then
+        if ((drive_choice > ${#drive_choices[@]})); then
+          warn "That drive number is not listed. Press Enter to use this computer."
+          continue
+        fi
+        initial_path=${drive_choices[$((drive_choice - 1))]}
+      else
+        initial_path=$drive_choice
+      fi
+      if [[ $initial_path != "$default_initial_path" && ! -d $initial_path ]]; then
+        warn "That folder was not found. Check the path, or press Enter to use this computer."
+        continue
+      fi
+      break
+    done
   elif [[ -z $initial_path ]]; then
     die "Set VUEIO_INITIAL_STORAGE_PATH for a non-interactive installation"
   fi
@@ -652,6 +1069,8 @@ install_vueio() {
   validate_storage_path "$initial_path"
 
   if [[ -f "$VUEIO_HOME/.installing" && ! -f "$VUEIO_HOME/.installed" ]]; then
+    [[ -z $(env_value VUEIO_STATE_PATH 2>/dev/null || true) ]] ||
+      die "An incomplete installation has a separate data folder. Its configuration and data were kept for recovery. Inspect it before retrying; it will not be erased automatically."
     grep -qx 'vueio-install-v1' "$VUEIO_HOME/.installing" ||
       die "Unrecognized incomplete-install marker in $VUEIO_HOME; refusing to remove that directory"
     warn "Removing an incomplete prior installation before retrying."
@@ -674,18 +1093,22 @@ install_vueio() {
   fi
 
   if [[ ${VUEIO_NONINTERACTIVE:-0} != 1 ]]; then
-    title "Ready to install"
-    note "Web address: $local_url"
-    note "Project storage: $initial_path"
-    note "Vueio will not receive access to any other host folder."
-    confirm "Continue?" || {
+    screen "SETUP · 4 / 5" "Ready to install"
+    option "" "Vue data" "$state_path"
+    option "" "Media files" "$initial_path"
+    option "" "Browser address" "$local_url"
+    note "  Release: $version · $channel"
+    note "  Existing media stays in place."
+    printf '\n'
+    confirm "  Install Vueio?" || {
       note "Installation cancelled. Nothing was changed."
       return 0
     }
   fi
 
-  step "Creating private configuration"
-  mkdir -p "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$LOG_DIR" "$VUEIO_HOME/data"
+  title "  Installing"
+  step "Prepare data and storage"
+  mkdir -p "$VUEIO_HOME" "$STORAGE_DIR" "$LOG_DIR"
   printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installing"
   # EXIT traps run after Bash has released function-local variables.
   VUEIO_INSTALL_RESOURCES_MAY_EXIST=false
@@ -703,6 +1126,10 @@ install_vueio() {
       fi
       if [[ $resources_removed != true ]]; then
         warn "Docker cleanup failed; incomplete state was preserved in $VUEIO_HOME for a safe retry."
+        exit "$status"
+      fi
+      if [[ -n $(env_value VUEIO_STATE_PATH 2>/dev/null) ]]; then
+        warn "Setup did not finish. Vue data and private configuration were kept at the locations you chose. No database or media was deleted."
         exit "$status"
       fi
       if [[ -n ${VUEIO_INSTALL_CREATED_STORAGE_MARKER:-} &&
@@ -734,7 +1161,11 @@ VUEIO_CHANNEL=$channel
 VUEIO_COMPOSE_PROJECT=$compose_project
 VUEIO_UI_PORT=$port
 VUEIO_BIND_ADDRESS=$bind
-VUEIO_DATA_PATH=$VUEIO_HOME/data
+VUEIO_HOME_PATH=$VUEIO_HOME
+VUEIO_STATE_PATH=$state_path
+VUEIO_STATE_ID=$state_id
+VUEIO_DATABASE_INITIALIZING=true
+VUEIO_DATA_PATH=$state_path/app
 VUEIO_PUID=$puid
 VUEIO_PGID=$pgid
 VUEIO_UMASK=${VUEIO_UMASK:-0027}
@@ -767,12 +1198,31 @@ VUEIO_ENGINE_IMAGE=${VUEIO_ENGINE_IMAGE:-${VUEIO_ENGINE_REPOSITORY:-ghcr.io/rfxm
 VUEIO_UI_IMAGE=${VUEIO_UI_IMAGE:-${VUEIO_UI_REPOSITORY:-ghcr.io/rfxmedia/vueio-ui}:$version}
 EOF
   chmod 600 "$ENV_FILE"
-  chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$BACKUP_DIR" "$LOG_DIR"
+  chmod 700 "$VUEIO_HOME" "$STORAGE_DIR" "$LOG_DIR"
+  # Recheck after the confirmation, immediately before creating anything.
+  python3 "$source_helper" --home "$VUEIO_HOME" --data-folder "$state_path" >/dev/null ||
+    die "The data folder changed during setup. Nothing in it was overwritten."
+  mkdir -p "$state_path/postgres" "$state_path/app" "$BACKUP_DIR"
+  (set -o noclobber; printf '%s\n' "$state_id" >"$state_path/.vueio-storage-id")
+  chmod 444 "$state_path/.vueio-storage-id"
+  chmod 700 "$state_path/postgres" "$BACKUP_DIR"
+  # PostgreSQL and the media engine have different UIDs. Permit traversal of
+  # this parent only; each child keeps its own private permissions.
+  chmod 711 "$state_path"
+  chmod 750 "$state_path/app"
+  chown "$(id -u):$pgid" "$state_path"
+  render_data_mount
   prepare_updater_directory
   if [[ -f ${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"} ]]; then
     install -m 0644 "${VUEIO_RELEASE_UPDATER:-"$SCRIPT_DIR/vueio-updater.py"}" "$UPDATER_FILE"
   fi
-  chown "$puid:$pgid" "$VUEIO_HOME/data" 2>/dev/null ||
+  local media_helper
+  media_helper="$(dirname "$source_helper")/vueio-media.py"
+  if [[ ! -f $media_helper && -f $SCRIPT_DIR/../backend/app/services/media_encoding.py ]]; then
+    media_helper="$SCRIPT_DIR/../backend/app/services/media_encoding.py"
+  fi
+  [[ ! -f $media_helper ]] || install -m 0644 "$media_helper" "$VUEIO_HOME/vueio-media.py"
+  chown "$puid:$pgid" "$state_path/app" 2>/dev/null ||
     warn "Could not set data ownership to $puid:$pgid; verify it with '$PROGRAM doctor'"
   render_storage
 
@@ -785,17 +1235,32 @@ EOF
   fi
 
   storage_add "$initial_label" "$initial_path" "$initial_mode"
+  render_gpu_access
 
   if [[ ${VUEIO_SKIP_START:-0} != 1 ]]; then
     if [[ ${VUEIO_SKIP_PULL:-0} != 1 ]]; then
-      step "Downloading Vueio containers"
-      compose pull
+      step "Download Vueio · This can take several minutes"
+      compose pull >"$LOG_DIR/install-download.log" 2>&1 ||
+        die "Download failed. Details: $LOG_DIR/install-download.log"
+      success "Download complete"
     fi
     VUEIO_INSTALL_RESOURCES_MAY_EXIST=true
-    step "Starting the database and Vueio services"
-    compose up -d
-    step "Running installation safety checks"
-    doctor
+    step "Start Vueio · This can take a minute"
+    compose up -d >"$LOG_DIR/install-start.log" 2>&1 ||
+      die "Vueio could not start. Details: $LOG_DIR/install-start.log"
+    success "Services started"
+    step "Check data, storage and website"
+    if ! doctor >"$LOG_DIR/install-checks.log" 2>&1; then
+      die "Checks failed. Data was kept. Details: $LOG_DIR/install-checks.log"
+    fi
+    success "Database, storage access and website checks passed"
+    # Subsequent boots must find an existing database, even if only its files
+    # (rather than the whole data drive) have gone missing.
+    step "Finish database setup"
+    set_env VUEIO_DATABASE_INITIALIZING false
+    compose up -d vueio_postgres vueio_engine vueio_ui >"$LOG_DIR/install-finish.log" 2>&1 ||
+      die "Setup could not finish. Details: $LOG_DIR/install-finish.log"
+    wait_for_engine || die "The database could not restart with its initialization guard enabled."
   fi
   printf 'vueio-install-v1\n' >"$VUEIO_HOME/.installed"
   rm -f "$VUEIO_HOME/.installing"
@@ -804,12 +1269,7 @@ EOF
   VUEIO_INSTALL_CREATED_STORAGE_SENTINEL=
   VUEIO_INSTALL_CREATED_STORAGE_DIR=
   trap - EXIT INT TERM
-  title "Vueio is ready"
-  success "Installation completed successfully"
-  printf '\nOpen: %s%s%s\n' "$BOLD" "$local_url" "$RESET"
-  printf 'Setup code: %s%s%s\n\n' "$BOLD" "$(env_value VUEIO_SETUP_TOKEN)" "$RESET"
-  note "Open the address in a browser and enter the setup code to create the owner account."
-  warn "Local HTTP mode is not safe for direct internet exposure."
+  if [[ ${VUEIO_DEFER_SETUP_INFO:-0} != 1 ]]; then show_setup_info; fi
 }
 
 doctor() {
@@ -966,9 +1426,9 @@ doctor() {
     fi
     while IFS=$'\t' read -r id label _ mode sentinel; do
       if compose exec -T vueio_engine python -c \
-        "import os,sys; from pathlib import Path; p=Path('/storage/root-$id'); s='$sentinel'; m=p/'.vueio-storage-id'; ok=bool(s) and p.is_dir() and os.access(p, os.R_OK) and m.is_file() and not m.is_symlink() and m.read_text().rstrip('\\n')==s; sys.exit(0 if ok else 1)"; then
+        "import os,sys; from pathlib import Path; p=Path('/storage/root-$id'); s='$sentinel'; m=p/'.vueio-storage-id'; ok=bool(s) and p.is_dir() and os.access(p, os.R_OK) and m.is_file() and not m.is_symlink() and m.read_text().rstrip('\\n')==s; sys.exit(0 if ok else 1)" </dev/null; then
         if [[ $mode == rw ]] && ! compose exec -T vueio_engine python -c \
-          "import os,sys; sys.exit(0 if os.access('/storage/root-$id', os.W_OK) else 1)"; then
+          "import os,sys; sys.exit(0 if os.access('/storage/root-$id', os.W_OK) else 1)" </dev/null; then
           warn "Engine cannot write read/write storage '$label'"
           issues+=("Correct write access for storage '$label'.")
         else
@@ -1086,7 +1546,19 @@ backup_vueio() (
   stamp=$(date -u +%Y%m%dT%H%M%SZ)
   destination=${destination:-"$BACKUP_DIR/vueio-$stamp.tar.gz"}
   [[ $destination = /* ]] || destination="$(pwd)/$destination"
+  destination=$(realpath -m "$destination")
   [[ ! -d $destination ]] || die "Backup destination is a directory: $destination"
+  [[ ! -e $destination && ! -e $destination.sha256 && ! -L $destination && ! -L $destination.sha256 ]] ||
+    die "A backup already exists at this path. Choose a new filename; existing backups will not be overwritten."
+  local media_path state_path
+  while IFS=$'\t' read -r _ _ media_path _ _; do
+    paths_overlap "$destination" "$media_path" && die "Keep database backups outside project media folders. They contain private account and project records."
+  done < <(storage_records; storage_records removed)
+  paths_overlap "$destination" "$(env_value VUEIO_DATA_PATH)" && die "Keep database backups outside the app's browsable files and previews."
+  state_path=$(env_value VUEIO_STATE_PATH)
+  if [[ -n $state_path ]] && paths_overlap "$destination" "$state_path/postgres"; then
+    die "Do not put backup archives inside the live PostgreSQL directory."
+  fi
   mkdir -p "$(dirname "$destination")"
   database_bytes=$(database_size_bytes)
   required_kb=$(((2 * database_bytes + 1023) / 1024 + 16384))
@@ -1129,7 +1601,8 @@ backup_vueio() (
   (
     cd "$tmp"
     sha256sum ./database.dump ./manifest >checksums.sha256
-    tar -czf "$archive_tmp" ./database.dump ./manifest ./checksums.sha256
+    # macOS otherwise adds AppleDouble files that are not database contents.
+    COPYFILE_DISABLE=1 tar -czf "$archive_tmp" ./database.dump ./manifest ./checksums.sha256
   )
   printf '%s  %s\n' "$(sha256sum "$archive_tmp" | cut -d ' ' -f 1)" "$(basename "$destination")" >"$checksum_tmp"
   mv -f -- "$archive_tmp" "$destination"
@@ -1651,6 +2124,10 @@ update_vueio() (
     curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/compose.release.yml" -o "$stage/compose.release.yml"
     curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/vueioctl" -o "$stage/vueioctl"
     curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/vueio-updater.py" -o "$stage/vueio-updater.py"
+    # Old releases have no native helper; CPU remains available on those versions.
+    if grep -Eq '[[:space:]]vueio-media\.py$' "$stage/SHA256SUMS"; then
+      curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/vueio-media.py" -o "$stage/vueio-media.py"
+    fi
     curl -fsSL --connect-timeout 10 --max-time 180 "$asset_base/LICENSE.md" -o "$stage/LICENSE.md"
     grep -Eq '[[:space:]]vueioctl$' "$stage/SHA256SUMS" || die "Release checksums do not include vueioctl"
     grep -Eq '[[:space:]]vueio-updater\.py$' "$stage/SHA256SUMS" || die "Release checksums do not include vueio-updater.py"
@@ -1659,8 +2136,12 @@ update_vueio() (
     (cd "$stage" && sha256sum --ignore-missing -c SHA256SUMS)
     bash -n "$stage/vueioctl"
     python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$stage/vueio-updater.py"
+    if [[ -f $stage/vueio-media.py ]]; then
+      python3 -c 'import ast, pathlib, sys; ast.parse(pathlib.Path(sys.argv[1]).read_text())' "$stage/vueio-media.py"
+    fi
     local installation=()
-    [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation=(-f "$INSTALLATION_COMPOSE_FILE")
+    [[ ! -f "$DATA_COMPOSE_FILE" ]] || installation+=(-f "$DATA_COMPOSE_FILE")
+    [[ ! -f "$INSTALLATION_COMPOSE_FILE" ]] || installation+=(-f "$INSTALLATION_COMPOSE_FILE")
     docker compose --env-file "$ENV_FILE" -f "$stage/compose.release.yml" -f "$STORAGE_COMPOSE_FILE" "${installation[@]}" config -q
   fi
 
@@ -1685,6 +2166,10 @@ update_vueio() (
     controller_tmp=$(mktemp "$(dirname "$controller_target")/.vueioctl.XXXXXX")
     install -m 0755 "$stage/vueioctl" "$controller_tmp"
     mv -f "$controller_tmp" "$controller_target"
+    if [[ -f $stage/vueio-media.py ]]; then
+      install -m 0644 "$stage/vueio-media.py" "$VUEIO_HOME/vueio-media.py.next"
+      mv -f "$VUEIO_HOME/vueio-media.py.next" "$VUEIO_HOME/vueio-media.py"
+    fi
     install -m 0644 "$stage/vueio-updater.py" "$UPDATER_FILE.next"
     mv -f "$UPDATER_FILE.next" "$UPDATER_FILE"
   fi
@@ -1719,7 +2204,21 @@ cleanup_update_logs() {
 run_logged_update() {
   require_installed
   local stamp status
-  (($# == 1)) || die "Usage: $PROGRAM update <release-tag>"
+  (($# <= 1)) || die "Usage: $PROGRAM update [release-tag]"
+  if (($# == 0)); then
+    local latest
+    step "Checking for updates on your channel"
+    latest=$(compose exec -T vueio_engine python - <<'PY'
+from app.services.release_updates import get_update_status
+status = get_update_status(force_refresh=True)
+if status['status'] in {'error', 'unavailable', 'checking'}:
+    raise SystemExit('The release could not be checked. Try again when Vueio and the internet connection are available.')
+print(status['latest_version'] if status['update_available'] else '')
+PY
+    ) || die "Could not check the latest release. Start Vueio first, or use the exact update command from Settings."
+    if [[ -z $latest ]]; then success "No newer release is available on your channel."; return 0; fi
+    set -- "$latest"
+  fi
   validate_release_tag "$1"
   require_command python3
   UPDATE_REQUESTED_VERSION=$1
@@ -1753,6 +2252,59 @@ PY
   return "$status"
 }
 
+terminal_menu() {
+  [[ -t 0 && -t 1 ]] || { usage; return; }
+  require_installed
+  local choice answer destination
+  while true; do
+    screen "WORKSPACE" "What would you like to do?"
+    note "  $(env_value VUEIO_VERSION) · $(env_value VUEIO_CHANNEL)"
+    note "  $(env_value VUEIO_CORS_ALLOW_ORIGINS)"
+    title "  Manage"
+    printf '  [1] Status          [2] Update\n'
+    title "  Run"
+    printf '  [3] Start           [4] Restart       [5] Stop\n'
+    title "  Data and releases"
+    printf '  [6] Back up database\n  [7] Data and backup folders\n  [8] Stable / Nightly\n\n'
+    note "  ?  All commands   ·   q  Exit menu"
+    printf '\n  %sChoose an option ›%s ' "$MINT" "$RESET"
+    IFS= read -r choice || break
+    case "$choice" in
+      1|/status) "$0" status || true ;;
+      2|/update)
+        if confirm "Check for an update and install it? Vueio pauses briefly; a database backup is created first."; then "$0" update || true; fi ;;
+      3|/start) "$0" start || true ;;
+      4|/restart)
+        if confirm "Restart Vueio? Finish active uploads first."; then "$0" restart || true; fi ;;
+      5|/stop)
+        if confirm "Stop Vueio? Review links will be offline until you start it again."; then "$0" stop || true; fi ;;
+      6|/backup)
+        note "Creates a database backup. Media and app files are not included."
+        note "Press Enter for the default, or enter a full archive path on another drive."
+        printf 'Backup file: '
+        IFS= read -r destination || break
+        if [[ -n $destination ]]; then "$0" backup "$destination" || true; else "$0" backup || true; fi ;;
+      7|/data) "$0" data || true ;;
+      8|/channel)
+        note "Stable: reviewed releases. Nightly: earlier updates."
+        note "Changing channels never downgrades your database or installed version."
+        printf 'Channel [stable/nightly, Enter to cancel]: '
+        IFS= read -r answer || break
+        case "$answer" in
+          stable|nightly) "$0" channel "$answer" || true ;;
+          '') ;;
+          *) warn "Enter stable or nightly. Nothing was changed." ;;
+        esac ;;
+      /help|help|\?) usage ;;
+      /exit|exit|quit|q) break ;;
+      '') continue ;;
+      *) warn "That is not a Vueio command. Use /help. No shell command was run." ;;
+    esac
+    printf '\nPress Enter to return to the menu. '
+    IFS= read -r answer || break
+  done
+}
+
 updater() {
   require_installed
   local action=${1:-status} controller unit_name stage version release_root python_path ready=false
@@ -1760,6 +2312,16 @@ updater() {
   controller=$(readlink -f "$0")
   case "$action" in
     status)
+      if [[ $(uname -s) == Darwin ]]; then
+        python3 - "$VUEIO_HOME/updater/access-token" "$(env_value VUEIO_UPDATER_PORT)" <<'PY'
+import json, pathlib, sys, urllib.request
+token = pathlib.Path(sys.argv[1]).read_text().strip()
+request = urllib.request.Request(f'http://127.0.0.1:{int(sys.argv[2])}/status', headers={'Authorization': f'Bearer {token}'})
+with urllib.request.urlopen(request, timeout=3) as response:
+    print(json.dumps(json.load(response), indent=2))
+PY
+        return
+      fi
       require_command curl
       curl --fail --silent --show-error --max-time 3 \
         --unix-socket "$VUEIO_HOME/updater/control.sock" http://localhost/status
@@ -1773,6 +2335,45 @@ updater() {
     enable|disable) ;;
     *) die "Usage: $PROGRAM updater <enable|disable|status|serve>" ;;
   esac
+  if [[ $(uname -s) == Darwin ]]; then
+    local agent_label agent_file
+    agent_label="io.vueio.host.$(printf '%s' "$VUEIO_HOME" | sha256sum | cut -c1-12)"
+    agent_file="$HOME/Library/LaunchAgents/$agent_label.plist"
+    if [[ $action == disable ]]; then
+      launchctl bootout "gui/$(id -u)/$agent_label" 2>/dev/null || true
+      rm -f -- "$agent_file"
+      note "The Mac host helper was disabled. Terminal commands remain available."
+      return
+    fi
+    [[ -f $UPDATER_FILE ]] || die "The host helper is missing. Reinstall its verified release asset first."
+    prepare_updater_directory
+    mkdir -p "$HOME/Library/LaunchAgents"
+    python3 - "$agent_file" "$agent_label" "$(command -v python3)" "$UPDATER_FILE" "$VUEIO_HOME" "$controller" <<'PY'
+import os, pathlib, plistlib, sys
+destination, label, python, helper, home, controller = sys.argv[1:]
+document = dict(Label=label, ProgramArguments=[python, helper, '--home', home, '--controller', controller],
+                RunAtLoad=True, KeepAlive=True, ThrottleInterval=10, Umask=0o077,
+                EnvironmentVariables={key: os.environ[key] for key in ('HOME', 'PATH') if key in os.environ})
+path = pathlib.Path(destination)
+if path.is_symlink():
+    raise SystemExit('The launch agent path must not be a symbolic link.')
+with path.open('wb') as handle:
+    plistlib.dump(document, handle)
+path.chmod(0o600)
+PY
+    launchctl bootout "gui/$(id -u)/$agent_label" 2>/dev/null || true
+    launchctl bootstrap "gui/$(id -u)" "$agent_file"
+    compose up -d --no-deps vueio_engine
+    wait_for_engine || die "Vueio did not restart after enabling its Mac helper."
+    for _ in {1..20}; do
+      if compose exec -T vueio_engine python -c 'from app.services.host_updates import get_host_update_status; raise SystemExit(0 if get_host_update_status()["supported"] else 1)' >/dev/null 2>&1; then
+        success "Updates and drive management are connected to this Mac."
+        return
+      fi
+      sleep 1
+    done
+    die "Vueio cannot reach its Mac helper. It remains local-only; no network port was opened. Check Docker Desktop and run '$PROGRAM updater enable' again."
+  fi
   [[ $(id -u) == 0 ]] || die "Run this command with sudo"
   unit_name="vueio-updater-$(printf '%s' "$VUEIO_HOME" | sha256sum | cut -c1-12).service"
   if [[ $action == disable ]]; then
@@ -1851,7 +2452,7 @@ EOF
     sleep 0.1
   done
   [[ $ready == true ]] || die "The host updater did not become ready; inspect its service log"
-  success "One-click updates are enabled in Settings → Updates."
+  success "Updates and drive management are enabled in Settings."
 }
 
 exposure_set() {
@@ -1898,6 +2499,10 @@ main() {
   local command=${1:-}
   shift || true
   case "$command" in
+    start|restart|backup|restore|rollback|update|channel|exposure) require_installed; require_data_mount ;;
+    storage) [[ ${1:-} == list ]] || { require_installed; require_data_mount; } ;;
+  esac
+  case "$command" in
     start|stop|restart|backup|restore|rollback|update|channel|exposure) maintenance_lock ;;
     storage) [[ ${1:-} == list ]] || maintenance_lock ;;
     doctor) [[ ${1:-} != --fix ]] || maintenance_lock ;;
@@ -1907,10 +2512,13 @@ main() {
     install) install_vueio "$@" ;;
     start) require_installed; require_storage_mounts; compose up -d ;;
     stop) require_installed; compose stop ;;
-    restart) require_installed; require_storage_mounts; compose restart ;;
+    restart) require_installed; require_storage_mounts; compose up -d --force-recreate vueio_engine vueio_ui ;;
     status) require_installed; compose ps ;;
     version) show_version ;;
+    data) show_data_location ;;
+    menu) terminal_menu ;;
     setup-token) show_setup_token ;;
+    setup-info) show_setup_info ;;
     logs)
       require_installed
       if (($#)); then
@@ -1934,8 +2542,9 @@ main() {
       case "$action" in
         list) storage_list ;;
         add) storage_add "$@" ;;
+        reconnect) storage_reconnect "$@" ;;
         remove) storage_remove "$@" ;;
-        *) die "Usage: $PROGRAM storage <list|add|remove>" ;;
+        *) die "Usage: $PROGRAM storage <list|add|reconnect|remove>" ;;
       esac
       ;;
     exposure)
@@ -1948,7 +2557,8 @@ main() {
         *) die "Usage: $PROGRAM exposure <set|local>" ;;
       esac
       ;;
-    -h|--help|help|'') usage ;;
+    '') terminal_menu ;;
+    -h|--help|help|/help) usage ;;
     *) die "Unknown command: $command" ;;
   esac
 }

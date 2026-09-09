@@ -10,10 +10,10 @@
         <div class="setup-heading">
           <div class="setup-brand" aria-hidden="true">V</div>
           <div class="v-modal-header-copy">
-            <span class="v-modal-header-eyebrow">Welcome to Vueio</span>
+            <span class="v-modal-header-eyebrow">Step 1 of 2 · Workspace</span>
             <h2 class="v-modal-header-title">Create your workspace</h2>
             <p class="v-modal-header-subtitle">
-              Finish the one-time setup, then you’re ready to create and review projects.
+              Your account belongs to this Vueio installation. Next, check your media storage.
             </p>
           </div>
         </div>
@@ -21,16 +21,15 @@
     </template>
 
     <section class="setup-auth v-modal-stack">
-      <form id="vueio-setup-form" class="setup-form" @submit.prevent="completeSetup">
+      <form id="vueio-setup-form" ref="setupFormElement" class="setup-form" novalidate :aria-busy="submitting" @submit.prevent="submitSetup">
         <section v-if="tokenRequired" class="v-modal-section">
           <div class="v-modal-section-head">
             <h3 class="v-modal-section-title">Verify this installation</h3>
             <p class="v-modal-section-copy">
-              Enter the one-time setup code shown by the Vueio installer.
-              Lost it? Run <code>sudo vueioctl setup-token</code> on the server.
+              Paste the setup code from your terminal to connect this browser to your installation.
             </p>
           </div>
-          <VField label="Setup code" required hint="This code stops anyone else from claiming your new server.">
+          <VField label="Setup code" required :error="fieldError('setup_token')">
             <input
               :value="form.setup_token"
               class="v-input"
@@ -39,9 +38,16 @@
               placeholder="One-time setup code"
               autofocus
               required
+              :aria-invalid="fieldError('setup_token') ? 'true' : undefined"
+              aria-describedby="setup-code-help"
+              @blur="touched.setup_token = true"
               @input="setSetupField('setup_token', $event.target.value)"
             />
           </VField>
+          <details id="setup-code-help" class="setup-code-help">
+            <summary>Where do I find my code?</summary>
+            <p>Copy the code under “Continue in your browser” in the terminal. If you closed it, run <code>vueioctl setup-token</code> on the computer running Vueio. Add <code>sudo</code> at the start on Linux.</p>
+          </details>
         </section>
 
         <section class="v-modal-section">
@@ -70,13 +76,16 @@
             </p>
           </div>
           <div class="setup-form-grid">
-            <VField label="Username" required>
+            <VField label="Username" required :error="fieldError('username')" hint="3–48 letters, numbers, dots, dashes or underscores.">
               <input
                 :value="form.username"
                 class="v-input"
                 autocomplete="username"
                 placeholder="admin"
                 required
+                maxlength="48"
+                :aria-invalid="fieldError('username') ? 'true' : undefined"
+                @blur="touched.username = true"
                 @input="setSetupField('username', $event.target.value)"
               />
             </VField>
@@ -89,59 +98,57 @@
                 @input="setSetupField('display_name', $event.target.value)"
               />
             </VField>
-            <VField label="Password" required hint="Use at least 8 characters.">
+            <VField label="Password" required :error="fieldError('password')" hint="Use at least 8 characters.">
               <input
                 :value="form.password"
                 class="v-input"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 autocomplete="new-password"
                 placeholder="Minimum 8 characters"
                 required
-                :aria-invalid="passwordValidationMessage ? 'true' : undefined"
+                maxlength="1024"
+                :aria-invalid="fieldError('password') ? 'true' : undefined"
+                @blur="touched.password = true"
                 @input="setSetupField('password', $event.target.value)"
               />
             </VField>
-            <VField label="Confirm password" required>
+            <VField label="Confirm password" required :error="fieldError('confirm')">
               <input
                 :value="form.confirm"
                 class="v-input"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 autocomplete="new-password"
                 placeholder="Repeat password"
                 required
-                :aria-invalid="passwordValidationMessage ? 'true' : undefined"
+                :aria-invalid="fieldError('confirm') ? 'true' : undefined"
+                @blur="touched.confirm = true"
                 @input="setSetupField('confirm', $event.target.value)"
               />
             </VField>
           </div>
-          <p
-            v-if="passwordValidationMessage"
-            class="v-field-help is-error"
-            role="status"
-            aria-live="polite"
-          >
-            {{ passwordValidationMessage }}
-          </p>
+          <button class="v-btn v-btn-ghost v-btn-sm" type="button" :aria-pressed="showPassword" @click="showPassword = !showPassword">
+            {{ showPassword ? 'Hide passwords' : 'Show passwords' }}
+          </button>
         </section>
       </form>
     </section>
 
     <template #footer>
-      <p v-if="error" class="setup-error" role="alert">{{ error }}</p>
+      <p v-if="error" ref="errorElement" class="setup-error" role="alert" tabindex="-1">{{ error }}</p>
       <button
         class="v-btn v-btn-primary v-btn-lg setup-submit"
         type="submit"
         form="vueio-setup-form"
-        :disabled="submitting || !canSubmit"
+        :disabled="submitting"
       >
-        {{ submitting ? 'Creating workspace…' : 'Create workspace' }}
+        {{ submitting ? 'Creating workspace…' : 'Continue to storage' }}
       </button>
     </template>
   </VModal>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { VField, VModal, VModalHeader } from '../primitives'
 import { useSessionAuthStore } from '../../ownership/sessionAuth'
 import { useShareAccessContext } from '../../ownership/shareAccessContext'
@@ -158,19 +165,38 @@ const {
 const { shareMode } = useShareAccessContext()
 
 const tokenRequired = computed(() => status.value?.setup_token_required === true)
-const passwordValidationMessage = computed(() => {
-  const password = String(form.value?.password || '')
-  const confirm = String(form.value?.confirm || '')
-  if (password && password.length < 8) return 'Password must be at least 8 characters.'
-  if (confirm && password !== confirm) return 'Passwords do not match.'
-  return ''
+const setupFormElement = ref(null)
+const errorElement = ref(null)
+const touched = ref({})
+const attempted = ref(false)
+const showPassword = ref(false)
+const errors = computed(() => ({
+  setup_token: tokenRequired.value && !form.value.setup_token.trim() ? 'Paste the setup code from your terminal.' : '',
+  username: /^[A-Za-z0-9_.-]{3,48}$/.test(form.value.username.trim()) ? '' : 'Use 3–48 letters, numbers, dots, dashes or underscores.',
+  password: form.value.password.length >= 8 ? '' : 'Use at least 8 characters.',
+  confirm: !form.value.confirm ? 'Enter your password again.' : form.value.password !== form.value.confirm ? 'Passwords do not match.' : '',
+}))
+
+function fieldError(field) {
+  return attempted.value || touched.value[field] ? errors.value[field] : ''
+}
+
+async function submitSetup() {
+  if (submitting.value) return
+  attempted.value = true
+  if (Object.values(errors.value).some(Boolean)) {
+    await nextTick()
+    setupFormElement.value?.querySelector('[aria-invalid="true"]')?.focus()
+    return
+  }
+  await completeSetup()
+}
+
+watch(error, async value => {
+  if (!value) return
+  await nextTick()
+  errorElement.value?.focus()
 })
-const canSubmit = computed(() => (
-  (!tokenRequired.value || Boolean(String(form.value?.setup_token || '').trim())) &&
-  Boolean(String(form.value?.username || '').trim()) &&
-  String(form.value?.password || '').length >= 8 &&
-  form.value?.password === form.value?.confirm
-))
 </script>
 
 <style scoped>
@@ -222,6 +248,23 @@ const canSubmit = computed(() => (
 
 .setup-submit {
   width: 100%;
+}
+
+.setup-code-help {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.5;
+}
+
+.setup-code-help summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--v-text-secondary);
+}
+
+.setup-code-help p {
+  margin: var(--v-space-2) 0 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 640px) {

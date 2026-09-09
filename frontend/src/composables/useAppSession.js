@@ -222,9 +222,9 @@ export function useAppSession({
       }
       onSetupComplete?.(data)
 
-      activeModule.value = 'home'
+      activeModule.value = 'settings'
       await loadProjects()
-      router.push({ name: 'home' })
+      router.push({ name: 'settings', query: { tab: 'storage', setup: 'storage' } })
     } catch (e) {
       setupError.value = getApiErrorMessage(e, 'Setup failed')
     } finally {

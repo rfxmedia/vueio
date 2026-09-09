@@ -21,6 +21,7 @@ from app.models import TranscodeJob
 from app.runtime_state import executor, transcode_cancel_requested, transcode_processes, transcode_progress
 from app.services.media import is_video, probe_duration_seconds
 from app.services.media_resolution import source_signature
+from app.services.media_processing import MediaProcess
 from app.services.media_resolution import hls_master_playlist_path_for_identity, hls_package_dir_for_identity, legacy_media_source_identities
 from app.services.storage_capacity import ensure_data_capacity
 from app.services.transcode_lifecycle import (
@@ -379,9 +380,6 @@ def _hls_gop_frames_for_probe(probe: dict) -> int:
     return max(12, int(round(fps * HLS_SEGMENT_SECONDS)))
 
 
-def _format_hls_seconds(value: float) -> str:
-    return f'{float(value):.3f}'.rstrip('0').rstrip('.')
-
 
 def _read_master_playlist(master_playlist: Path) -> str:
     try:
@@ -555,26 +553,6 @@ def validate_hls_package(package_dir: Path, probe: dict) -> bool:
     return True
 
 
-def _build_hls_output_args(package_dir: Path, renditions: list[dict], has_audio: bool, *, segment_seconds: float) -> list[str]:
-    var_stream_map = ' '.join(
-        f'v:{index},a:{index}' if has_audio else f'v:{index}'
-        for index in range(len(renditions))
-    )
-    return [
-        '-muxdelay', '0',
-        '-muxpreload', '0',
-        '-avoid_negative_ts', 'make_zero',
-        '-f', 'hls',
-        '-hls_time', _format_hls_seconds(segment_seconds),
-        '-hls_playlist_type', 'vod',
-        '-hls_flags', 'independent_segments',
-        '-master_pl_name', 'master.m3u8',
-        '-var_stream_map', var_stream_map,
-        '-hls_segment_filename', str(package_dir / 'segment_%v_%03d.ts'),
-        '-progress', 'pipe:1',
-        str(package_dir / 'variant_%v.m3u8'),
-    ]
-
 
 def _bitrate_to_int(value: str, fallback: int) -> int:
     text = str(value or '').strip().lower()
@@ -694,64 +672,14 @@ def _repair_hls_package_playlists(package_dir: Path, probe: dict) -> None:
     _write_fallback_master_playlist_if_needed(package_dir, probe)
 
 
-def _build_hls_ffmpeg_command_cpu(input_path: Path, package_dir: Path, probe: dict) -> list[str]:
-    renditions = _pick_hls_renditions(int(probe.get('height') or 0))
-    has_audio = bool(probe.get('has_audio'))
-    segment_seconds = _hls_segment_seconds_for_probe(probe)
-    gop = _hls_gop_frames_for_probe(probe)
-    force_keyframe_expr = f'expr:gte(t,n_forced*{_format_hls_seconds(segment_seconds)})'
-
-    cmd = ['ffmpeg', '-hide_banner', '-nostats', '-loglevel', 'error', '-y', '-fflags', '+genpts', '-i', str(input_path)]
-
-    if len(renditions) > 1:
-        split_labels = ''.join(f'[vsplit{index}]' for index in range(len(renditions)))
-        filter_parts = [f'[0:v:0]split={len(renditions)}{split_labels}']
-        for index, rendition in enumerate(renditions):
-            filter_parts.append(
-                f'[vsplit{index}]scale=-2:{rendition["height"]}:flags=lanczos[vout{index}]'
-            )
-        cmd.extend(['-filter_complex', ';'.join(filter_parts)])
-        for index in range(len(renditions)):
-            cmd.extend(['-map', f'[vout{index}]'])
-            if has_audio:
-                cmd.extend(['-map', '0:a:0?'])
-    else:
-        cmd.extend(['-map', '0:v:0'])
-        if has_audio:
-            cmd.extend(['-map', '0:a:0?'])
-
-    for index, rendition in enumerate(renditions):
-        cmd.extend([
-            f'-c:v:{index}', 'libx264',
-            f'-preset:v:{index}', 'medium',
-            f'-profile:v:{index}', 'high',
-            f'-pix_fmt:v:{index}', 'yuv420p',
-            f'-crf:v:{index}', '16',
-            f'-sc_threshold:v:{index}', '0',
-            f'-g:v:{index}', str(gop),
-            f'-keyint_min:v:{index}', str(gop),
-            f'-bf:v:{index}', '0',
-            f'-force_key_frames:v:{index}', force_keyframe_expr,
-            f'-b:v:{index}', rendition['bitrate'],
-            f'-maxrate:v:{index}', rendition['maxrate'],
-            f'-bufsize:v:{index}', rendition['bufsize'],
-        ])
-        if len(renditions) == 1:
-            cmd.extend([f'-vf:v:{index}', f'scale=-2:{rendition["height"]}:flags=lanczos'])
-        if has_audio:
-            cmd.extend([
-                f'-c:a:{index}', 'aac',
-                f'-b:a:{index}', rendition['audio_bitrate'],
-                f'-ac:a:{index}', '2',
-                f'-ar:a:{index}', '48000',
-            ])
-
-    cmd.extend(_build_hls_output_args(package_dir, renditions, has_audio, segment_seconds=segment_seconds))
-    return cmd
-
-
-def _build_hls_ffmpeg_command(input_path: Path, package_dir: Path, probe: dict) -> list[str]:
-    return _build_hls_ffmpeg_command_cpu(input_path, package_dir, probe)
+def _hls_processing_recipe(probe: dict) -> dict:
+    return {
+        'kind': 'hls',
+        'variants': _pick_hls_renditions(int(probe.get('height') or 0)),
+        'has_audio': bool(probe.get('has_audio')),
+        'gop': _hls_gop_frames_for_probe(probe),
+        'segment_seconds': _hls_segment_seconds_for_probe(probe),
+    }
 
 
 def _estimated_hls_output_bytes(input_path: Path, probe: dict) -> int:
@@ -805,8 +733,7 @@ def package_video_to_hls_with_progress(input_path: Path, package_dir: Path, job_
         tmp_dir.mkdir(parents=True, exist_ok=True)
 
         tail = deque(maxlen=80)
-        cmd = _build_hls_ffmpeg_command(input_path, tmp_dir, probe)
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        process = MediaProcess(input_path, tmp_dir, _hls_processing_recipe(probe))
         transcode_processes[job_key] = process
         last_heartbeat = time.time()
         if process.stdout:

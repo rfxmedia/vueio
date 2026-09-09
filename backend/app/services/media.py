@@ -10,11 +10,13 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable
+from uuid import uuid4
 
 from fastapi import HTTPException, Response
 from fastapi.responses import FileResponse
 
 from app.config import get_settings
+from app.services.projects import configured_project_storage_catalog, storage_root_is_available
 
 settings = get_settings()
 
@@ -53,6 +55,13 @@ def get_safe_path(path_str: str) -> Path:
         full_path.relative_to(root)
     except ValueError:
         raise HTTPException(status_code=403, detail='Access denied')
+    # File-browser and legacy share paths need the same drive identity check
+    # as project paths. A replacement disk must not inherit an old share.
+    for item in configured_project_storage_catalog().values():
+        if full_path == item['path'] or item['path'] in full_path.parents:
+            if not storage_root_is_available(item):
+                raise HTTPException(status_code=409, detail='This storage drive is offline or its identity changed. Reconnect the original drive.')
+            break
     return full_path
 
 
@@ -326,48 +335,23 @@ def get_video_info(path: Path) -> dict:
 
 THUMBNAIL_WIDTH = 960
 DELIVERY_POSTER_WIDTH = 1920
-THUMBNAIL_JPEG_QUALITY = 2
-
-
-def thumbnail_video_filter(width: int) -> str:
-    normalized_width = max(320, int(width or THUMBNAIL_WIDTH))
-    return f'scale=ceil(iw*sar/2)*2:ih,setsar=1,scale={normalized_width}:-2'
-
-
 def generate_thumbnail(media_path: Path, output_path: Path, *, width: int = THUMBNAIL_WIDTH) -> bool:
+    from app.services.media_processing import render_thumbnail
+    temporary = output_path.with_name(f'{output_path.stem}.{uuid4().hex}.part{output_path.suffix}')
     try:
         info = get_video_info(media_path)
         seek_time = 0 if not info or not info.get('valid', False) or info.get('duration', 0) <= 0 else max(1, info['duration'] * 0.1)
-        video_filter = thumbnail_video_filter(width)
-
-        subprocess.run([
-            'ffmpeg', '-y', '-ss', str(seek_time), '-i', str(media_path),
-            '-vframes', '1', '-vf', video_filter, '-q:v', str(THUMBNAIL_JPEG_QUALITY), str(output_path)
-        ], capture_output=True, timeout=30)
-
-        if output_path.exists() and output_path.stat().st_size > 0:
-            return True
-
-        if output_path.exists():
-            output_path.unlink()
-
-        subprocess.run([
-            'ffmpeg', '-y', '-i', str(media_path), '-vframes', '1', '-vf', video_filter, '-q:v', str(THUMBNAIL_JPEG_QUALITY), str(output_path)
-        ], capture_output=True, timeout=30)
-
-        if output_path.exists() and output_path.stat().st_size > 0:
-            return True
-
-        if output_path.exists():
-            output_path.unlink()
+        for seek in dict.fromkeys((seek_time, 0)):
+            if render_thumbnail(media_path, temporary, width=max(320, int(width)), seek=seek) and temporary.is_file() and temporary.stat().st_size > 0:
+                temporary.replace(output_path)
+                return True
+            temporary.unlink(missing_ok=True)
         return False
     except Exception:
-        if output_path.exists():
-            try:
-                output_path.unlink()
-            except Exception:
-                pass
         return False
+    finally:
+        try: temporary.unlink(missing_ok=True)
+        except OSError: pass
 
 
 def thumbnail_placeholder_response():

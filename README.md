@@ -35,19 +35,27 @@ adopts storage. See the [self-hosting storage guide](docs/SELF_HOSTING.md#storag
 Source media needs its own storage capacity and is not included in the 40 GiB
 guideline.
 
+Open Terminal on the Linux computer that will run Vueio. Paste this command
+and press Enter. If `sudo` asks for a password, enter your computer's password;
+the terminal does not show characters while you type.
+
 ```bash
-curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh | sudo sh
+curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh | sh
 ```
 
 The installer:
 
 1. checks Linux, Docker, disk space, and the local web port;
-2. offers a safe local project folder or accepts an existing mounted folder;
+2. asks for a Vue data folder and a separate media location;
 3. downloads and verifies the release;
 4. creates private database and session secrets;
-5. starts Vueio and runs its safety checks; and
-6. prints the web address and one-time setup code; and
-7. enables updates from Settings on hosts running systemd.
+5. starts Vueio and runs its safety checks;
+6. enables updates and drive management on hosts running systemd; and
+7. prints the web address, one-time setup code, and next steps.
+
+Press Enter to accept storage on this computer, then confirm the installation.
+The update channel follows the release you downloaded; you can change it later
+in Settings. Keep the terminal open until it says **Continue in your browser**.
 
 Vueio receives access only to the project folder selected during setup. By
 default it uses `/var/lib/vueio/projects`, binds the web app to
@@ -55,7 +63,22 @@ default it uses `/var/lib/vueio/projects`, binds the web app to
 
 Open `http://127.0.0.1:9000` on the server, or use the SSH-tunnel example in
 the [self-hosting guide](docs/SELF_HOSTING.md). The browser wizard creates the
-first owner account and workspace.
+first owner account and workspace. Then it shows your connected storage and
+an **Open workspace** button. Extra drives are optional; you can add them later
+in **Settings → Storage**.
+
+Your chosen Vue data folder holds the database, app files and previews. The
+database contains accounts, projects, comments, members and history. Keep
+database backups on a separate drive, and protect app files and private
+configuration too. Existing installations keep their current database location.
+Run `sudo vueioctl` for the guided terminal menu, or `sudo vueioctl data` to
+show these locations. See [data storage](docs/SELF_HOSTING.md#your-data-folder).
+
+A [Mac installer preview](docs/SELF_HOSTING.md#mac-installer-preview) for Apple
+Silicon uses the same command, code and releases. It guides you through any
+missing prerequisites. Intel Macs are not supported. Mac verification is still
+required before production use.
+Windows installation is not available yet.
 
 Vue.io does not configure DNS, TLS certificates, VPNs, reverse proxies, or
 Cloudflare Tunnels. The guide explains how to prepare Vue.io after you configure

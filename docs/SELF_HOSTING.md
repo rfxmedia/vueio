@@ -11,12 +11,13 @@ The first public alpha supports:
 - one x86-64 or ARM64 Linux server;
 - Docker Engine with Docker Compose v2;
 - Python 3.9 or newer on the host for the management command and update service;
-- local disks and NAS folders that are already mounted on Linux;
+- local disks, USB drives, and network storage that are already mounted on Linux;
 - one PostgreSQL database managed by the included Compose project;
 - CPU transcoding; and
 - a user-managed HTTPS reverse proxy, VPN, or tunnel for internet access.
 
-Windows, Kubernetes, clusters, high availability, Podman, and a built-in
+An unreleased Mac installer preview is described below. It is not yet a verified
+production platform. Windows launchers, Kubernetes, clusters, high availability, Podman, and a built-in
 internet tunnel are not supported by the first alpha. Hardware-accelerator
 device mappings are also outside the supported release Compose file for this
 alpha; advanced private overrides are not portable release configuration.
@@ -56,28 +57,75 @@ Each tagged GitHub release contains `install.sh`, `vueioctl`,
 `vueio-updater.py`, and `compose.release.yml`. To install from downloaded release assets:
 
 ```bash
-sudo sh ./install.sh
+sh ./install.sh
 ```
 
 The one-line form runs the same installer:
 
 ```bash
 curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh \
-  | sudo sh
+  | sh
 ```
+
+The installer asks for administrator approval on Linux. On Mac, run it without
+`sudo`; it runs as your Mac account and guides you through missing prerequisites.
+The Mac path is still an unreleased preview; see its verification limits below.
 
 The installer:
 
 1. verifies Linux, Docker, Docker Compose, disk space, and the web port;
-2. offers a dedicated local project folder or accepts an existing mounted
-   folder;
+2. asks for a private Vue data folder, then separately offers media storage
+   on this computer, an eligible connected drive, or an existing folder;
 3. creates random database, session, and first-setup secrets;
 4. gives only the selected folder to the media engine;
 5. starts the versioned Vueio containers and runs safety checks; and
-6. prints the local URL and one-time setup token.
+6. enables host management where supported, then prints the local URL,
+   one-time setup code, and browser instructions.
 
-On hosts running systemd, the installer also enables the update service for
-**Settings → Updates**. The engine receives only the service's local control
+The update channel follows the downloaded release, so setup does not ask you
+to choose a channel. You can change it later in **Settings → Updates**.
+For storage, press Enter to accept the dedicated local folder. Invalid drive
+numbers and missing folder paths can be corrected without restarting setup.
+Review the storage and web address before confirming the installation.
+
+### Your data folder
+
+New installations ask where to keep **Vue data**. Enter an absolute directory
+on the internal drive or a suitable external drive. Use a new or empty folder;
+Vueio does not overwrite existing files or format a drive. The default is
+`/opt/vueio/state` on Linux. Set `VUEIO_STATE_PATH` for unattended installation.
+
+The selected directory contains:
+
+- `postgres`: the live database (accounts, comments, members, projects and history);
+- `app`: app files, attachments and generated previews; and
+- `backups`: consistent database backup archives.
+
+Media can be on a different drive and must not overlap the data folder.
+Private installation configuration, including credentials and storage mappings,
+remains in `VUEIO_HOME`. Protect that directory too. **Settings → Storage** and
+`vueioctl data` show the locations; neither moves an existing database.
+
+The database needs a writable local filesystem with normal permissions and
+durable writes: ext2/3/4, XFS, Btrfs or ZFS on Linux; APFS or HFS on Mac.
+Network shares and FAT/exFAT are not accepted for the database. They can still
+hold media. An external data drive must remain connected while Vueio runs.
+Stop Vueio before ejecting it. Startup checks its identity and refuses a
+missing or replaced drive instead of creating an empty database.
+
+**Existing installations keep their current Docker database volume.** Updating
+does not migrate it, rename it or adopt a new data folder. Use `vueioctl data`
+to see this distinction. An incomplete new installation retains its data and
+configuration for recovery; do not rerun setup over it or remove it blindly.
+
+Use `vueioctl backup` for a consistent database backup and copy the archive and
+checksum to another drive. Also back up app files, source media and private
+configuration separately. Do not copy a running PostgreSQL data directory as
+if it were an ordinary document. Previews can be rebuilt; missing source files
+cannot be recovered from a database backup.
+
+On hosts running systemd, the installer also enables the host service for
+**Settings → Updates** and **Settings → Storage**. The engine receives only the service's local control
 socket. It never mounts the Docker socket, the host root, or an unselected drive.
 
 By default Vueio listens only on `127.0.0.1`. To complete setup from another
@@ -96,10 +144,38 @@ If the terminal output is no longer visible, retrieve the one-time code with:
 sudo vueioctl setup-token
 ```
 
+Use `sudo vueioctl setup-info` to show both the browser address and code again.
+With a custom installation directory, prefix either command with
+`sudo env VUEIO_HOME=/path/to/installation` in place of `sudo`.
+
 ## Storage
 
-Docker cannot safely grant itself access to arbitrary host drives after it
-starts. Authorize storage from the host:
+After creating the first owner account, Vueio opens **Settings → Storage**.
+The initial media location is already connected. Choose **Add storage** to
+select an additional mounted local drive and its access mode. The picker
+offers OS-managed mount locations, excludes system folders and nested mounts,
+and does not follow user-controlled mount aliases. Plug in and
+unlock the drive on the computer running Vueio, then choose **Check again**.
+Devices attached only to the computer viewing the website do not appear.
+
+Only an administrator's browser session can connect drives. Agent API keys,
+members, and shared-link visitors cannot grant host access. The host helper
+enumerates mounted local filesystems without scanning their media, and checks
+the selected device again before registration. It does not offer the operating
+system root or Vueio's private application directory. Use a dedicated media
+folder for storage on the operating system's disk. The installer provides one
+by default.
+
+Adding a drive does not move projects or publish all its files. Choose a
+location when creating a project; sharing still uses Vueio's existing access
+controls. Connecting or reconnecting storage briefly restarts the media engine
+and website, not PostgreSQL. Finish active uploads first. If a request loses
+its connection during the restart, check the storage list before retrying.
+
+The host service is required for the picker. Custom Compose installations keep
+their existing mappings; Vueio does not rewrite them. For existing folders,
+mounted network shares, or installations without the service, authorize
+storage with the existing host command:
 
 ```bash
 sudo vueioctl storage add "Fast projects" /mnt/nvme/projects rw
@@ -107,7 +183,7 @@ sudo vueioctl storage add "Studio archive" /mnt/archive/projects ro
 sudo vueioctl storage list
 ```
 
-Vueio sees stable internal paths such as `/storage/root-1`; users see the
+Vueio sees stable internal paths such as `/storage/root-001`; users see the
 labels. Host paths remain installation-specific and never enter the Vueio
 application database.
 
@@ -117,23 +193,48 @@ If a valid marker already exists, that explicit command records it instead.
 Ordinary startup never creates or silently adopts a marker. The marker lets
 `vueioctl doctor` distinguish the intended disk from an empty mount point or a
 different disk mounted at the same host path. Do not delete, overwrite, or copy
-the marker to another root. Startup and `doctor` fail closed when the marker is
-absent, invalid, or different from the value originally registered.
+the marker to another root. Registration does not require hard links, so FAT
+and exFAT drives can use the same identity mechanism. The filesystem must
+permit this initial identity file, even when Vueio's access mode will be
+read-only. Vueio does not format drives or recursively change their permissions.
 
-For NAS storage, mount the share in Linux before starting Vueio. Stop Vueio
-before intentionally disconnecting it:
+For network storage, mount the share in Linux before starting Vueio. Stop
+active uploads and downloads before ejecting any drive through the operating
+system. To take all media services offline first:
 
 ```bash
 sudo vueioctl stop
-# disconnect or remount the NAS here
+# disconnect or remount the drive here
 sudo vueioctl start
 sudo vueioctl doctor
 ```
 
-If the NAS comes back at the expected path with its original marker, Vueio can
-use it again. If the mount is absent or its identity is different, `doctor`
-fails and Vueio refuses to treat that location as the configured project
-storage. This protects against writing into an empty local mount point.
+On managed installations, `start` and `restart` keep disconnected locations
+in the catalog but omit their bind mounts. The remaining app can start. Its
+read-only `/storage` base prevents uploads from falling back to an empty local
+mount point. Project records, comments, and history are not deleted when a
+drive goes offline. Its source media cannot play or download until it returns.
+Custom Compose overrides retain the stricter startup check.
+
+Reconnect the original drive, then use **Reconnect drives** in Settings or:
+
+```bash
+sudo vueioctl storage reconnect
+```
+
+If a registered whole drive returns at a different mount path, **Add storage**
+can recognize its original identity and reconnect it without changing the
+storage name or project references. For a registered subfolder, use:
+
+```bash
+sudo vueioctl storage reconnect "Fast projects" /mnt/reconnected/projects
+```
+
+Vueio checks the original identity before changing the path. It refuses to
+replace a still-connected original with a copy. `doctor` continues to report
+missing or mismatched drives; update and release checks do not ignore them.
+After a host reboot with a drive absent, use `vueioctl start` so the host can
+rebuild the available mounts. Docker's restart policy alone cannot do this.
 
 Removing a root does not delete files, but projects using it will be offline:
 
@@ -141,10 +242,117 @@ Removing a root does not delete files, but projects using it will be offline:
 sudo vueioctl storage remove "Studio archive"
 ```
 
+Vueio retains the removed name and mount ID to prevent an unrelated drive
+from inheriting old references. Adding the original drive with the same name
+restores that identity. Merely unplugging a drive does not require removing it.
+
 The engine runs as `VUEIO_PUID:VUEIO_PGID` and applies `VUEIO_UMASK`.
 The installer defaults these IDs to the account that invoked `sudo`. Set them
-explicitly when project folders belong to a dedicated NAS account. Vueio does
+explicitly when project folders belong to a dedicated storage account. Vueio does
 not recursively change permissions on project storage.
+
+### Mac installer preview
+
+The application remains one set of Linux container images on both CPU
+architectures. Platform-specific launchers must handle installation, mounted
+drive discovery, operating-system file permissions, and Docker file sharing.
+They must not add host path handling to application routes or give the web
+container access to the Docker socket or every host drive.
+
+The boundary is deliberately small: the host lists eligible drives and issues
+selection IDs; an authenticated owner selects an ID; the host rechecks it and
+maps only that location to a stable container path. The database and private
+application data stay separate from selected media roots. A desktop launcher
+must place them on internal storage by default.
+
+The same installer now detects macOS and CPU architecture. The Mac path is
+**an experimental Apple Silicon preview, not recommended for production**.
+Intel Macs are not supported. Linux AMD64 and ARM64 support is unchanged. An initial
+Apple Silicon rehearsal passed installation, USB media upload/playback/download,
+channel switching, and database backup/restore. Supported macOS versions,
+and the lifecycle checks below still need verification. Use test
+data for your first installation. It uses Homebrew and local Docker Desktop.
+The installer offers to run Homebrew's official installer if needed, then
+install Bash, Python, coreutils, findutils and Docker Desktop. It continues
+without asking you to find separate commands. macOS may need your password
+or permission approval; password characters are hidden while you type.
+Docker Desktop has its own licensing
+terms and first-run approvals; Vueio does not accept these on your behalf.
+
+From a release that includes this path, run `sh ./install.sh` **without sudo**
+on Mac. Linux asks for administrator approval automatically; existing
+`sudo sh ./install.sh` commands also work. Both use the same source,
+release tags, channels and container images; no Mac branch is maintained.
+
+Mac private configuration defaults to `~/Library/Application Support/Vueio`,
+with a separate selectable data folder (default: `state` inside that directory).
+Media defaults to `~/Movies/Vueio projects`. The command is installed in
+`~/.local/bin/vueioctl`; an optional global symlink makes `vueioctl` available
+in every terminal without modifying shell profiles. The installer opens Docker
+Desktop when needed, waits for it, then opens browser onboarding.
+
+The Mac helper runs as the Mac user through a LaunchAgent. It discovers
+OS-mounted volumes with `diskutil`. Its authenticated control endpoint binds
+only to `127.0.0.1`; only the engine receives its private token file. The
+Linux helper keeps its existing Unix socket and root-only configuration.
+Neither platform gives the web container the Docker socket or the host root.
+If Docker cannot reach the Mac helper, setup reports that failure rather than
+exposing the helper on the LAN. Docker must be allowed to access each selected
+folder; selecting a drive does not bypass macOS privacy permissions.
+
+Real Apple Silicon installation, Docker file sharing, sleep/wake,
+USB unplug/replug, data-drive loss, login startup, updates, channel switching,
+and database backup/restore must all be rehearsed before claiming Mac support.
+Linux verification or mocked platform calls are not a substitute. CPU remains
+the default. Optional Apple Silicon acceleration uses the authenticated native
+media helper and Homebrew FFmpeg, not GPU passthrough into Docker. Set
+Docker Desktop to start at login if desired; do not assume a sleeping or
+logged-out laptop is an always-on server. Windows remains unimplemented.
+Internet sharing still needs HTTPS and a reachable, awake computer; installing
+Vueio does not create a public tunnel.
+
+The terminal shows one setup step at a time. Enter accepts the default folder;
+`?` shows details and `q` cancels before installation. Set `VUEIO_PLAIN=1`
+to keep all steps in the terminal transcript without colors or screen clearing.
+`NO_COLOR=1` disables colors only. Failed installation steps show the path to
+a private diagnostic log in the installation's `logs` folder.
+
+### Preview processing
+
+Open **Settings → Storage & previews → Preview processing**. CPU is the default
+for new and existing installations. **Check hardware** runs a short hardware
+encode and a separate thumbnail decode check. It does not enable GPU processing.
+Select a verified GPU and save to use it for new preview jobs. Running jobs and
+existing cached previews stay unchanged. A failed GPU job retries once on CPU;
+recent processing shows the processor used and any fallback.
+
+AMD integrated and discrete graphics use VA-API on Linux. NVIDIA graphics,
+including capable GTX and RTX cards, use NVENC. Support depends on the card,
+codec, driver and FFmpeg build, not the product name. A detected device is not
+marked verified until its encode succeeds. This does not add a Windows installer.
+Video decoding and scaling can still use CPU with GPU encoding. Hardware
+thumbnail decoding is checked separately; unsupported inputs use CPU.
+
+The Linux controller maps available render devices into the engine and adds
+their group IDs when Vueio starts. It refreshes generated mappings when devices
+change and preserves operator-managed GPU overrides. NVIDIA requires a working
+NVIDIA driver and Container Toolkit runtime on the host. Manually managed
+installations need a reviewed Compose device configuration; checking hardware
+does not change host permissions.
+Do not give the engine privileged mode or access to the Docker socket for this.
+
+The Mac installer includes `vueio-media.py`, built from the same media recipe
+module as the engine. It uses the existing authenticated loopback helper. Only
+registered media and application media folders are readable. Requests cannot
+supply shell commands, FFmpeg arguments or output filters. Native output is
+staged privately, then copied to the engine's temporary preview directory with
+no-follow file descriptors. The engine retains its source-generation checks,
+job ownership, cancellation and atomic publication. Native jobs stop if their
+engine heartbeat disappears. Source media and the database are never outputs.
+
+An existing Mac installation also needs Homebrew FFmpeg (`brew install ffmpeg`)
+and the matching verified helper asset. Without them, CPU processing still works.
+Hardware status is a check result, not a live GPU-utilization measurement.
 
 ## Internet exposure
 
@@ -256,6 +464,14 @@ see the animation.
 
 ## Backups and restores
 
+For a guided terminal menu, run `sudo vueioctl` on Linux or `vueioctl` on Mac.
+Enter a number or `/help`. The menu reuses the same maintenance commands;
+unknown text is never executed as a shell command. Closing the menu does not
+stop Vueio. `update` with no version checks the running app for the latest
+release on its selected channel, then uses the usual verified update path.
+It never installs an older version. The menu confirms updates, restarts and
+shutdowns, and offers a database backup destination on a separate drive.
+
 Create a database backup:
 
 ```bash
@@ -289,7 +505,7 @@ The engine pauses briefly to create a consistent backup. Restore is
 intentionally guarded:
 
 ```bash
-sudo vueioctl restore /opt/vueio/backups/vueio-20260729T120000Z.tar.gz
+sudo vueioctl restore /path/to/backups/vueio-20260729T120000Z.tar.gz
 ```
 
 Restore requires typing `RESTORE`. It validates the archive and available

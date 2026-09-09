@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import shutil
-import subprocess
 import time
 from collections import deque
 from pathlib import Path
@@ -16,6 +15,7 @@ from app.db import SessionLocal
 from app.models import TranscodeJob
 from app.runtime_state import executor, transcode_cancel_requested, transcode_processes, transcode_progress
 from app.services.media import get_video_info, is_video, needs_transcode
+from app.services.media_processing import MediaProcess
 from app.services.media_resolution import legacy_media_source_identities, source_signature, transcode_cache_path_for_identity
 from app.services.storage_capacity import ensure_data_capacity
 from app.services.transcode_lifecycle import (
@@ -189,29 +189,10 @@ def transcode_video_with_progress(input_path: Path, output_path: Path, file_path
         except Exception:
             pass
 
-        cmd = [
-            'ffmpeg',
-            '-hide_banner',
-            '-nostats',
-            '-loglevel',
-            'error',
-            '-y',
-            '-i',
-            str(input_path),
-            '-c:v',
-            'libx264',
-            '-preset',
-            'fast',
-            '-crf',
-            '23',
-        ]
-        if settings.TRANSCODE_RESOLUTION != 'source':
-            cmd.extend(['-vf', f'scale=-2:{int(settings.TRANSCODE_RESOLUTION)}'])
-
-        cmd.extend(['-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-progress', 'pipe:1', '-f', 'mp4', str(tmp_output_path)])
-
         tail = deque(maxlen=80)
-        process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        process = MediaProcess(input_path, tmp_output_path, {
+            'kind': 'mp4', 'height': 0 if settings.TRANSCODE_RESOLUTION == 'source' else int(settings.TRANSCODE_RESOLUTION),
+        })
         transcode_processes[file_path] = process
         last_heartbeat = time.time()
         if process.stdout:

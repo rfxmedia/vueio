@@ -1,6 +1,6 @@
 <template>
   <section class="admin-page">
-    <header class="admin-page-header">
+    <header v-if="!isStorageSetup" class="admin-page-header">
       <div class="admin-header-copy">
         <h1 class="admin-title">Settings</h1>
         <p>Manage your account, workspace, and Vueio installation.</p>
@@ -44,8 +44,8 @@
       </div>
     </div>
 
-    <div class="admin-settings-shell">
-      <aside class="admin-settings-rail" aria-label="Settings navigation">
+    <div class="admin-settings-shell" :class="{ 'is-setup': isStorageSetup }">
+      <aside v-if="!isStorageSetup" class="admin-settings-rail" aria-label="Settings navigation">
         <nav class="admin-settings-nav">
           <section v-for="group in settingsNavGroups" :key="group.label" class="admin-nav-group">
             <h2>{{ group.label }}</h2>
@@ -69,7 +69,7 @@
         </nav>
       </aside>
 
-      <label class="admin-mobile-nav">
+      <label v-if="!isStorageSetup" class="admin-mobile-nav">
         <span class="admin-mobile-nav-label">Settings section</span>
         <span class="admin-mobile-nav-control">
           <svg class="icon" aria-hidden="true"><use :href="activeSettingsTab.icon" /></svg>
@@ -935,6 +935,7 @@ const adminOnlyTabs = [
   { value: 'updates', label: 'Updates', description: 'Version and releases', icon: '#icon-refresh' },
 ]
 const activeTab = ref('account')
+const isStorageSetup = computed(() => activeTab.value === 'storage' && route.query.setup === 'storage')
 const systemHealth = ref(null)
 const settingsRefreshing = ref(false)
 const storageRoots = ref([])
@@ -2381,6 +2382,11 @@ onMounted(refreshAll)
   min-width: 0;
   padding-right: var(--v-space-5);
   border-right: 1px solid var(--v-divider-subtle);
+}
+
+.admin-settings-shell.is-setup {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 860px;
 }
 
 .admin-settings-nav {

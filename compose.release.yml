@@ -49,6 +49,8 @@ services:
       - type: bind
         source: ${VUEIO_DATA_PATH:?Run vueioctl install first}
         target: /app/data
+        bind:
+          create_host_path: false
       - type: bind
         source: ${VUEIO_UPDATER_DIR:-./updater}
         target: /run/vueio-updater
@@ -63,6 +65,10 @@ services:
       VUEIO_CHANNEL: ${VUEIO_CHANNEL:-stable}
       VUEIO_UPDATE_REPOSITORY: ${VUEIO_UPDATE_REPOSITORY:-}
       VUEIO_UPDATER_SOCKET: /run/vueio-updater/control.sock
+      VUEIO_UPDATER_URL: ${VUEIO_UPDATER_URL:-}
+      VUEIO_UPDATER_TOKEN_FILE: ${VUEIO_UPDATER_TOKEN_FILE:-}
+      VUEIO_HOST_DATA_PATH: ${VUEIO_DATA_PATH}
+      VUEIO_HOST_POSTGRES_VOLUME: ${VUEIO_POSTGRES_VOLUME:-vueio_postgres_data}
       SECRET_KEY: ${VUEIO_SECRET_KEY:?Run vueioctl install first}
       SESSION_COOKIE_SECURE: ${VUEIO_SESSION_COOKIE_SECURE:-true}
       CORS_ALLOW_ORIGINS: ${VUEIO_CORS_ALLOW_ORIGINS:?Run vueioctl install first}

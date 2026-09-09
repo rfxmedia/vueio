@@ -19,13 +19,13 @@ from app.services.agent_keys import (
     serialize_agent_key,
     update_agent_key,
 )
-from app.services.auth import get_user_from_session, load_users, require_admin
+from app.services.auth import load_users, require_admin
 from app.services.download_audit import list_download_events
-from app.services.external_urls import normalize_http_origin
 from app.services.horizons_fresh import get_horizon_project
-from app.services.host_updates import get_host_update_status, start_host_update, switch_host_channel
+from app.services.host_updates import get_host_update_status, require_host_admin, require_host_origin, start_host_update, switch_host_channel
 from app.services.media import VIDEO_EXTENSIONS, get_safe_path
 from app.services.media_pipeline import trigger_auto_hls_package
+from app.services.media_processing import processing_status, save_preferences, verify_hardware
 from app.services.release_updates import ALPHA_TAG, get_update_status
 from app.services.app_identity import (
     build_team_logo_response,
@@ -41,7 +41,6 @@ from app.services.share_management import apply_share_management_update, seriali
 from app.services.streaming import clear_transcode_cache
 from app.services.trackers import queue_thumbnail_warmup_for_paths
 from app.services.theme import get_app_theme_record, reset_app_theme, save_app_theme, serialize_app_theme
-from app.services.user_access import is_admin_user
 
 router = APIRouter(tags=['admin'])
 settings = get_settings()
@@ -89,28 +88,34 @@ class SwitchChannelRequest(BaseModel):
     channel: Literal['stable', 'nightly']
 
 
+class MediaProcessingRequest(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    mode: Literal['cpu', 'gpu']
+    device: str = Field(default='', max_length=80)
+
+
+@router.get('/api/admin/media-processing')
+def get_media_processing(vueio_session: str | None = Cookie(None)):
+    require_host_admin(vueio_session)
+    return processing_status()
+
+
+@router.post('/api/admin/media-processing/check')
+def check_media_processing(request: Request, vueio_session: str | None = Cookie(None)):
+    require_host_admin(vueio_session)
+    require_host_origin(request)
+    return verify_hardware()
+
+
+@router.put('/api/admin/media-processing')
+def set_media_processing(data: MediaProcessingRequest, request: Request, vueio_session: str | None = Cookie(None)):
+    require_host_admin(vueio_session)
+    require_host_origin(request)
+    return save_preferences(data.mode, data.device)
+
+
 def _require_admin_session(vueio_session: str | None) -> dict:
     return require_admin(vueio_session)
-
-
-def _require_update_session(vueio_session: str | None) -> None:
-    # Host maintenance requires a browser session, never an agent API key.
-    user = get_user_from_session(vueio_session, allow_agent_fallback=False)
-    if not user:
-        raise HTTPException(status_code=401, detail='Sign in to manage updates.')
-    if not is_admin_user(user):
-        raise HTTPException(status_code=403, detail='Admin access required')
-
-
-def _require_update_origin(request: Request) -> None:
-    origin = normalize_http_origin(request.headers.get('origin'))
-    allowed = {
-        normalize_http_origin(settings.VUEIO_PUBLIC_BASE_URL),
-        normalize_http_origin(f'{request.url.scheme}://{request.url.netloc}'),
-    }
-    fetch_site = request.headers.get('sec-fetch-site')
-    if not origin or origin not in allowed or (fetch_site and fetch_site != 'same-origin'):
-        raise HTTPException(status_code=403, detail='Start the update from this Vueio instance.')
 
 
 @router.get('/api/identity')
@@ -386,7 +391,7 @@ def update_status(refresh: bool = False, vueio_session: str | None = Cookie(None
 
 @router.get('/api/admin/update-progress')
 def update_progress(response: Response, vueio_session: str | None = Cookie(None)):
-    _require_update_session(vueio_session)
+    require_host_admin(vueio_session)
     response.headers['Cache-Control'] = 'no-store'
     return get_host_update_status()
 
@@ -398,8 +403,8 @@ def install_update(
     response: Response,
     vueio_session: str | None = Cookie(None),
 ):
-    _require_update_session(vueio_session)
-    _require_update_origin(request)
+    require_host_admin(vueio_session)
+    require_host_origin(request)
     response.headers['Cache-Control'] = 'no-store'
     return start_host_update(data.version)
 
@@ -411,8 +416,8 @@ def switch_update_channel(
     response: Response,
     vueio_session: str | None = Cookie(None),
 ):
-    _require_update_session(vueio_session)
-    _require_update_origin(request)
+    require_host_admin(vueio_session)
+    require_host_origin(request)
     response.headers['Cache-Control'] = 'no-store'
     return switch_host_channel(data.channel)
 

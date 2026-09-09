@@ -100,6 +100,13 @@ def list_files(
             continue
 
         rel_path = str(entry.relative_to(settings.MEDIA_ROOT))
+        if target == settings.MEDIA_ROOT.resolve():
+            try:
+                get_safe_path(rel_path)
+            except HTTPException as exc:
+                if exc.status_code == 409:
+                    continue
+                raise
         stat = entry.stat()
         if entry.is_dir():
             has_custom_thumb = folder_thumbnail_cache_path(rel_path).exists()

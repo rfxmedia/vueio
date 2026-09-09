@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import shutil
+from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.config import get_settings
 from app.services.auth import require_admin, require_auth
+from app.services.host_updates import host_request_json, require_host_admin, require_host_origin
 from app.services.horizons.projects import get_horizon_project, serialize_horizon_project
 from app.services.missing_media_relink import commit_missing_media_relink, plan_missing_media_relink
 from app.services.project_relocation import (
@@ -42,6 +45,51 @@ class StorageFolderCreate(BaseModel):
     root: str
     path: str = ''
     name: str
+
+
+class StorageConnectRequest(BaseModel):
+    action: Literal['add', 'reconnect']
+    id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    label: str | None = Field(default=None, min_length=1, max_length=80, pattern=r'^[A-Za-z0-9][A-Za-z0-9 ._-]*$')
+    mode: Literal['ro', 'rw'] | None = None
+
+
+@router.get('/api/admin/storage/data')
+def data_storage_location(response: Response, vueio_session: str = Cookie(None)):
+    require_host_admin(vueio_session)
+    response.headers['Cache-Control'] = 'no-store'
+    settings = get_settings()
+    # These are descriptive host paths, not a browser file-access capability.
+    # Never infer a host location from a path inside a container.
+    state = settings.VUEIO_HOST_STATE_PATH.rstrip('/')
+    return {
+        'folder': state or None,
+        'database': f'{state}/postgres' if state else None,
+        'database_volume': None if state else settings.VUEIO_HOST_POSTGRES_VOLUME or None,
+        'app_files': settings.VUEIO_HOST_DATA_PATH or None,
+        'configuration': settings.VUEIO_HOST_CONFIG_PATH or None,
+        'backups': f'{state}/backups' if state else None,
+    }
+
+
+@router.get('/api/admin/storage/devices')
+def list_storage_devices(response: Response, vueio_session: str = Cookie(None)):
+    require_host_admin(vueio_session)
+    response.headers['Cache-Control'] = 'no-store'
+    try:
+        return host_request_json('GET', '/storage', max_bytes=64 * 1024)
+    except HTTPException as exc:
+        return {'supported': False, 'drives': [], 'message': exc.detail, 'operation': {'state': 'idle'}}
+
+
+@router.post('/api/admin/storage/devices', status_code=202)
+def connect_storage_device(data: StorageConnectRequest, request: Request, vueio_session: str = Cookie(None)):
+    require_host_admin(vueio_session)
+    require_host_origin(request)
+    if data.action == 'add' and (not data.id or not data.label or not data.mode):
+        raise HTTPException(status_code=400, detail='Select a drive, a name and an access mode.')
+    payload = data.model_dump(exclude_none=True) if data.action == 'add' else {'action': 'reconnect'}
+    return host_request_json('POST', '/storage', payload)
 
 
 class ProjectRelocateRequest(BaseModel):
@@ -113,7 +161,7 @@ def browse_storage(root: str, path: str = '', vueio_session: str = Cookie(None))
     base = configured_project_storage_roots()[root].resolve()
     folders = []
     for entry in sorted(target.iterdir(), key=lambda item: item.name.lower()):
-        if entry.is_dir() and not entry.name.startswith('.'):
+        if entry.is_dir() and not entry.name.startswith('.') and entry.resolve().is_relative_to(base):
             folders.append({'name': entry.name, 'path': str(entry.relative_to(base))})
     return {'root': root, 'path': normalized, 'read_only': storage_location_is_read_only(target), 'folders': folders}
 

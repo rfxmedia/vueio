@@ -7,7 +7,7 @@ LABEL org.opencontainers.image.title="Vue.io Engine" \
 # Install only the runtime media stack.
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends ffmpeg && \
+    apt-get install -y --no-install-recommends ffmpeg mesa-va-drivers pciutils && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

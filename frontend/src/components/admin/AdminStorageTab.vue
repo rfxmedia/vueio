@@ -1,35 +1,65 @@
 <template>
   <section class="admin-section storage-settings-section">
     <AdminSettingsHeader
-      eyebrow="System"
-      title="Storage & previews"
-      description="See where Vueio can keep projects, then manage generated previews without touching source media."
+      :eyebrow="$route.query.setup === 'storage' ? 'Step 2 of 2 · Storage' : 'System'"
+      :title="$route.query.setup === 'storage' ? 'Your workspace is ready' : 'Storage & previews'"
+      :description="$route.query.setup === 'storage' ? 'Your account is created. Check the storage you chose in the installer, or connect another drive.' : 'Keep media on your own drives. Your accounts, comments and project history stay with this Vueio installation.'"
       icon="#icon-package"
     />
 
     <div class="storage-settings-body">
+      <section class="storage-data v-surface-panel" aria-labelledby="storage-data-title">
+        <div class="storage-explainer-icon" aria-hidden="true"><svg class="icon"><use href="#icon-lock" /></svg></div>
+        <div class="storage-data-copy">
+          <h3 id="storage-data-title">Your Vue data</h3>
+          <p>Accounts, comments, projects, members and history live in your database. Keep it safe. Media storage is separate.</p>
+          <p v-if="dataLocationLoading" role="status">Checking the data location…</p>
+          <template v-else-if="dataLocation">
+            <dl>
+              <template v-if="dataLocation.folder"><dt>Data folder</dt><dd>{{ dataLocation.folder }}</dd></template>
+              <template v-else-if="dataLocation.database_volume"><dt>Database</dt><dd>Docker volume · {{ dataLocation.database_volume }}</dd></template>
+            </dl>
+            <p v-if="!dataLocation.folder">This installation's database has not been moved. Run <code>vueioctl data</code> on the Vueio computer for its storage details.</p>
+          </template>
+          <p v-else role="status">The data location could not be checked. Run <code>vueioctl data</code> on the Vueio computer.</p>
+          <details>
+            <summary>What should I back up?</summary>
+            <p>Use <code>vueioctl backup</code> on the Vueio computer for a consistent database backup. Linux installations require <code>sudo</code>. Keep a copy on a different drive.</p>
+            <p>Database backups do not include app files, attachments, media or private configuration. Back up those separately. Previews can be rebuilt.</p>
+            <p>Stop Vueio before copying the live database folder or disconnecting its drive. Do not move this folder while Vueio is running.</p>
+            <dl v-if="dataLocation">
+              <template v-if="dataLocation.database"><dt>Database</dt><dd>{{ dataLocation.database }}</dd></template>
+              <template v-if="dataLocation.app_files"><dt>App files & previews</dt><dd>{{ dataLocation.app_files }}</dd></template>
+              <template v-if="dataLocation.configuration"><dt>Private configuration</dt><dd>{{ dataLocation.configuration }}</dd></template>
+              <template v-if="dataLocation.backups"><dt>Database backups</dt><dd>{{ dataLocation.backups }}</dd></template>
+            </dl>
+          </details>
+        </div>
+      </section>
       <section class="storage-locations" aria-labelledby="storage-locations-title">
         <header class="storage-locations-head">
           <div>
             <p class="settings-eyebrow">Project storage</p>
             <div class="storage-locations-title-row">
-              <h3 id="storage-locations-title">Available locations</h3>
+              <h3 id="storage-locations-title">Your storage</h3>
               <span v-if="storageRoots.length" class="storage-location-summary">
-                {{ writableRootCount }} of {{ storageRoots.length }} ready
+                {{ availableRootCount }} of {{ storageRoots.length }} connected
               </span>
             </div>
-            <p>Vueio only shows storage locations connected to this installation. It verifies the expected device before using it.</p>
+            <p>Choose a location when you create a project. Adding a drive does not move existing projects or share its files automatically.</p>
           </div>
           <button
             type="button"
             class="v-btn v-btn-secondary v-btn-sm"
             :disabled="storageRootsLoading"
-            @click="$emit('refresh-storage-roots')"
+            @click="refreshStorage"
           >
             <svg class="icon" :class="{ spinning: storageRootsLoading }"><use href="#icon-refresh" /></svg>
             {{ storageRootsLoading ? 'Checking' : 'Check again' }}
           </button>
         </header>
+
+        <StorageDevicePicker ref="devicePicker" :secondary="$route.query.setup === 'storage' && storageRoots.length > 0" :has-offline="storageRoots.some(root => !root.available)" @changed="$emit('refresh-storage-roots')" />
 
         <div v-if="storageRootsLoading && !storageRoots.length" class="storage-location-state" role="status">
           <svg class="icon spinning"><use href="#icon-refresh" /></svg>
@@ -94,7 +124,7 @@
               <p class="storage-capacity-meta">{{ usedPercent(root) }}% used</p>
             </template>
             <p v-else-if="root.available" class="storage-location-message">Free space is not available right now.</p>
-            <p v-else class="storage-location-message">Vueio cannot verify this location. Check that the expected storage device is connected and mounted.</p>
+            <p v-else class="storage-location-message">Projects and comments are kept. Plug in the original drive, then reconnect it. Vueio will not use a different drive with the same name.</p>
 
             <p v-if="root.available && root.read_only" class="storage-location-note">
               Vueio can read this location but cannot create or move project files here.
@@ -103,7 +133,15 @@
         </div>
       </section>
 
-      <div class="storage-support-grid">
+      <div v-if="$route.query.setup === 'storage'" class="storage-setup-finish">
+        <p v-if="writableRootCount">Storage is ready for your first project. You can add more drives in Settings at any time.</p>
+        <p v-else>You can explore Vueio now and connect writable storage in Settings when you are ready to create projects.</p>
+        <RouterLink class="v-btn v-btn-primary v-btn-lg storage-setup-done" :to="{ name: 'home' }">Open workspace</RouterLink>
+      </div>
+
+      <MediaProcessingPanel v-if="$route.query.setup !== 'storage'" />
+
+      <div v-if="$route.query.setup !== 'storage'" class="storage-support-grid">
         <div class="storage-explainer">
           <div class="storage-explainer-item">
             <div class="storage-explainer-icon"><svg class="icon"><use href="#icon-lock" /></svg></div>
@@ -138,9 +176,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import api from '../../lib/api'
 import { formatSizeBytes } from '../../utils/formatters'
 import AdminSettingsHeader from './AdminSettingsHeader.vue'
+import StorageDevicePicker from './StorageDevicePicker.vue'
+import MediaProcessingPanel from './MediaProcessingPanel.vue'
 
 const props = defineProps({
   storageRoots: { type: Array, default: () => [] },
@@ -149,9 +190,30 @@ const props = defineProps({
   transcodesResetting: { type: Boolean, required: true },
 })
 
-defineEmits(['refresh-storage-roots', 'reset-transcodes'])
+const emit = defineEmits(['refresh-storage-roots', 'reset-transcodes'])
+const devicePicker = ref(null)
+const dataLocation = ref(null)
+const dataLocationLoading = ref(true)
+const dataRequest = new AbortController()
+onMounted(async () => {
+  try {
+    const { data } = await api.get('/api/admin/storage/data', { signal: dataRequest.signal })
+    dataLocation.value = data
+  } catch {
+    dataLocation.value = null
+  } finally {
+    dataLocationLoading.value = false
+  }
+})
+onBeforeUnmount(() => dataRequest.abort())
+
+function refreshStorage() {
+  emit('refresh-storage-roots')
+  devicePicker.value?.refresh()
+}
 
 const writableRootCount = computed(() => props.storageRoots.filter(root => root.available && !root.read_only).length)
+const availableRootCount = computed(() => props.storageRoots.filter(root => root.available).length)
 
 function hasCapacity(root) {
   return Number.isFinite(Number(root?.free_bytes)) && Number(root?.total_bytes) > 0
@@ -183,8 +245,46 @@ function rootClass(root) {
 </script>
 
 <style scoped>
+.storage-data {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: var(--v-space-3);
+  padding: var(--v-space-4);
+}
+
+.storage-data-copy { min-width: 0; }
+.storage-data h3 { margin: 0; font-size: var(--v-text-md); }
+.storage-data p { margin: var(--v-space-2) 0; color: var(--v-text-secondary); line-height: 1.5; }
+.storage-data dl { display: grid; gap: var(--v-space-1); margin: var(--v-space-3) 0; }
+.storage-data dt { margin-top: var(--v-space-2); color: var(--v-text-secondary); }
+.storage-data dd { margin: 0; overflow-wrap: anywhere; }
+.storage-data summary { cursor: pointer; padding: var(--v-space-2) 0; color: var(--v-accent); }
+.storage-data summary:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 2px; }
+.storage-data code { overflow-wrap: anywhere; }
+
+.storage-setup-finish {
+  display: grid;
+  justify-items: start;
+  gap: var(--v-space-3);
+  border-top: 1px solid var(--v-surface-border-soft);
+  padding-top: var(--v-space-5);
+}
+
+.storage-setup-finish p {
+  margin: 0;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-md);
+  line-height: 1.5;
+}
+
 .storage-settings-section {
   overflow: hidden;
+}
+
+.storage-setup-done {
+  align-self: flex-start;
+  text-decoration: none;
 }
 
 .storage-settings-body {
@@ -523,6 +623,9 @@ function rootClass(root) {
 }
 
 @media (max-width: 768px) {
+  .storage-setup-done {
+    width: 100%;
+  }
   .storage-settings-body {
     gap: var(--v-space-3);
     padding-top: var(--v-space-3);
