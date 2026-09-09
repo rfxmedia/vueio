@@ -61,6 +61,7 @@ async function bootstrap() {
   }
 
   app.use(router)
+  await router.isReady()
   app.mount('#app')
   appMounted = true
 }

@@ -19,10 +19,9 @@
         @mouseleave="handleTimelineLeave"
       >
         <div class="timeline-bg"></div>
-        <!-- Width/left are written imperatively by the playback clock so a
-             frame tick never re-renders the component tree. -->
+        <!-- Transforms keep playback ticks out of layout and Vue rendering. -->
         <div ref="progressBarEl" class="timeline-progress"></div>
-        <div ref="progressHandleEl" class="timeline-handle"></div>
+        <div ref="progressHandleEl" class="timeline-handle" aria-hidden="true"></div>
         <div
           class="scrub-preview-popover"
           :class="{ 'is-visible': showScrubPreview, 'is-ready': scrubPreviewReady, 'is-loading': !scrubPreviewReady, 'has-comment': scrubPreviewComment }"
@@ -386,11 +385,22 @@ function clockTime() {
 let lastAriaSecond = -1
 let lastTimecodeText = ''
 let lastFrameText = ''
+let timelineWidth = 0
+
+watch(timelineEl, (element, _previous, onCleanup) => {
+  if (!element) return
+  const observer = new ResizeObserver(([entry]) => {
+    timelineWidth = entry.contentRect.width
+    writeClockDom(clockTime())
+  })
+  observer.observe(element)
+  onCleanup(() => observer.disconnect())
+})
 
 function writeClockDom(time) {
   const pct = props.duration ? Math.max(0, Math.min(100, (time / props.duration) * 100)) : 0
-  if (progressBarEl.value) progressBarEl.value.style.width = `${pct}%`
-  if (progressHandleEl.value) progressHandleEl.value.style.left = `${pct}%`
+  if (progressBarEl.value) progressBarEl.value.style.transform = `translateY(-50%) scaleX(${pct / 100})`
+  if (progressHandleEl.value) progressHandleEl.value.style.transform = `translate(calc(${pct / 100 * timelineWidth}px - 50%), -50%)`
 
   const timecode = props.formatTimecode?.(time) ?? ''
   if (timeCurrentEl.value && timecode !== lastTimecodeText) {
@@ -1066,9 +1076,11 @@ onUnmounted(() => {
 
 .timeline-progress {
   left: 0;
-  right: auto;
+  width: 100%;
+  transform: translateY(-50%) scaleX(0);
+  transform-origin: left center;
   background: var(--v-accent);
-  transition: width var(--v-duration-fast) linear, height var(--v-duration-fast) var(--v-ease-emphasized);
+  transition: height var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
 .timeline:hover .timeline-bg,
@@ -1080,6 +1092,7 @@ onUnmounted(() => {
 
 .timeline-handle {
   position: absolute;
+  left: 0;
   top: 50%;
   width: 12px;
   height: 12px;

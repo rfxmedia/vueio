@@ -1,5 +1,6 @@
 <template>
   <ProjectSettingsModal
+    v-if="loadedModals.has('settings')"
     :show="settings.showProjectSettingsModal"
     scope="project"
     :is-mobile="isMobile"
@@ -39,6 +40,7 @@
   />
 
   <ProjectStorageModal
+    v-if="loadedModals.has('storage')"
     :show="settings.showProjectStorageModal"
     :project="settings.projectStorageTarget"
     :roots="settings.projectStorageRoots"
@@ -48,6 +50,7 @@
   />
 
   <ProjectSettingsModal
+    v-if="loadedModals.has('settings')"
     :show="settings.showTrackerSettingsModal"
     scope="tracker"
     :is-mobile="isMobile"
@@ -69,6 +72,7 @@
   />
 
   <DashboardSettingsModal
+    v-if="loadedModals.has('dashboard')"
     :show="settings.showDashboardSettingsModal"
     :is-mobile="isMobile"
     :page="selection.currentPage"
@@ -82,6 +86,7 @@
   />
 
   <ProjectActionModals
+    v-if="loadedModals.has('actions')"
     :show-create-project="actions.showCreateProject"
     :new-project-title="actions.newProjectTitle"
     :new-project-desc="actions.newProjectDesc"
@@ -130,6 +135,7 @@
   />
 
   <ProjectFileImportModal
+    v-if="loadedModals.has('upload')"
     :show="projectUpload.showUploadModal"
     :title="projectUpload.uploadModalTitle"
     :description="projectUpload.uploadModalDescription"
@@ -154,6 +160,7 @@
   />
 
   <ProjectFileImportModal
+    v-if="loadedModals.has('upload')"
     :show="sharedUpload.showUploadModal"
     :title="sharedUploadTitle"
     :description="sharedUploadDescription"
@@ -182,6 +189,7 @@
   />
 
   <FilePickerModal
+    v-if="loadedModals.has('picker')"
     :show="picker.showFilePicker"
     :is-version-picker-mode="picker.isVersionPickerMode"
     :file-picker-title="picker.filePickerTitle"
@@ -242,7 +250,7 @@
 </template>
 
 <script setup>
-import { computed, proxyRefs } from 'vue'
+import { computed, defineAsyncComponent, proxyRefs, reactive, watchEffect } from 'vue'
 
 import { useAppChromeStore } from '../../ownership/appChrome'
 import { useAppIdentityStore } from '../../ownership/appIdentity'
@@ -255,12 +263,13 @@ import { useShareAccessContext } from '../../ownership/shareAccessContext'
 import { useTrackerStore } from '../../ownership/tracker'
 import { useViewerStore } from '../../ownership/viewer'
 import { normalizeTrackerSettings } from '../../utils/trackerSettings'
-import DashboardSettingsModal from './DashboardSettingsModal.vue'
-import FilePickerModal from './FilePickerModalView.vue'
-import ProjectActionModals from './ProjectActionModals.vue'
-import ProjectFileImportModal from './ProjectFileImportModal.vue'
-import ProjectSettingsModal from './ProjectSettingsModal.vue'
-import ProjectStorageModal from './ProjectStorageModal.vue'
+
+const DashboardSettingsModal = defineAsyncComponent(() => import('./DashboardSettingsModal.vue'))
+const FilePickerModal = defineAsyncComponent(() => import('./FilePickerModalView.vue'))
+const ProjectActionModals = defineAsyncComponent(() => import('./ProjectActionModals.vue'))
+const ProjectFileImportModal = defineAsyncComponent(() => import('./ProjectFileImportModal.vue'))
+const ProjectSettingsModal = defineAsyncComponent(() => import('./ProjectSettingsModal.vue'))
+const ProjectStorageModal = defineAsyncComponent(() => import('./ProjectStorageModal.vue'))
 
 const fileBrowserStore = useFileBrowserStore()
 const { isMobile } = useAppChromeStore()
@@ -276,6 +285,19 @@ const selection = proxyRefs(useProjectTrackerSelectionStore())
 const session = proxyRefs(useSessionAuthStore())
 const { sharedItemType, shareRequestFiles } = useShareAccessContext()
 const { getThumbnailUrl } = useViewerStore().media.core
+
+// Load a dialog on first use, then retain it for its close transition and local
+// state. Uploads and picker operations remain owned by the existing stores.
+const loadedModals = reactive(new Set())
+watchEffect(() => {
+  if (settings.showProjectSettingsModal || settings.showTrackerSettingsModal) loadedModals.add('settings')
+  if (settings.showProjectStorageModal) loadedModals.add('storage')
+  if (settings.showDashboardSettingsModal) loadedModals.add('dashboard')
+  if (actions.showCreateProject || actions.showCreatePage || actions.showCreateTracker
+    || actions.showCreateFolder || actions.showRenameModal || thumbnails.showThumbUpload) loadedModals.add('actions')
+  if (projectUpload.showUploadModal || sharedUpload.showUploadModal) loadedModals.add('upload')
+  if (picker.showFilePicker) loadedModals.add('picker')
+})
 
 const sharedUploadTitle = computed(() => {
   if (shareRequestFiles.value) return 'Send Files'

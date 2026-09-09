@@ -350,6 +350,12 @@ export function useViewerStreamEngine(ctx) {
     destroyEngine()
   }
 
+  // Fetch the playback engine alongside the viewer UI and stream-status request, not
+  // after both finish. Playback still attaches only when the stream is ready.
+  watch(() => ctx.isViewingVideo.value, (viewingVideo) => {
+    if (viewingVideo && !ctx.mediaUnavailable?.value) void import('hls.js').catch(() => {})
+  }, { immediate: true })
+
   watch(
     [
       () => ctx.videoEl.value,

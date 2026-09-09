@@ -131,17 +131,18 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { VTabs } from '../primitives'
 import MediaViewerToolbar from './MediaViewerToolbar.vue'
 import MediaColorPreviewMenu from './MediaColorPreviewMenu.vue'
 import MediaViewerSurface from './MediaViewerSurface.vue'
-import MediaVersionCompareSurface from './MediaVersionCompareSurface.vue'
 import MediaViewerInfoPanel from './MediaViewerInfoPanel.vue'
 import MediaViewerCommentsPanel from './MediaViewerCommentsPanel.vue'
 import { useProjectTrackerSelectionStore } from '../../ownership/projectTrackerSelection'
 import { useSessionAuthStore } from '../../ownership/sessionAuth'
 import { useShareAccessContext } from '../../ownership/shareAccessContext'
+
+const MediaVersionCompareSurface = defineAsyncComponent(() => import('./MediaVersionCompareSurface.vue'))
 
 const props = defineProps({
   currentMedia: { type: Object, default: null },

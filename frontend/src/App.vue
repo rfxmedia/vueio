@@ -31,15 +31,18 @@
     <!-- PROJECT MANAGEMENT MODULE -->
     <!-- ════════════════════════════════════════════════════════════════════ -->
     <main v-if="activeModule === 'projects' && canAccessProjectManager" v-show="showMainContent" class="projects-view">
-          <ProjectListView v-if="!currentProject" />
+          <ProjectListView v-if="!currentProject && (!loading || !route.params.projectId)" />
 
           <ProjectDetailView
-            v-else
+            v-else-if="currentProject"
           >
             <template #tracker>
               <TrackerSurface v-if="currentTracker" />
             </template>
           </ProjectDetailView>
+          <div v-else class="v-empty-state" role="status">
+            <p class="v-empty-state-copy">Loading project…</p>
+          </div>
     </main>
 
     <!-- ════════════════════════════════════════════════════════════════════ -->
@@ -149,7 +152,9 @@ const route = useRoute()
 // STATE - GENERAL
 // ══════════════════════════════════════════════════════════════════════════════
 
-const activeModule = ref('home') // 'home', 'files', 'projects', or 'settings'
+// Routing selects the first module after access checks. Do not briefly mount
+// Home (and fetch its code/data) when opening a project, file, or share link.
+const activeModule = ref('') // 'home', 'files', 'projects', or 'settings'
 const filesModuleVisited = ref(false)
 const loading = ref(true)
 
