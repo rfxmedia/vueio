@@ -1,9 +1,8 @@
 <template>
   <section class="admin-section team-settings-section">
     <AdminSettingsHeader
-      eyebrow="Workspace"
       title="Team"
-      description="Control who can enter your Vueio workspace and what each Member can manage."
+      description="Manage your team profile, members, and access."
       icon="#icon-users"
     >
       <button class="v-btn v-btn-primary v-btn-sm" @click="$emit('open-create-user-modal')">

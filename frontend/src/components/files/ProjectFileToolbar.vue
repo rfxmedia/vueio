@@ -60,7 +60,7 @@
         @click="$emit('download-all')"
       >
         <svg class="icon"><use href="#icon-download" /></svg>
-        <span class="v-file-toolbar-action-label">{{ downloadBusy ? 'Packaging…' : 'Download All' }}</span>
+        <span class="v-file-toolbar-action-label">{{ downloadBusy ? 'Packaging…' : 'Download all' }}</span>
       </button>
     </div>
   </div>
@@ -99,7 +99,7 @@ watch(
 .project-file-toolbar {
   justify-content: space-between;
   min-height: 48px;
-  padding: 0 0 16px;
+  padding: 0 0 var(--v-space-4);
   border: 0;
   border-bottom: 1px solid color-mix(in srgb, var(--v-border) 72%, transparent);
   border-radius: 0;
@@ -124,10 +124,8 @@ watch(
 
 .project-file-toolbar-label {
   color: var(--v-text-secondary);
-  font-size: var(--v-text-2xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--v-text-base);
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -139,8 +137,7 @@ watch(
 
 .project-file-toolbar-count {
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 600;
+  font-size: var(--v-text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -198,22 +195,6 @@ watch(
   min-height: 36px;
 }
 
-.project-file-toolbar-actions :deep(.v-file-sort-select) {
-  transition:
-    border-color var(--v-transition-fast),
-    background var(--v-transition-fast);
-}
-
-.project-file-toolbar-actions :deep(.v-file-sort-select:hover),
-.project-file-toolbar-actions :deep(.v-file-sort-select:focus-within) {
-  border-color: var(--v-control-border-hover);
-  background: var(--v-control-bg-hover);
-}
-
-.project-file-toolbar-actions :deep(.v-view-toggle-btn:hover:not(.active)) {
-  background: var(--v-control-bg-hover);
-}
-
 @media (max-width: 768px) {
   .project-file-toolbar {
     display: grid;
@@ -258,31 +239,10 @@ watch(
     gap: 4px;
   }
 
-  .project-file-toolbar-actions :deep(.v-view-toggle),
-  .project-file-toolbar-actions :deep(.v-file-sort-select),
-  .project-file-toolbar-actions :deep(.v-file-sort-direction) {
-    height: 44px;
-  }
-
-  .project-file-toolbar-actions :deep(.v-view-toggle) {
-    padding: 3px;
-  }
-
-  .project-file-toolbar-actions :deep(.v-view-toggle-btn) {
-    width: 36px;
-    height: 36px;
-  }
-
   .project-file-toolbar-actions :deep(.v-file-sort-select) {
     flex: 1 1 auto;
     width: auto;
     min-width: 0;
-  }
-
-  .project-file-toolbar-actions :deep(.v-file-sort-direction) {
-    width: 44px;
-    min-width: 44px;
-    min-height: 44px;
   }
 
   .project-file-download-all {

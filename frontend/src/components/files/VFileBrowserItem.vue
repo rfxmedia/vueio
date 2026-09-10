@@ -66,7 +66,7 @@
       <div class="v-file-list-cell is-size">{{ sizeLabel || '-' }}</div>
       <div class="v-file-list-cell is-type">{{ typeLabel }}</div>
       <div class="v-file-list-cell is-date">{{ dateLabel || '-' }}</div>
-      <div v-if="showUploaderColumn" class="v-file-list-cell is-uploader">{{ uploaderLabel || '-' }}</div>
+      <div v-if="showUploaderColumn" class="v-file-list-cell is-uploader" :title="uploaderLabel">{{ uploaderLabel || '-' }}</div>
     </template>
 
     <slot name="actions" />

@@ -13,7 +13,7 @@
           tabindex="-1"
           v-bind="$attrs"
         >
-          <div v-if="title || $slots.header" :id="$slots.header ? titleId : undefined">
+          <div v-if="title || $slots.header" :id="$slots.header ? titleId : undefined" class="v-modal-heading">
             <slot name="header" :title-id="titleId">
               <VModalHeader :title="title" :title-id="titleId" :closeable="closeable" @close="$emit('update:modelValue', false)" />
             </slot>
@@ -30,14 +30,16 @@
   </Teleport>
 </template>
 
+<script>
+let modalIdSeed = 0
+const modalStack = []
+</script>
+
 <script setup>
 defineOptions({ inheritAttrs: false })
 
 import { computed, nextTick, onBeforeUnmount, ref, useAttrs, useSlots, watch } from 'vue'
 import VModalHeader from './VModalHeader.vue'
-
-let modalIdSeed = 0
-const modalStack = []
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',

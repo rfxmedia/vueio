@@ -37,7 +37,6 @@
           </span>
           <span class="tracker-shortcuts-heading">
             <strong>Keyboard shortcuts</strong>
-            <span>Navigate without leaving the viewer.</span>
           </span>
         </header>
 
@@ -230,12 +229,6 @@ watch(isMobile, (mobile) => {
 .tracker-shortcuts-heading strong {
   font-size: var(--v-text-md);
   line-height: 1.2;
-}
-
-.tracker-shortcuts-heading > span {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  line-height: 1.35;
 }
 
 .tracker-shortcuts-section {

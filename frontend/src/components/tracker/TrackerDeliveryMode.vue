@@ -55,13 +55,6 @@
             <span class="td-stat-value">{{ trackerName }}</span>
             <span class="td-stat-label">tracker</span>
           </li>
-          <li class="td-stat">
-            <span class="td-stat-value">
-              <span class="td-stat-pulse" aria-hidden="true"></span>
-              Files
-            </span>
-            <span class="td-stat-label">prepared</span>
-          </li>
         </ul>
 
         <div class="td-actions">
@@ -169,8 +162,8 @@ const preparedLabel = computed(() => {
 
 const actionNote = computed(() => {
   if (!props.canDownloadTrackerLatest && !props.trackerDownloadBusy) return 'Downloads are not enabled for this delivery.'
-  if (props.trackerDownloadBusy) return 'Packaging the latest approved files for handoff.'
-  return 'Latest versions packaged and ready for handoff.'
+  if (props.trackerDownloadBusy) return 'Preparing the latest versions for download.'
+  return 'Includes the latest versions.'
 })
 
 const downloadPercent = computed(() => {
@@ -305,9 +298,7 @@ function handleLogoError(event) {
   object-position: center;
   filter: saturate(1.04) contrast(1.06) brightness(0.96);
   transform-origin: 38% 50%;
-  animation:
-    td-image-arrive 1500ms var(--td-ease) both,
-    td-image-breathe 26s ease-in-out 1500ms infinite alternate;
+  animation: td-image-arrive 1500ms var(--td-ease) both;
 }
 
 .td-stage-empty {
@@ -576,7 +567,6 @@ function handleLogoError(event) {
 
 .td-stat:nth-child(1) { --td-stat-delay: 440ms; }
 .td-stat:nth-child(2) { --td-stat-delay: 500ms; }
-.td-stat:nth-child(3) { --td-stat-delay: 560ms; }
 
 .td-stat-value {
   display: inline-flex;
@@ -595,16 +585,6 @@ function handleLogoError(event) {
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-}
-
-.td-stat-pulse {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--v-accent);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--v-accent) 70%, transparent);
-  animation: td-dot-pulse 2400ms var(--td-ease) 600ms infinite;
 }
 
 /* ─── Actions ──────────────────────────────────────────────────────────── */
@@ -877,11 +857,6 @@ function handleLogoError(event) {
   to { opacity: 1; transform: scale(1.0); filter: saturate(1.04) contrast(1.06) brightness(0.96) blur(0); }
 }
 
-@keyframes td-image-breathe {
-  from { transform: scale(1.0); }
-  to { transform: scale(1.045); }
-}
-
 @keyframes td-aurora-glow {
   from { opacity: 0; transform: translate3d(40px, 12px, 0) scale(0.92); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
@@ -945,6 +920,11 @@ function handleLogoError(event) {
   /* Image becomes a hero on top, fading into content */
   .td-stage-image img {
     transform-origin: 50% 35%;
+  }
+
+  .td-stage-empty {
+    inset: 0 0 auto;
+    height: 32svh;
   }
 
   .td-stage-vignette--scrim {
@@ -1114,8 +1094,7 @@ function handleLogoError(event) {
     transform: none !important;
   }
 
-  .td-eyebrow-dot,
-  .td-stat-pulse {
+  .td-eyebrow-dot {
     animation: none !important;
   }
 

@@ -30,11 +30,11 @@
         <p class="v-inline-note">{{ shareCreateTargetNote }}</p>
 
         <div class="v-form-grid">
-          <VField label="Expiration Date" hint="Default: 30 days from today. All links expire for security.">
+          <VField label="Expiration date" hint="Default: 30 days from today. All links expire for security.">
             <input type="date" v-model="shareCreateForm.expiresDate" class="v-input" required />
           </VField>
 
-          <VField label="Password Protection">
+          <VField label="Password protection">
             <input type="password" v-model="shareCreateForm.password" placeholder="Optional password" class="v-input" />
           </VField>
 
@@ -189,7 +189,7 @@
       </template>
       <template v-else>
         <button type="button" class="v-btn v-btn-secondary" @click="cancelShareCreate">Cancel</button>
-        <button type="button" class="v-btn v-btn-primary" @click="confirmShareCreate">Create Link</button>
+        <button type="button" class="v-btn v-btn-primary" @click="confirmShareCreate">Create link</button>
       </template>
     </template>
   </VModal>
@@ -251,7 +251,7 @@
           />
         </label>
         <p v-if="loginError" class="v-text-danger auth-error" role="alert">{{ loginError }}</p>
-        <button class="v-btn v-btn-primary v-btn-lg auth-submit" @click="login" :disabled="!loginUsername || !loginPassword">Sign In</button>
+        <button class="v-btn v-btn-primary v-btn-lg auth-submit" @click="login" :disabled="!loginUsername || !loginPassword">Sign in</button>
       </div>
     </div>
   </VModal>
@@ -283,27 +283,27 @@
               @keydown.enter="submitSharePassword"
             />
           </label>
-          <button class="v-btn v-btn-primary v-btn-lg auth-submit" @click="submitSharePassword" :disabled="!sharePasswordInput">Access Content</button>
+          <button class="v-btn v-btn-primary v-btn-lg auth-submit" @click="submitSharePassword" :disabled="!sharePasswordInput">Access content</button>
         </div>
       </template>
-      <a v-else href="/" class="v-btn v-btn-secondary auth-back-link">← Back to Home</a>
+      <a v-else href="/" class="v-btn v-btn-secondary auth-back-link">← Back to home</a>
     </div>
   </VModal>
 
   <VModal
     :modelValue="showChangePassword"
     @update:modelValue="closeChangePassword"
-    title="Change Password"
+    title="Change password"
     size="md"
   >
     <template #header>
-      <VModalHeader title="Change Password" @close="closeChangePassword" />
+      <VModalHeader title="Change password" @close="closeChangePassword" />
     </template>
 
     <div class="v-form-grid">
-      <input v-model="passwordForm.current" type="password" placeholder="Current Password" class="v-input" />
-      <input v-model="passwordForm.new" type="password" placeholder="New Password" class="v-input" />
-      <input v-model="passwordForm.confirm" type="password" placeholder="Confirm New Password" class="v-input" />
+      <input v-model="passwordForm.current" type="password" placeholder="Current Password" aria-label="Current Password" autocomplete="current-password" class="v-input" />
+      <input v-model="passwordForm.new" type="password" placeholder="New Password" aria-label="New Password" autocomplete="new-password" class="v-input" />
+      <input v-model="passwordForm.confirm" type="password" placeholder="Confirm New Password" aria-label="Confirm New Password" autocomplete="new-password" class="v-input" />
       <p v-if="passwordError" class="v-text-danger auth-error">{{ passwordError }}</p>
     </div>
 
@@ -382,8 +382,8 @@ const shareResultMessage = computed(() => lastCreatedWasFileRequest.value
   ? 'Anyone with this link can upload files without viewing the folder contents:'
   : `Anyone with this link can view${shareModal.value === 'project' ? ' this project' : ''}:`)
 const shareResultUrl = computed(() => shareModal.value === 'project' ? projectShareUrl.value : shareUrl.value)
-const shareCreateTargetLabel = computed(() => shareCreateTarget.value?.name || shareCreateTarget.value?.title || shareCreateTarget.value?.path || 'Create Share Link')
-const shareModalTitle = computed(() => canManageProjectShares.value ? shareCreateTargetLabel.value : 'Create Share Link')
+const shareCreateTargetLabel = computed(() => shareCreateTarget.value?.name || shareCreateTarget.value?.title || shareCreateTarget.value?.path || 'Create share link')
+const shareModalTitle = computed(() => canManageProjectShares.value ? shareCreateTargetLabel.value : 'Create share link')
 const shareCreateTargetNote = computed(() => canManageProjectShares.value ? `Creating link for ${shareCreateTargetLabel.value}` : shareCreateTargetLabel.value)
 const canRequestFiles = computed(() => ['folder', 'project-folder'].includes(shareCreateType.value))
 const shareAccessLower = computed(() => (shareAccessError.value || '').toLowerCase())

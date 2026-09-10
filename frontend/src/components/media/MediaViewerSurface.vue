@@ -6,7 +6,7 @@
     <div v-if="isViewingVideo && showStreamPreparingOverlay" class="stream-overlay">
       <div class="stream-box">
         <div class="progress-ring"><svg viewBox="0 0 100 100"><circle class="bg" cx="50" cy="50" r="45"/><circle class="fg" cx="50" cy="50" r="45" :style="`stroke-dashoffset: ${283 - (283 * streamProgress / 100)}`"/></svg><span class="progress-text">{{ Math.round(streamProgress) }}%</span></div>
-        <h3>Preparing stream...</h3><p>This version is being packaged for adaptive playback and cached for future views.</p>
+        <h3>Preparing preview…</h3><p>Playback starts when the preview is ready.</p>
       </div>
     </div>
 

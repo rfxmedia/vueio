@@ -14,7 +14,7 @@
 
     <VModal :model-value="open" size="md" aria-label="Add storage" @update:model-value="open = $event">
       <template #header>
-        <VModalHeader title="Add storage" subtitle="Choose a drive connected to the computer running Vueio—not the device browsing this page." @close="open = false" />
+        <VModalHeader title="Add storage" subtitle="Choose a drive on the computer running Vueio. Drives on this browsing device are not available here." @close="open = false" />
       </template>
       <div class="v-modal-stack">
         <div class="drive-heading">

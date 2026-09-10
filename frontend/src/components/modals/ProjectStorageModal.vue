@@ -354,7 +354,7 @@ watch(() => [props.show, props.mode, props.project?.id, props.roots.length], ([s
 .storage-plan-issues__list { max-height: 190px; overflow-y: auto; }
 .storage-plan-issue { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: var(--v-space-3); padding: 7px 12px; border-bottom: 1px solid var(--v-modal-divider); }
 .storage-plan-issue:last-child { border-bottom: 0; }
-.storage-plan-issue span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--v-text); font-size: var(--v-text-xs); }
+.storage-plan-issue span { min-width: 0; overflow-wrap: anywhere; color: var(--v-text); font-size: var(--v-text-xs); }
 .storage-plan-issue small { flex: 0 0 auto; color: var(--v-warning); font-size: var(--v-text-2xs); }
 .storage-old-copy { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 10px; padding: var(--v-space-3); color: var(--v-info); }
 .storage-old-copy .icon { width: 17px; height: 17px; }
@@ -362,6 +362,7 @@ watch(() => [props.show, props.mode, props.project?.id, props.roots.length], ([s
 .storage-old-copy p { margin: 4px 0 0; overflow-wrap: anywhere; color: var(--v-text-muted); font-size: var(--v-text-xs); }
 .project-storage-modal__error { color: var(--v-danger); }
 @media (max-width: 548px) {
+  .storage-plan-issue { align-items: flex-start; flex-direction: column; gap: var(--v-space-1); }
   .storage-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .storage-plan-stat:nth-child(3) { grid-column: 1 / -1; }
 }

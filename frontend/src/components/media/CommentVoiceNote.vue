@@ -73,9 +73,7 @@
         :aria-expanded="transcriptOpen"
         @click.stop="transcriptOpen = !transcriptOpen"
       >
-        <span class="voice-note__transcript-indicator" aria-hidden="true"></span>
         <span class="voice-note__transcript-label">Transcript</span>
-        <span class="voice-note__transcript-action">{{ transcriptOpen ? 'Hide' : 'Show' }}</span>
         <svg class="icon"><use :href="transcriptOpen ? '#icon-chevron-up' : '#icon-chevron-down'" /></svg>
       </button>
       <Transition name="voice-transcript">
@@ -351,6 +349,11 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
+.voice-note__play:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
 .voice-note__play .icon {
   width: 11px;
   height: 11px;
@@ -417,14 +420,14 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 5px;
   width: 100%;
-  min-height: 18px;
+  min-height: 28px;
   padding: 0 1px;
   border: 0;
   border-radius: var(--v-button-radius);
   background: transparent;
   color: var(--v-text-muted);
   font-family: var(--v-font);
-  font-size: var(--v-text-2xs);
+  font-size: var(--v-text-xs);
   text-align: left;
   cursor: pointer;
   transition: color var(--v-transition-fast);
@@ -440,25 +443,13 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 
-.voice-note__transcript-indicator {
-  width: 5px;
-  height: 5px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-accent);
-}
-
 .voice-note__transcript-label {
   color: var(--v-text-secondary);
   font-weight: 650;
 }
 
-.voice-note__transcript-action {
-  margin-left: auto;
-  color: var(--v-text-muted);
-  font-weight: 500;
-}
-
 .voice-note__transcript-toggle .icon {
+  margin-left: auto;
   width: 10px;
   height: 10px;
 }
@@ -567,5 +558,21 @@ onBeforeUnmount(() => {
   .voice-note--compact .voice-note__player {
     grid-template-columns: 24px minmax(42px, 1fr) auto;
   }
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .voice-note__player,
+  .voice-note--compact .voice-note__player {
+    grid-template-columns: 44px minmax(48px, 1fr) auto;
+  }
+
+  .voice-note__play,
+  .voice-note--compact .voice-note__play {
+    width: 44px;
+    height: 44px;
+  }
+
+  .voice-note__play .icon { width: 16px; height: 16px; }
+  .voice-note__transcript-toggle { min-height: 44px; }
 }
 </style>

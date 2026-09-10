@@ -1038,11 +1038,9 @@ const latestCommentCount = computed(() => {
   min-width: 0;
   color: var(--v-text-muted);
   font-family: var(--v-font);
-  font-size: var(--v-text-3xs);
-  font-weight: 800;
-  letter-spacing: 0.15em;
-  line-height: 1;
-  text-transform: uppercase;
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: clip;

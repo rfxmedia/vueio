@@ -28,10 +28,7 @@
         </template>
 
         <div class="tracker-filter-dropdown-header">
-          <div>
-            <p class="tracker-filter-dropdown-title v-section-label">Filters</p>
-            <p class="tracker-filter-dropdown-copy">Combine filters to focus this tracker.</p>
-          </div>
+          <p class="tracker-filter-dropdown-title v-section-label">Filters</p>
           <button
             v-if="hasTrackerFilters"
             type="button"
@@ -250,7 +247,6 @@
           <div class="tracker-filter-sheet-header">
             <div class="v-modal-header-copy">
               <h2 class="v-modal-header-title">Filters</h2>
-            <p class="v-modal-header-subtitle">Combine filters to focus this tracker.</p>
             </div>
             <button
               v-if="hasTrackerFilters"
@@ -317,7 +313,6 @@
         <VModalHeader @close="setSortOpen(false)">
           <div class="v-modal-header-copy">
             <h2 class="v-modal-header-title">Sort and group</h2>
-            <p class="v-modal-header-subtitle">Choose how shots are ordered and organized.</p>
           </div>
         </VModalHeader>
       </template>
@@ -682,19 +677,13 @@ function toggleGroup(key) {
   transition:
     background var(--v-transition-fast),
     border-color var(--v-transition-fast),
-    color var(--v-transition-fast),
-    transform var(--v-transition-fast);
+    color var(--v-transition-fast);
 }
 
 .tracker-toolbar-action.v-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
   background: var(--v-surface-inline);
   border-color: var(--v-control-border);
   color: var(--v-text);
-}
-
-.tracker-toolbar-action.v-btn:active:not(:disabled) {
-  transform: scale(0.98);
 }
 
 .tracker-toolbar-action.v-btn-active {
@@ -788,11 +777,9 @@ function toggleGroup(key) {
   margin: 0;
   padding: 6px 8px 5px;
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  text-transform: uppercase;
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 .tracker-filter-dropdown-header {
@@ -806,13 +793,6 @@ function toggleGroup(key) {
 .tracker-filter-dropdown-title,
 .tracker-filter-section-title {
   margin: 0;
-}
-
-.tracker-filter-dropdown-copy {
-  margin: 4px 0 0;
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-sm);
-  line-height: 1.45;
 }
 
 .tracker-filter-clear-btn {

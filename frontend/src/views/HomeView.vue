@@ -4,7 +4,7 @@
       <div class="home-heading">
         <p class="v-eyebrow home-date">{{ todayLabel }}</p>
         <h1 class="v-page-title">Good {{ daypart }}, {{ firstName }}.</h1>
-        <p class="home-intro">{{ homeIntro }}</p>
+        <p v-if="homeIntro" class="home-intro">{{ homeIntro }}</p>
       </div>
 
       <div v-if="canCreateProjects" class="v-page-actions">
@@ -19,14 +19,9 @@
       <div class="home-primary">
         <section class="home-section home-attention" aria-labelledby="home-attention-title">
           <header class="home-section-header home-attention-header">
-            <div class="home-title-cluster">
-              <span class="home-attention-icon" aria-hidden="true">
-                <svg class="icon"><use href="#icon-project" /></svg>
-              </span>
-              <div>
-                <h2 id="home-attention-title">Your work</h2>
-                <p>Assigned shots that need changes or are already in progress.</p>
-              </div>
+            <div>
+              <h2 id="home-attention-title">Your work</h2>
+              <p>Shots assigned to you that need work.</p>
             </div>
             <div v-if="assignedWorkTotal" class="home-work-summary" aria-label="Assigned work summary">
               <span v-if="requestedEditCount" class="v-status v-status-hold">
@@ -91,7 +86,6 @@
                     <template v-if="project.due_date"> due {{ formatProjectDate(project.due_date) }}</template>
                   </span>
                 </span>
-                <span class="home-open-label">Open project</span>
                 <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
               </button>
 
@@ -106,7 +100,7 @@
                 >
                   <span class="home-edit-shot-copy">
                     <strong>{{ shot.shot_id }}</strong>
-                    <span>{{ shot.description || 'No shot description' }}</span>
+                    <span v-if="shot.description">{{ shot.description }}</span>
                   </span>
                   <span class="v-status home-work-status" :class="statusClass(shot.status)">
                     {{ formatStatus(shot.status || 'in_progress') }}
@@ -140,7 +134,6 @@
             <header class="home-section-header">
               <div>
                 <h2 id="home-recent-title">Continue working</h2>
-                <p>Pick up where you left off.</p>
               </div>
             </header>
 
@@ -166,7 +159,7 @@
                 </span>
                 <span class="home-recent-copy">
                   <strong>{{ item.title }}</strong>
-                  <span>{{ continueSubtitle(item) }}</span>
+                  <span v-if="continueSubtitle(item)">{{ continueSubtitle(item) }}</span>
                 </span>
                 <svg class="icon home-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
               </button>
@@ -185,7 +178,6 @@
             <header class="home-section-header">
               <div>
                 <h2 id="home-overview-title">At a glance</h2>
-                <p>A quick pulse across your workspace.</p>
               </div>
             </header>
             <div class="v-surface-panel home-snapshot">
@@ -212,7 +204,6 @@
           <header class="home-section-header">
             <div>
               <h2 id="home-projects-title">Active projects</h2>
-              <p>The work currently moving through production.</p>
             </div>
             <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="goToProjects">
               View all
@@ -260,7 +251,7 @@
 
           <div v-else class="v-surface-panel v-empty-state home-empty-state">
             <svg class="icon v-empty-state-icon" aria-hidden="true"><use href="#icon-check" /></svg>
-            <div class="v-empty-state-title">Nothing is in production</div>
+            <div class="v-empty-state-title">No active projects</div>
             <div class="v-empty-state-copy">{{ emptyProjectsCopy }}</div>
           </div>
         </section>
@@ -269,7 +260,6 @@
           <header class="home-section-header">
             <div>
               <h2 id="home-activity-title">Latest activity</h2>
-              <p>Recent changes across the work you can access.</p>
             </div>
             <button
               type="button"
@@ -390,15 +380,12 @@ const inProgressCount = computed(() => assignedWorkProjects.value.reduce(
   0,
 ))
 const homeIntro = computed(() => {
-  if (assignedWorkLoading.value) {
-    return 'Your assigned work, active projects, and latest updates in one clear view.'
-  }
-  if (assignedWorkTotal.value) {
+  if (!assignedWorkLoading.value && assignedWorkTotal.value) {
     const shotLabel = assignedWorkTotal.value === 1 ? 'shot' : 'shots'
     const projectLabel = assignedWorkProjectCount.value === 1 ? 'project' : 'projects'
     return `${assignedWorkTotal.value} assigned ${shotLabel} across ${assignedWorkProjectCount.value} ${projectLabel}.`
   }
-  return 'Your active projects, recent work, and latest updates are ready below.'
+  return ''
 })
 
 const visibleProjectIds = computed(() => new Set(projects.value.map(project => String(project.id))))
@@ -474,11 +461,9 @@ function formatVersionLabel(value) {
 
 function continueSubtitle(item) {
   const subtitle = String(item?.subtitle || '').trim()
-  if (!subtitle || subtitle.toLowerCase() === item.type) {
-    const project = projects.value.find(entry => String(entry.id) === String(item?.projectId || item?.id))
-    return project?.title || 'Recently viewed'
-  }
-  return subtitle
+  if (subtitle && subtitle.toLowerCase() !== item.type) return subtitle === item.title ? '' : subtitle
+  const project = projects.value.find(entry => String(entry.id) === String(item?.projectId || item?.id))
+  return project?.title === item.title ? '' : (project?.title || '')
 }
 
 function statusClass(status) {
@@ -666,13 +651,13 @@ onMounted(() => {
   align-items: flex-end;
   justify-content: space-between;
   gap: var(--v-space-4);
-  min-height: 42px;
+  min-height: 32px;
 }
 
 .home-section-header h2 {
   margin: 0;
   color: var(--v-text);
-  font-size: var(--v-text-2xl);
+  font-size: var(--v-text-xl);
   line-height: 1.2;
 }
 
@@ -687,14 +672,6 @@ onMounted(() => {
   align-items: center;
 }
 
-.home-title-cluster {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: var(--v-space-3);
-}
-
-.home-attention-icon,
 .home-state-icon,
 .home-recent-icon,
 .home-activity-icon {
@@ -703,18 +680,6 @@ onMounted(() => {
   justify-content: center;
   flex: 0 0 auto;
   border-radius: var(--v-radius-md);
-}
-
-.home-attention-icon {
-  width: 38px;
-  height: 38px;
-  background: var(--v-accent-subtle);
-  color: var(--v-accent);
-}
-
-.home-attention-icon .icon {
-  width: 17px;
-  height: 17px;
 }
 
 .home-work-summary {
@@ -746,7 +711,7 @@ onMounted(() => {
 
 .home-edit-project-header {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--v-space-3);
   width: 100%;
@@ -831,12 +796,6 @@ onMounted(() => {
   font-size: var(--v-text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.home-open-label {
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-sm);
-  font-weight: 650;
 }
 
 .home-chevron {
@@ -988,20 +947,21 @@ onMounted(() => {
 
 .home-snapshot {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   overflow: hidden;
   border-radius: var(--v-radius-lg);
 }
 
 .home-snapshot-item {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: baseline;
-  gap: var(--v-space-2);
-  min-height: 58px;
-  padding: var(--v-space-3) var(--v-space-4);
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-content: center;
+  gap: 2px var(--v-space-1);
+  min-height: 64px;
+  padding: var(--v-space-3);
   border: 0;
-  border-bottom: 1px solid var(--v-divider-subtle);
+  border-right: 1px solid var(--v-divider-subtle);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -1017,7 +977,12 @@ button.home-snapshot-item:hover {
 }
 
 .home-snapshot-item:last-child {
-  border-bottom: 0;
+  border-right: 0;
+}
+
+.home-snapshot-item strong,
+.home-snapshot-item span {
+  grid-column: 1;
 }
 
 .home-snapshot-item strong {
@@ -1045,6 +1010,9 @@ button.home-snapshot-item:hover {
 }
 
 .home-snapshot-item .icon {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  align-self: center;
   width: 12px;
   height: 12px;
   color: var(--v-text-muted);
@@ -1311,7 +1279,6 @@ button.home-snapshot-item:hover {
 
   .home-work-summary {
     justify-content: flex-start;
-    padding-left: 50px;
   }
 
   .home-edit-shot {
@@ -1339,37 +1306,6 @@ button.home-snapshot-item:hover {
     align-items: flex-start;
   }
 
-  .home-snapshot {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .home-snapshot-item {
-    grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-rows: auto auto;
-    align-content: center;
-    gap: 2px var(--v-space-1);
-    min-height: 64px;
-    padding-inline: var(--v-space-3);
-    border-right: 1px solid var(--v-divider-subtle);
-    border-bottom: 0;
-  }
-
-  .home-snapshot-item:last-child {
-    border-right: 0;
-    border-bottom: 0;
-  }
-
-  .home-snapshot-item strong,
-  .home-snapshot-item span {
-    grid-column: 1;
-  }
-
-  .home-snapshot-item .icon {
-    grid-column: 2;
-    grid-row: 1 / -1;
-    align-self: center;
-  }
-
   .home-recent-list {
     grid-template-columns: 1fr;
   }
@@ -1380,14 +1316,6 @@ button.home-snapshot-item:hover {
 
   .home-recent-row:last-child {
     border-bottom: 0;
-  }
-
-  .home-edit-project-header {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-
-  .home-open-label {
-    display: none;
   }
 
   .home-edit-shot-meta {
@@ -1423,19 +1351,6 @@ button.home-snapshot-item:hover {
   .home-header .v-page-actions,
   .home-header .v-btn {
     width: auto;
-  }
-
-  .home-title-cluster {
-    align-items: flex-start;
-  }
-
-  .home-attention-icon {
-    width: 36px;
-    height: 36px;
-  }
-
-  .home-work-summary {
-    padding-left: 48px;
   }
 
   .home-attention-state {

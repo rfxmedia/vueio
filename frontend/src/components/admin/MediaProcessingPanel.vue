@@ -132,7 +132,7 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
 <style scoped>
 .processing-panel { display: grid; gap: var(--v-space-4); padding: var(--v-space-5); }
 .processing-heading { display: flex; align-items: start; justify-content: space-between; gap: var(--v-space-4); }
-.processing-heading h3, .processing-activity h4 { margin: 0; font-size: 15px; }
+.processing-heading h3, .processing-activity h4 { margin: 0; font-size: var(--v-text-lg); }
 .processing-panel p { margin: var(--v-space-2) 0 0; color: var(--v-text-secondary); line-height: 1.5; }
 .processing-heading .v-btn { flex-shrink: 0; }
 .processing-options { display: grid; grid-template-columns: 1fr 1fr; gap: var(--v-space-3); margin: 0; padding: 0; border: 0; min-width: 0; }
@@ -148,14 +148,14 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
 .processing-hardware { border-top: 1px solid var(--v-border); padding-top: var(--v-space-3); }
 .processing-device + .processing-device { margin-top: var(--v-space-4); }
 .processing-device > div { display: flex; align-items: center; justify-content: space-between; gap: var(--v-space-3); flex-wrap: wrap; }
-.processing-result { color: var(--v-text-secondary); font-size: 12px; }
+.processing-result { color: var(--v-text-secondary); font-size: var(--v-text-sm); }
 .processing-result.passed { color: var(--v-accent); }
-.processing-note { font-size: 12px; }
+.processing-note { font-size: var(--v-text-sm); }
 .processing-actions { display: flex; align-items: center; gap: var(--v-space-3); }
-.processing-actions span { color: var(--v-text-secondary); font-size: 12px; }
+.processing-actions span { color: var(--v-text-secondary); font-size: var(--v-text-sm); }
 .processing-activity { border-top: 1px solid var(--v-border); padding-top: var(--v-space-4); }
-.processing-activity h4 span { color: var(--v-text-secondary); font-size: 12px; font-weight: 400; margin-left: var(--v-space-2); }
-.processing-job { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--v-space-3); padding-top: var(--v-space-3); font-size: 12px; }
+.processing-activity h4 span { color: var(--v-text-secondary); font-size: var(--v-text-sm); font-weight: 400; margin-left: var(--v-space-2); }
+.processing-job { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--v-space-3); padding-top: var(--v-space-3); font-size: var(--v-text-sm); }
 .processing-job strong { font-weight: 500; overflow-wrap: anywhere; }
 .processing-fallback { color: var(--v-warning); }
 .processing-panel .processing-error { color: var(--v-danger); }

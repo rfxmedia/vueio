@@ -101,7 +101,7 @@
         <div v-if="projects.length === 0" class="v-empty-state">
           <svg class="icon v-empty-state-icon"><use href="#icon-project"/></svg>
           <p class="v-empty-state-title">No projects yet</p>
-          <p class="v-empty-state-hint">Create the first project to start building in Horizons.</p>
+          <p class="v-empty-state-hint">{{ canCreateProjects ? 'Create a project to organize files and reviews.' : 'Projects will appear here when you are added to them.' }}</p>
         </div>
 
         <div v-else-if="sortedProjects.length === 0" class="v-empty-state">
@@ -398,14 +398,14 @@ function projectMenuActions(project) {
   const canSettings = canOpenProjectSettingsItem(project)
   const canStorage = Boolean(project && isAdmin.value)
   return [
-    { label: 'Project Settings', icon: '#icon-settings', show: canSettings, run: () => openProjectSettings(project) },
+    { label: 'Project settings', icon: '#icon-settings', show: canSettings, run: () => openProjectSettings(project) },
     { divider: true },
-    { label: 'Share Project', icon: '#icon-share', show: canShareProjectItem(project), run: () => shareProjectFromList(project) },
+    { label: 'Share project', icon: '#icon-share', show: canShareProjectItem(project), run: () => shareProjectFromList(project) },
     { divider: true },
-    { label: 'Set Project Folder', icon: '#icon-folder', show: canStorage && project.uses_internal_storage, run: () => openProjectStorage(project, 'migrate') },
-    { label: 'Relocate Project', icon: '#icon-map-pin', show: canStorage, run: () => openProjectStorage(project, 'relocate') },
+    { label: 'Set project folder', icon: '#icon-folder', show: canStorage && project.uses_internal_storage, run: () => openProjectStorage(project, 'migrate') },
+    { label: 'Relocate project', icon: '#icon-map-pin', show: canStorage, run: () => openProjectStorage(project, 'relocate') },
     { divider: true },
-    { label: 'Delete Project', icon: '#icon-trash', danger: true, show: canDeleteProjectItem(project), run: () => deleteProjectConfirm(project) },
+    { label: 'Delete project', icon: '#icon-trash', danger: true, show: canDeleteProjectItem(project), run: () => deleteProjectConfirm(project) },
   ]
 }
 

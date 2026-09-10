@@ -1,9 +1,8 @@
 <template>
   <section class="admin-section agent-key-section">
     <AdminSettingsHeader
-      eyebrow="Automation"
       title="Agent keys"
-      description="Give an agent revocable access that always follows the permissions of its Vueio owner."
+      description="Agent access follows its owner’s permissions. Revoke a key at any time."
       icon="#icon-zap"
     >
       <button class="v-btn v-btn-secondary v-btn-sm" :disabled="personalKeySaving" @click="$emit('create-personal-agent-key')">

@@ -36,8 +36,9 @@ const elapsedLabel = computed(() => {
 
 <style>
 .voice-recording {
+  --voice-recording-action-size: 28px;
   display: grid;
-  grid-template-columns: 8px minmax(64px, 1fr) auto 28px 28px;
+  grid-template-columns: 8px minmax(48px, 1fr) auto repeat(2, var(--voice-recording-action-size));
   align-items: center;
   gap: 6px;
   min-height: 40px;
@@ -77,8 +78,8 @@ const elapsedLabel = computed(() => {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: var(--voice-recording-action-size);
+  height: var(--voice-recording-action-size);
   padding: 0;
   border: 1px solid var(--v-control-border);
   border-radius: var(--v-button-radius);
@@ -99,17 +100,23 @@ const elapsedLabel = computed(() => {
   color: var(--v-danger);
 }
 
+.voice-recording__action:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
 .voice-recording__action .icon { width: 12px; height: 12px; }
 .voice-recording__stop { width: 9px; height: 9px; border-radius: 2px; background: var(--v-accent); }
 
 @keyframes voice-recording-pulse { 50% { opacity: 0.35; } }
 
-@media (max-width: 768px) {
-  .voice-recording { min-height: 44px; }
+@media (max-width: 768px), (pointer: coarse) {
+  .voice-recording { --voice-recording-action-size: 44px; min-height: 44px; }
+  .voice-recording__action .icon { width: 16px; height: 16px; }
 }
 
 @media (max-width: 430px) {
-  .voice-recording { grid-template-columns: 8px minmax(48px, 1fr) auto 28px 28px; gap: 5px; }
+  .voice-recording { gap: 5px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

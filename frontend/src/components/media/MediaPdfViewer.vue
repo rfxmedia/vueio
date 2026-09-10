@@ -9,7 +9,7 @@
         <span v-if="pageCount" class="pdf-page-status">Page {{ currentPage }} / {{ pageCount }}</span>
         <button
           type="button"
-          class="pdf-download-button"
+          class="v-btn v-btn-secondary v-btn-icon pdf-download-button"
           :disabled="!canDownload"
           title="Download PDF"
           aria-label="Download PDF"
@@ -626,41 +626,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-.pdf-download-button {
-  width: var(--v-icon-btn-size);
-  height: var(--v-icon-btn-size);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-icon-btn-radius);
-  color: var(--v-text);
-  background: var(--v-control-bg);
-  cursor: pointer;
-  transition:
-    background var(--v-duration-fast) var(--v-ease-emphasized),
-    border-color var(--v-duration-fast) var(--v-ease-emphasized),
-    color var(--v-duration-fast) var(--v-ease-emphasized);
-}
-
-.pdf-download-button:hover:not(:disabled),
-.pdf-download-button:focus-visible {
-  color: var(--v-text);
-  border-color: var(--v-control-border-hover);
-  background: var(--v-control-bg-hover);
-  outline: none;
-}
-
-.pdf-download-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.pdf-download-button .icon {
-  width: 16px;
-  height: 16px;
-}
-
 .pdf-scroll {
   flex: 1;
   min-height: 0;
@@ -780,6 +745,15 @@ onBeforeUnmount(() => {
 
 .pdf-state-spinner {
   animation: v-spin 0.9s linear infinite;
+}
+
+@media (max-width: 768px), (pointer: coarse) {
+  .pdf-download-button.v-btn {
+    width: var(--v-btn-height-lg);
+    min-width: var(--v-btn-height-lg);
+    height: var(--v-btn-height-lg);
+    min-height: var(--v-btn-height-lg);
+  }
 }
 
 @media (max-width: 720px) {

@@ -2,14 +2,14 @@
    settings patterns cannot affect similarly named controls elsewhere. */
 :where(.admin-page) .settings-panel {
   display: grid;
-  gap: 14px;
+  gap: var(--v-space-4);
   width: min(100%, 720px);
   max-width: 760px;
 }
 
 :where(.admin-page) .settings-form-panel {
   max-width: 680px;
-  padding: 18px;
+  padding: var(--v-space-4);
   border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
   border-radius: var(--v-radius-md);
   background: color-mix(in srgb, var(--v-surface-inline) 28%, transparent);
@@ -193,7 +193,7 @@
 
 :where(.admin-page) .admin-empty {
   margin: 12px 14px 14px;
-  padding: 18px;
+  padding: var(--v-space-4);
   border: 1px dashed color-mix(in srgb, var(--v-border) 68%, transparent);
   border-radius: var(--v-radius-md);
   background: color-mix(in srgb, var(--v-surface-inline) 24%, transparent);
@@ -204,7 +204,7 @@
 :where(.admin-page) .admin-form-grid {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--v-space-4);
 }
 
 :where(.admin-page) .admin-note {
@@ -221,16 +221,15 @@
   }
 
   :where(.admin-page) .admin-toolbar {
-    gap: 7px;
-    padding: 8px 10px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
+    gap: var(--v-space-2);
+    padding: var(--v-space-3);
+    flex-wrap: wrap;
   }
 
   :where(.admin-page) .admin-search-wrap {
-    flex: 0 0 132px;
-    min-width: 132px;
-    max-width: 132px;
+    flex: 1 1 180px;
+    min-width: 0;
+    max-width: none;
   }
 
   :where(.admin-page) .admin-search-input {

@@ -1,9 +1,8 @@
 <template>
   <section class="admin-section admin-theme-manager">
     <AdminSettingsHeader
-      eyebrow="Appearance"
       title="Theme"
-      description="Tune nine source colors and let Vueio derive every surface, border, and interaction state."
+      description="Choose colors for your workspace."
       icon="#icon-pen"
     >
       <div v-if="updatedAt || updatedBy" class="admin-theme-meta">
@@ -36,7 +35,7 @@
               </div>
               <div class="theme-sample-pills">
                 <span class="theme-sample-pill warning">Review</span>
-                <span class="theme-sample-pill">Alex Vue</span>
+                <span class="theme-sample-pill">Sample reviewer</span>
               </div>
             </div>
             <div class="theme-sample-note">
@@ -62,8 +61,8 @@
             <div class="theme-sample-project">
               <div class="theme-sample-avatar">T</div>
               <div>
-                <strong>TIME - Bebe Rexha</strong>
-                <span>1 status · 1 versions</span>
+                <strong>Synthetic review project</strong>
+                <span>1 status · 1 version</span>
               </div>
               <b>2 updates</b>
             </div>
@@ -271,7 +270,8 @@ onMounted(loadTheme)
 
 <style scoped>
 .admin-theme-manager {
-  overflow: hidden;
+  overflow: visible;
+  flex-shrink: 0;
 }
 
 .admin-theme-meta,

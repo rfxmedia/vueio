@@ -69,6 +69,10 @@
   border-radius: var(--v-button-radius);
 }
 
+.v-file-browser-controls .v-view-toggle-btn:hover:not(.active) {
+  background: var(--v-control-bg-hover);
+}
+
 .v-file-browser-controls .v-view-toggle-btn .icon,
 .v-file-sort-select .icon,
 .v-file-sort-direction .icon {
@@ -86,6 +90,18 @@
   border-radius: var(--v-button-radius);
   background: var(--v-control-bg);
   color: var(--v-text-secondary);
+  transition: border-color var(--v-transition-fast), background var(--v-transition-fast);
+}
+
+.v-file-sort-select:hover,
+.v-file-sort-select:focus-within {
+  border-color: var(--v-control-border-hover);
+  background: var(--v-control-bg-hover);
+}
+
+.v-file-sort-select:has(select:focus-visible) {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: 2px;
 }
 
 .v-file-sort-select > .icon:first-child {
@@ -640,6 +656,7 @@
 
   .v-file-sort-direction {
     width: 44px;
+    min-width: 44px;
     min-height: 44px;
     border-radius: var(--v-button-radius);
   }

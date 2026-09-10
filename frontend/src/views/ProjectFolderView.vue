@@ -48,7 +48,7 @@
                 </div>
                 <div v-if="canLoadMoreProjectShortcutTrackers" class="v-load-more">
                   <button class="v-btn v-btn-secondary" @click="loadMoreProjectShortcutTrackers">
-                    Load More Trackers ({{ projectShortcutTrackers.length - visibleProjectShortcutTrackers.length }} remaining)
+                    Load more trackers ({{ projectShortcutTrackers.length - visibleProjectShortcutTrackers.length }} remaining)
                   </button>
                 </div>
               </div>
@@ -107,7 +107,7 @@
                 </VFileBrowserItem>
                 <div v-if="canLoadMoreProjectFolders" class="v-load-more">
                   <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
-                    Load More Folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
+                    Load more folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
                   </button>
                 </div>
               </div>
@@ -143,7 +143,7 @@
                 </VFileBrowserItem>
                 <div v-if="canLoadMoreProjectFiles" class="v-load-more">
                   <button class="v-btn v-btn-secondary" @click="loadMoreProjectFiles">
-                    Load More Files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
+                    Load more files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
                   </button>
                 </div>
               </div>
@@ -199,12 +199,12 @@
               </div>
               <div v-if="canLoadMoreProjectFolders" class="v-load-more is-list-load-more">
                 <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
-                  Load More Folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
+                  Load more folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
                 </button>
               </div>
               <div v-if="canLoadMoreProjectFiles" class="v-load-more is-list-load-more">
                 <button class="v-btn v-btn-secondary" @click="loadMoreProjectFiles">
-                  Load More Files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
+                  Load more files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
                 </button>
               </div>
             </section>
@@ -308,10 +308,10 @@
                 </div>
                 <div v-if="canLoadMoreProjectPages || canLoadMoreProjectTrackers" class="v-load-more">
                   <button v-if="canLoadMoreProjectPages" class="v-btn v-btn-secondary" @click="loadMoreProjectPages">
-                    Load More Dashboards ({{ projectPageItems.length - visibleProjectPageItems.length }} remaining)
+                    Load more dashboards ({{ projectPageItems.length - visibleProjectPageItems.length }} remaining)
                   </button>
                   <button v-if="canLoadMoreProjectTrackers" class="v-btn v-btn-secondary" @click="loadMoreProjectTrackers">
-                    Load More Trackers ({{ projectTrackerItems.length - visibleProjectTrackerItems.length }} remaining)
+                    Load more trackers ({{ projectTrackerItems.length - visibleProjectTrackerItems.length }} remaining)
                   </button>
                 </div>
               </div>
@@ -393,7 +393,7 @@
             </VFileBrowserItem>
             <div v-if="canLoadMoreProjectFolders" class="v-load-more">
               <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
-                Load More Folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
+                Load more folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
               </button>
             </div>
               </div>
@@ -433,7 +433,7 @@
             </VFileBrowserItem>
             <div v-if="canLoadMoreProjectFiles" class="v-load-more">
               <button class="v-btn v-btn-secondary" @click="loadMoreProjectFiles">
-                Load More Files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
+                Load more files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
               </button>
             </div>
               </div>
@@ -499,12 +499,12 @@
               </div>
               <div v-if="canLoadMoreProjectFolders" class="v-load-more is-list-load-more">
                 <button class="v-btn v-btn-secondary" @click="loadMoreProjectFolders">
-                  Load More Folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
+                  Load more folders ({{ projectFolderItems.length - visibleProjectFolderItems.length }} remaining)
                 </button>
               </div>
               <div v-if="canLoadMoreProjectFiles" class="v-load-more is-list-load-more">
                 <button class="v-btn v-btn-secondary" @click="loadMoreProjectFiles">
-                  Load More Files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
+                  Load more files ({{ projectFileItems.length - visibleProjectFileItems.length }} remaining)
                 </button>
               </div>
             </section>
@@ -705,7 +705,7 @@ function folderMenuActions(item) {
   const editable = canManageProjectItems.value && canEditProject.value && !item.is_workspace
   return [
     { label: 'Download', icon: '#icon-download', show: canDownloadProjectFolderItem(item), run: () => downloadProjectFolder(item.path, item.name) },
-    { label: 'Share Folder', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_workspace && !item.is_linked, run: () => shareProjectContent(item, true) },
+    { label: 'Share folder', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_workspace && !item.is_linked, run: () => shareProjectContent(item, true) },
     { divider: true },
     { label: 'Rename', icon: '#icon-edit', show: editable && !item.is_linked, run: () => startRenameFolder(item) },
     { label: 'Duplicate', icon: '#icon-copy', show: editable && item.link_kind !== 'folder-child', run: () => duplicateItem(item) },
@@ -719,7 +719,7 @@ function fileMenuActions(item) {
   const editable = canManageProjectItems.value && canEditProject.value
   const detachable = editable && item.link_kind !== 'folder-child'
   return [
-    { label: 'Share File', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_linked, run: () => shareProjectContent(item, false) },
+    { label: 'Share file', icon: '#icon-share', show: canManageProjectItems.value && canShareProject.value && !item.is_linked, run: () => shareProjectContent(item, false) },
     { label: 'Download', icon: '#icon-download', show: !shareMode.value || shareAllowDownload.value, run: () => downloadProjectItem(item) },
     { divider: true },
     { label: 'Rename', icon: '#icon-edit', show: editable && !item.is_linked, run: () => startRenameFile(item) },

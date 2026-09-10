@@ -189,7 +189,7 @@
                   >
                     <svg class="icon"><use href="#icon-camera"/></svg>
                     <span class="viewer-frame-capture-option__copy">
-                      <span class="viewer-frame-capture-option__label">Copy Current Frame</span>
+                      <span class="viewer-frame-capture-option__label">Copy frame</span>
                       <span class="viewer-frame-capture-option__hint">Copy or share this frame</span>
                     </span>
                   </button>
@@ -201,7 +201,7 @@
                   >
                     <svg class="icon"><use href="#icon-download"/></svg>
                     <span class="viewer-frame-capture-option__copy">
-                      <span class="viewer-frame-capture-option__label">Download Current Frame</span>
+                      <span class="viewer-frame-capture-option__label">Download frame</span>
                       <span class="viewer-frame-capture-option__hint">Save a PNG locally</span>
                     </span>
                   </button>
@@ -213,7 +213,7 @@
                   >
                     <svg class="icon"><use href="#icon-image"/></svg>
                     <span class="viewer-frame-capture-option__copy">
-                      <span class="viewer-frame-capture-option__label">Set Current Frame as Thumbnail</span>
+                      <span class="viewer-frame-capture-option__label">Use as thumbnail</span>
                       <span class="viewer-frame-capture-option__hint">Replace media thumbnail</span>
                     </span>
                   </button>

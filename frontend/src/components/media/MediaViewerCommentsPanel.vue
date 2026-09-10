@@ -38,8 +38,8 @@
               </div>
               <div class="comment-header-tools">
                 <div class="comment-secondary-actions">
-                  <button type="button" class="comment-action-button" @click.stop="toggleResolve(comment.id)" :title="comment.resolved ? 'Unresolve' : 'Resolve'"><svg class="icon"><use :href="comment.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
-                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(comment.id)" title="Delete Comment"><svg class="icon"><use href="#icon-trash"/></svg></button>
+                  <button type="button" class="comment-action-button" @click.stop="toggleResolve(comment.id)" :title="comment.resolved ? 'Unresolve' : 'Resolve'" :aria-label="comment.resolved ? 'Unresolve comment' : 'Resolve comment'"><svg class="icon"><use :href="comment.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
+                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(comment.id)" title="Delete comment" aria-label="Delete comment"><svg class="icon"><use href="#icon-trash"/></svg></button>
                 </div>
                 <span class="comment-number">#{{ commentIndex + 1 }}</span>
               </div>
@@ -118,8 +118,8 @@
                   <span v-if="isViewingPdf && pdfPageLabel(reply)" class="comment-timecode">{{ pdfPageLabel(reply) }}</span>
                 </div>
                 <div class="comment-secondary-actions">
-                  <button type="button" class="comment-action-button" @click.stop="toggleResolve(reply.id)" :title="reply.resolved ? 'Unresolve' : 'Resolve'"><svg class="icon"><use :href="reply.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
-                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(reply.id)" title="Delete Comment"><svg class="icon"><use href="#icon-trash"/></svg></button>
+                  <button type="button" class="comment-action-button" @click.stop="toggleResolve(reply.id)" :title="reply.resolved ? 'Unresolve' : 'Resolve'" :aria-label="reply.resolved ? 'Unresolve reply' : 'Resolve reply'"><svg class="icon"><use :href="reply.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
+                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(reply.id)" title="Delete reply" aria-label="Delete reply"><svg class="icon"><use href="#icon-trash"/></svg></button>
                 </div>
               </div>
 
@@ -1189,7 +1189,14 @@ function commentPostedDatetime(value) {
   color: var(--v-danger);
 }
 
-.comment-action-button .icon { width: 12px; height: 12px; }
+.comment-action-button:focus-visible,
+.composer__action:focus-visible,
+.comment-inline-cancel:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+}
+
+.comment-action-button .icon { width: 14px; height: 14px; }
 
 .comment-text {
   margin: 0;
@@ -1623,10 +1630,11 @@ function commentPostedDatetime(value) {
   .comment { padding-block: 14px; }
   .comment-number,
   .comment-secondary-actions { opacity: 0.72; pointer-events: auto; }
-  .comment-action-button { width: 32px; height: 32px; }
+  .comment-action-button { width: 44px; height: 44px; }
   .comment-text,
   .comment-reply .comment-text { font-size: var(--v-text-base); }
-  .comment-thread-reply-button { min-height: 30px; }
+  .comment-thread-reply-button,
+  .comment-inline-cancel { min-height: 44px; }
   .add-comment {
     position: sticky;
     bottom: 0;
@@ -1646,5 +1654,10 @@ function commentPostedDatetime(value) {
 
 @media (prefers-reduced-motion: reduce) {
   .composer__action .icon.is-spinning { animation-duration: 1.6s; }
+}
+
+@media (pointer: coarse) {
+  .comment-action-button { width: 44px; height: 44px; }
+  .comment-secondary-actions { opacity: 1; pointer-events: auto; }
 }
 </style>

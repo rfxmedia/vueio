@@ -3,7 +3,6 @@
     <header v-if="!isStorageSetup" class="admin-page-header">
       <div class="admin-header-copy">
         <h1 class="admin-title">Settings</h1>
-        <p>Manage your account, workspace, and Vueio installation.</p>
       </div>
       <div class="admin-header-overview">
         <div v-if="isAdmin" class="admin-workspace-summary" aria-label="Workspace summary">
@@ -61,7 +60,6 @@
               <svg class="icon" aria-hidden="true"><use :href="tab.icon" /></svg>
               <span>
                 <strong>{{ tab.label }}</strong>
-                <small>{{ tab.description }}</small>
               </span>
               <svg class="icon admin-nav-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
             </button>
@@ -70,7 +68,7 @@
       </aside>
 
       <label v-if="!isStorageSetup" class="admin-mobile-nav">
-        <span class="admin-mobile-nav-label">Settings section</span>
+        <span class="v-sr-only">Settings section</span>
         <span class="admin-mobile-nav-control">
           <svg class="icon" aria-hidden="true"><use :href="activeSettingsTab.icon" /></svg>
           <select :value="activeTab" aria-label="Settings section" @change="activeTab = $event.target.value">
@@ -86,9 +84,8 @@
 
     <section v-if="activeTab === 'account'" class="admin-section account-settings-section">
       <AdminSettingsHeader
-        eyebrow="Personal"
         title="Account"
-        description="Review your Vueio identity and keep your sign-in credentials secure."
+        description="Your profile and sign-in password."
         icon="#icon-user"
       />
 
@@ -112,9 +109,6 @@
               <dd>{{ currentUser?.role === 'admin' ? 'Full workspace access' : 'Assigned workspace access' }}</dd>
             </div>
           </dl>
-          <p class="account-profile-note">
-            Your account identity is used for comments, approvals, activity, and agent keys.
-          </p>
         </section>
 
         <section class="account-password-card">
@@ -122,7 +116,7 @@
             <div>
               <p class="settings-eyebrow">Security</p>
               <h3>Password</h3>
-              <p>Use at least 8 characters. Your current password is required to confirm the change.</p>
+              <p>Enter your current password. Use at least 8 characters for the new password.</p>
             </div>
             <div class="account-password-state" :class="{ 'is-ready': canSavePassword }">
               <svg class="icon"><use :href="canSavePassword ? '#icon-check' : '#icon-lock'" /></svg>
@@ -153,9 +147,8 @@
 
     <section v-if="activeTab === 'notifications'" class="admin-section notification-preferences-section">
       <AdminSettingsHeader
-        eyebrow="Personal"
         title="Notifications"
-        description="Choose which activity matters to you and where Vueio should deliver it."
+        description="Choose delivery channels and activity."
         icon="#icon-bell"
       >
         <button class="v-btn v-btn-primary v-btn-sm" :disabled="notificationSaving" @click="saveNotificationPrefs">
@@ -166,9 +159,7 @@
       <div class="notification-preferences-body">
         <section class="notification-preference-card">
           <div>
-            <p class="settings-eyebrow">Delivery</p>
-            <h3>Where should activity reach you?</h3>
-            <p>Channels only receive activity allowed by the scope and activity choices below.</p>
+            <h3>Delivery channels</h3>
           </div>
           <div class="settings-toggle-grid">
             <VSwitch
@@ -198,9 +189,7 @@
 
         <section class="notification-preference-card">
           <div>
-            <p class="settings-eyebrow">Activity</p>
-            <h3>What should Vueio tell you about?</h3>
-            <p>Follow all activity, or narrow notifications to the types you care about.</p>
+            <h3>Activity types</h3>
           </div>
           <div class="notification-mode-toggle" role="group" aria-label="Notification activity mode">
             <button
@@ -332,7 +321,7 @@
         </div>
         <div class="v-form-grid admin-form-grid">
           <VField label="Application ID">
-            <input v-model="discordProviderForm.application_id" class="v-input" placeholder="1507844460061655181" />
+            <input v-model="discordProviderForm.application_id" class="v-input" placeholder="123456789012345678" />
           </VField>
           <VField label="Public base URL">
             <input v-model="discordProviderForm.public_base_url" class="v-input" placeholder="https://vue.example.com" />
@@ -389,7 +378,7 @@
           </div>
           <button class="v-btn v-btn-primary v-btn-sm" @click="openCreateSubscriptionModal">
             <svg class="icon"><use href="#icon-plus" /></svg>
-            New Channel
+            New channel
           </button>
         </div>
 
@@ -514,9 +503,8 @@
 
     <section v-if="isAdmin && activeTab === 'downloads'" class="admin-section download-audit-section">
       <AdminSettingsHeader
-        eyebrow="Audit"
         title="Download history"
-        description="See who downloaded files, folders, tracker packages, and shared-link media."
+        description="Review file and package downloads."
         icon="#icon-download"
       >
         <div class="admin-toolbar-actions">
@@ -607,9 +595,8 @@
 
     <section v-if="isAdmin && activeTab === 'shares'" class="admin-section share-settings-section">
       <AdminSettingsHeader
-        eyebrow="Access"
         title="Shared links"
-        description="Find, update, revoke, or permanently remove every client-facing link from one place."
+        description="Manage access through shared links."
         icon="#icon-share"
       />
       <div class="admin-toolbar">
@@ -921,18 +908,18 @@ const { currentUser, canManageMembers } = useSessionAuthStore()
 const { identity: appIdentity, update: updateAppIdentity } = useAppIdentityStore()
 const isAdmin = computed(() => isAdminUser(currentUser.value))
 const userTabs = [
-  { value: 'account', label: 'Account', description: 'Identity and password', icon: '#icon-user' },
-  { value: 'notifications', label: 'Notifications', description: 'Delivery and activity', icon: '#icon-bell', wide: true },
-  { value: 'agent-keys', label: 'Agent keys', description: 'Agent access and rotation', icon: '#icon-zap', wide: true },
+  { value: 'account', label: 'Account', icon: '#icon-user' },
+  { value: 'notifications', label: 'Notifications', icon: '#icon-bell', wide: true },
+  { value: 'agent-keys', label: 'Agent keys', icon: '#icon-zap', wide: true },
 ]
-const teamTab = { value: 'team', label: 'Team', description: 'Members and access', icon: '#icon-users', wide: true }
+const teamTab = { value: 'team', label: 'Team', icon: '#icon-users', wide: true }
 const adminOnlyTabs = [
-  { value: 'shares', label: 'Shared links', description: 'Client-facing access', icon: '#icon-share', wide: true },
-  { value: 'theme', label: 'Theme', description: 'Workspace appearance', icon: '#icon-pen', wide: true },
-  { value: 'luts', label: 'Preview LUTs', description: 'Shared color previews', icon: '#icon-color' },
-  { value: 'storage', label: 'Storage', description: 'Locations and capacity', icon: '#icon-package' },
-  { value: 'downloads', label: 'Download history', description: 'Transfer activity', icon: '#icon-download', wide: true },
-  { value: 'updates', label: 'Updates', description: 'Version and releases', icon: '#icon-refresh' },
+  { value: 'shares', label: 'Shared links', icon: '#icon-share', wide: true },
+  { value: 'theme', label: 'Theme', icon: '#icon-pen', wide: true },
+  { value: 'luts', label: 'Preview LUTs', icon: '#icon-color' },
+  { value: 'storage', label: 'Storage', icon: '#icon-package' },
+  { value: 'downloads', label: 'Download history', icon: '#icon-download', wide: true },
+  { value: 'updates', label: 'Updates', icon: '#icon-refresh' },
 ]
 const activeTab = ref('account')
 const isStorageSetup = computed(() => activeTab.value === 'storage' && route.query.setup === 'storage')
@@ -2270,12 +2257,6 @@ onMounted(refreshAll)
   min-width: 0;
 }
 
-.admin-header-copy p {
-  margin: 6px 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-md);
-}
-
 .admin-title {
   margin: 0;
   color: var(--v-text);
@@ -2417,8 +2398,8 @@ onMounted(refreshAll)
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 50px;
-  padding: 8px 9px;
+  min-height: 44px;
+  padding: var(--v-space-2) var(--v-space-3);
   border: 1px solid transparent;
   border-radius: var(--v-radius-md);
   background: transparent;
@@ -2451,8 +2432,6 @@ onMounted(refreshAll)
 
 .admin-nav-item > span {
   min-width: 0;
-  display: grid;
-  gap: 2px;
 }
 
 .admin-nav-item strong {
@@ -2467,15 +2446,6 @@ onMounted(refreshAll)
 
 .admin-nav-item.active strong {
   color: var(--v-text);
-}
-
-.admin-nav-item small {
-  overflow: hidden;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .admin-nav-chevron {
@@ -2525,7 +2495,7 @@ onMounted(refreshAll)
 .account-password-card,
 .notification-preference-card {
   min-width: 0;
-  padding: 18px;
+  padding: var(--v-space-4);
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-lg);
   background: var(--v-surface-canvas);
@@ -2533,6 +2503,7 @@ onMounted(refreshAll)
 }
 
 .account-profile-card {
+  align-self: start;
   display: flex;
   flex-direction: column;
   gap: var(--v-space-4);
@@ -2604,13 +2575,6 @@ onMounted(refreshAll)
   margin: 0;
   color: var(--v-text-secondary);
   font-size: var(--v-text-base);
-}
-
-.account-profile-note {
-  margin: auto 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.45;
 }
 
 .account-password-card {
@@ -2929,11 +2893,6 @@ onMounted(refreshAll)
 .admin-readonly-field strong {
   color: var(--v-text-secondary);
   font-size: var(--v-text-base);
-}
-
-.admin-theme-manager {
-  overflow: visible;
-  flex-shrink: 0;
 }
 
 .admin-list {
@@ -3511,13 +3470,6 @@ onMounted(refreshAll)
     background: color-mix(in srgb, var(--v-bg-base) 96%, transparent);
   }
 
-  .admin-mobile-nav-label {
-    padding-inline: 2px;
-    color: var(--v-text-muted);
-    font-size: var(--v-text-xs);
-    font-weight: 720;
-  }
-
   .admin-mobile-nav-control {
     position: relative;
     display: grid;
@@ -3572,24 +3524,12 @@ onMounted(refreshAll)
   }
 
   .admin-page-header {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
     gap: var(--v-space-3);
   }
 
-  .admin-header-copy p {
-    font-size: var(--v-text-base);
-  }
-
-  .admin-header-overview {
-    align-items: flex-start;
-    gap: var(--v-space-2);
-  }
-
   .admin-workspace-summary {
-    flex: 1 1 auto;
-    justify-content: flex-start;
-    gap: 5px 12px;
+    display: none;
   }
 
   .admin-title {
@@ -3777,10 +3717,6 @@ onMounted(refreshAll)
 }
 
 @media (max-width: 480px) {
-  .admin-workspace-summary span:nth-child(n + 2) {
-    display: none;
-  }
-
   .share-project-header {
     align-items: flex-start;
     flex-direction: column;

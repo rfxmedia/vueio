@@ -24,7 +24,6 @@
     <div class="viewer-color-preview-panel" :aria-busy="colorPreviewLoading">
       <div class="viewer-color-preview-heading">
         <span class="v-section-label">Color preview</span>
-        <span>Display only</span>
       </div>
       <button
         v-for="option in colorPreviewChoices"
@@ -37,7 +36,6 @@
         :aria-checked="option.value === colorPreviewSelection ? 'true' : 'false'"
         @click.stop="selectColorPreview(option.value)"
       >
-        <span class="viewer-color-preview-option__mark" aria-hidden="true"></span>
         <span class="viewer-color-preview-option__copy">
           <span class="viewer-color-preview-option__label">{{ option.label }}</span>
           <span class="viewer-color-preview-option__hint">{{ option.hint }}</span>
@@ -66,12 +64,14 @@
           @click.stop="onClearColorPreviewLut?.()"
         >Remove temporary LUT</button>
       </div>
-      <p class="viewer-color-preview-hint">Temporary LUTs clear when this page closes or refreshes.</p>
       <p v-if="colorPreviewLoading" class="viewer-color-preview-hint" role="status">Loading LUT…</p>
       <p v-if="colorPreviewError" class="viewer-color-preview-error" role="alert">{{ colorPreviewError }}</p>
-      <p class="viewer-color-preview-note">
-        {{ colorPreviewAvailable ? 'Match the LUT to your footage’s input encoding. Viewer and screenshots only; originals stay unchanged.' : 'Color preview is unavailable in this browser.' }}
-      </p>
+      <p v-if="!colorPreviewAvailable" class="viewer-color-preview-hint" role="status">Color preview is unavailable in this browser.</p>
+      <details class="viewer-color-preview-help">
+        <summary @click.stop @keydown.enter.stop @keydown.space.stop>About LUT previews</summary>
+        <p>LUTs affect the viewer and screenshots. Original files stay unchanged. Match the LUT to your footage’s input encoding.</p>
+        <p>Temporary LUTs clear when this page closes or refreshes.</p>
+      </details>
     </div>
   </VMenu>
 </template>
@@ -141,7 +141,7 @@ function loadColorPreviewFile(event) {
 .viewer-color-preview-menu {
   width: min(320px, calc(100vw - var(--v-space-4)));
   max-height: min(70vh, 440px);
-  padding: 7px;
+  padding: var(--v-space-1);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -149,7 +149,7 @@ function loadColorPreviewFile(event) {
 .viewer-color-preview-panel {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--v-space-1);
 }
 
 .viewer-color-preview-heading {
@@ -157,44 +157,19 @@ function loadColorPreviewFile(event) {
   align-items: center;
   justify-content: space-between;
   gap: var(--v-space-3);
-  padding: 3px 9px 6px;
-}
-
-.viewer-color-preview-heading > span:last-child {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
+  padding: var(--v-space-2) var(--v-space-3) var(--v-space-1);
 }
 
 .viewer-color-preview-option {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  grid-template-columns: minmax(0, 1fr) 16px;
   min-height: 48px;
-  padding: 6px 9px;
-  gap: 9px;
-  border-radius: var(--v-button-radius);
+  padding: var(--v-space-2) var(--v-space-3);
+  gap: var(--v-space-3);
 }
 
 .viewer-color-preview-option.active {
   background: color-mix(in srgb, var(--v-accent) 8%, var(--v-bg-hover));
-}
-
-.viewer-color-preview-option__mark {
-  width: 16px;
-  height: 16px;
-  align-self: center;
-  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
-  border-radius: var(--v-radius-full);
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, currentColor 28%, transparent) 0 33%,
-    color-mix(in srgb, currentColor 54%, transparent) 33% 66%,
-    color-mix(in srgb, currentColor 82%, transparent) 66% 100%
-  );
-}
-
-.viewer-color-preview-option.active .viewer-color-preview-option__mark {
-  color: var(--v-accent);
-  border-color: color-mix(in srgb, var(--v-accent) 44%, transparent);
 }
 
 .viewer-color-preview-option__copy {
@@ -227,13 +202,32 @@ function loadColorPreviewFile(event) {
   color: var(--v-accent);
 }
 
-.viewer-color-preview-note {
-  margin: 5px 3px 0;
-  padding: 9px 7px 3px;
+.viewer-color-preview-help {
+  margin-top: var(--v-space-1);
+  padding: var(--v-space-1) var(--v-space-3) 0;
   border-top: 1px solid var(--v-border);
   color: var(--v-text-muted);
   font-size: var(--v-text-xs);
-  line-height: 1.35;
+  line-height: 1.45;
+}
+
+.viewer-color-preview-help summary {
+  padding-block: var(--v-space-2);
+  cursor: pointer;
+}
+
+.viewer-color-preview-help summary:hover {
+  color: var(--v-text);
+}
+
+.viewer-color-preview-help summary:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: 2px;
+  border-radius: var(--v-radius-sm);
+}
+
+.viewer-color-preview-help p {
+  margin: 0 0 var(--v-space-2);
 }
 
 .viewer-color-preview-actions {

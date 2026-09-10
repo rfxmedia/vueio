@@ -104,7 +104,6 @@
           <div class="td-section-head">
             <div>
               <h3 class="td-section-title">Latest activity</h3>
-              <p class="td-section-copy">The newest changes across this tracker.</p>
             </div>
             <button type="button" class="td-section-link" @click="panelMode = 'activity'">
               <span>View history</span>
@@ -1172,13 +1171,6 @@ function startOfDay(date) {
   font-size: var(--v-text-lg);
   font-weight: 650;
   letter-spacing: -0.01em;
-}
-
-.td-section-copy {
-  margin: 3px 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.4;
 }
 
 .td-section-link {
@@ -2355,18 +2347,12 @@ function startOfDay(date) {
   color: var(--v-text-secondary);
   transition:
     color var(--v-duration-fast) var(--v-ease-emphasized),
-    background var(--v-duration-fast) var(--v-ease-emphasized),
-    transform var(--v-duration-fast) var(--v-ease-emphasized);
+    background var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
 .td-restore-action:hover:not(:disabled) {
   color: var(--v-accent);
   background: var(--v-accent-subtle);
-  transform: translateY(-1px);
-}
-
-.td-restore-action:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
 }
 
 .td-restore-action:focus-visible {
@@ -2742,10 +2728,6 @@ function startOfDay(date) {
 
   .td-status-cell {
     padding-inline: 4px;
-  }
-
-  .td-section-copy {
-    max-width: 190px;
   }
 
   .td-activity-intro {

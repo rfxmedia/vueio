@@ -85,21 +85,23 @@
             <button
               v-if="shareMode && shareAllowUpload"
               class="v-btn v-btn-secondary v-btn-sm"
+              aria-label="Upload files"
               :disabled="!canUploadToSharedFolder"
               :title="sharedUploadDisabledReason || ''"
               @click="openSharedUploadModal"
             >
               <svg class="icon"><use href="#icon-upload" /></svg>
-              <span class="v-file-toolbar-action-label">Upload Files</span>
+              <span class="v-file-toolbar-action-label">Upload files</span>
             </button>
             <button
               v-if="canDownloadAllFiles"
               class="v-btn v-btn-secondary v-btn-sm"
               :disabled="downloadAllFilesBusy"
+              :aria-label="downloadAllFilesBusy ? 'Packaging files' : 'Download all files'"
               @click="downloadAllFilesInCurrentFolder"
             >
               <svg class="icon"><use href="#icon-download" /></svg>
-              <span class="v-file-toolbar-action-label">{{ downloadAllFilesBusy ? 'Packaging…' : 'Download All' }}</span>
+              <span class="v-file-toolbar-action-label">{{ downloadAllFilesBusy ? 'Packaging…' : 'Download all' }}</span>
             </button>
             </div>
           </div>
@@ -121,7 +123,7 @@
           <div v-if="files.length === 0" class="v-empty-state browser-upload-empty">
             <svg class="icon v-empty-state-icon"><use href="#icon-folder"/></svg>
             <p class="v-empty-state-title">No files here yet</p>
-            <p class="v-empty-state-hint">Upload files or folders to get this delivery started.</p>
+            <p v-if="shareMode && shareAllowUpload" class="v-empty-state-hint">Upload files or folders to add them here.</p>
           </div>
           <template v-else>
             <!-- Back navigation now handled by unified header back button -->
@@ -161,7 +163,7 @@
                       <button v-if="!shareMode && isAdmin" class="v-dropdown-item" @click="shareFile(entry.item); clearFileMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share</button>
                       <button v-if="entry.item.type !== 'folder' && (!shareMode || shareAllowDownload)" class="v-dropdown-item" @click="downloadFile(entry.item); clearFileMenu()"><svg class="icon"><use href="#icon-download"/></svg> Download</button>
                       <div v-if="entry.item.type !== 'folder' && !shareMode" class="v-dropdown-divider"></div>
-                      <button v-if="entry.item.type !== 'folder' && !shareMode" class="v-dropdown-item" @click="regenerateThumbnail(entry.item)"><svg class="icon"><use href="#icon-refresh"/></svg> Regenerate Thumbnail</button>
+                      <button v-if="entry.item.type !== 'folder' && !shareMode" class="v-dropdown-item" @click="regenerateThumbnail(entry.item)"><svg class="icon"><use href="#icon-refresh"/></svg> Regenerate thumbnail</button>
                     </VMenu>
                   </div>
                 </template>
@@ -170,7 +172,7 @@
           </template>
           <div v-if="canLoadMoreFiles" class="v-load-more">
             <button class="v-btn v-btn-secondary" @click="loadMoreFiles">
-              Load More ({{ files.length - visibleFiles.length }} remaining)
+              Load more ({{ files.length - visibleFiles.length }} remaining)
             </button>
           </div>
           <div v-if="shareMode && shareAllowUpload && sharedUploadDragActive" class="v-drop-overlay">

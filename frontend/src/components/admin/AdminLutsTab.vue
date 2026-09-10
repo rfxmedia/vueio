@@ -1,9 +1,8 @@
 <template>
   <section class="admin-section luts-settings-section">
     <AdminSettingsHeader
-      eyebrow="Workspace"
       title="Preview LUTs"
-      description="Save LUTs for media previews used by your team and authorized share visitors."
+      description="Shared preview LUTs for your team and share visitors."
       icon="#icon-color"
     >
       <button class="v-btn v-btn-ghost v-btn-sm" type="button" :disabled="busy || loading" @click="loadLuts">Refresh</button>

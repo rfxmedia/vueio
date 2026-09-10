@@ -4,6 +4,8 @@
     class="v-search-container"
     :class="[`is-${variant}`]"
     @click.stop
+    @focusout="handleSearchBlur"
+    @keydown.escape="closeSearch"
   >
     <div class="v-search" :class="{ 'v-search-focused': searchFocused }">
       <svg class="icon v-search-icon"><use href="#icon-search"/></svg>
@@ -18,11 +20,9 @@
         :aria-expanded="String(searchOpen && globalSearchQuery.length >= 2)"
         :aria-controls="searchResultsId"
         :aria-activedescendant="activeResultId"
-        :placeholder="variant === 'drawer' ? 'Search projects, Vue Trackers, files' : 'Search workspace'"
+        placeholder="Search workspace"
         @focus="openSearch"
-        @blur="handleSearchBlur"
         @input="debouncedSearch"
-        @keydown.escape="closeSearch"
         @keydown.down.prevent="navigateResults(1)"
         @keydown.up.prevent="navigateResults(-1)"
         @keydown.enter="selectResult"
@@ -31,7 +31,12 @@
     </div>
 
     <Transition name="v-menu-pop">
-      <div v-if="searchOpen && globalSearchQuery.length >= 2" :id="searchResultsId" class="v-search-results" :class="{ 'is-drawer': variant === 'drawer' }" role="listbox" aria-label="Search results">
+      <div v-if="searchOpen && globalSearchQuery.length >= 2" :id="searchResultsId" class="v-search-results" :class="{ 'is-drawer': variant === 'drawer' }" role="listbox" aria-label="Search results" :aria-busy="searchLoading">
+        <div v-if="searchLoading" class="v-search-empty" role="status">Searching…</div>
+        <div v-else-if="searchError" class="v-search-empty" role="status">
+          <span>Search is unavailable.</span>
+          <button type="button" class="v-btn v-btn-quiet v-btn-sm" @mousedown.prevent @click="retrySearch">Try again</button>
+        </div>
         <div v-if="searchResults.projects.length" class="v-search-group">
           <div class="v-search-group-title">Projects</div>
           <div
@@ -45,7 +50,7 @@
             @mousedown.prevent="goToSearchProject(item.id)"
           >
             <svg class="icon v-search-result-icon"><use href="#icon-project"/></svg>
-            <span class="v-search-result-title">{{ item.title }}</span>
+            <span class="v-search-result-title" :title="item.title">{{ item.title }}</span>
             <span class="v-status v-status-sm" :class="getSearchStatusClass(item.status)">{{ formatSearchStatus(item.status) }}</span>
           </div>
         </div>
@@ -63,8 +68,8 @@
             @mousedown.prevent="goToSearchTracker(item.projectId, item.name)"
           >
             <svg class="icon v-search-result-icon"><use href="#icon-list"/></svg>
-            <span class="v-search-result-title">{{ item.name }}</span>
-            <span class="v-search-result-meta">in {{ item.projectTitle }}</span>
+            <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
+            <span class="v-search-result-meta" :title="item.projectTitle">{{ item.projectTitle }}</span>
           </div>
         </div>
 
@@ -81,8 +86,8 @@
             @mousedown.prevent="goToSearchFile(item.path)"
           >
             <svg class="icon v-search-result-icon"><use href="#icon-file"/></svg>
-            <span class="v-search-result-title">{{ item.name }}</span>
-            <span class="v-search-result-meta">{{ item.folder }}</span>
+            <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
+            <span class="v-search-result-meta" :title="item.folder">{{ item.folder }}</span>
           </div>
         </div>
 
@@ -118,6 +123,7 @@ const searchFocused = ref(false)
 const searchResults = ref({ projects: [], trackers: [], files: [] })
 const selectedResultIndex = ref(-1)
 const searchLoading = ref(false)
+const searchError = ref(false)
 const searchInputRef = ref(null)
 const searchResultsId = computed(() => `global-search-results-${variant.value}`)
 const activeResultId = computed(() => selectedResultIndex.value >= 0 ? resultId(selectedResultIndex.value) : undefined)
@@ -130,7 +136,7 @@ function resultId(index) {
 
 const noSearchResults = computed(() => {
   return globalSearchQuery.value.length >= 2 &&
-    !searchLoading.value &&
+    !searchLoading.value && !searchError.value &&
     searchResults.value.projects.length === 0 &&
     searchResults.value.trackers.length === 0 &&
     searchResults.value.files.length === 0
@@ -170,12 +176,19 @@ function closeSearch() {
   globalSearchQuery.value = ''
   selectedResultIndex.value = -1
   searchResults.value = { projects: [], trackers: [], files: [] }
+  searchError.value = false
   searchInputRef.value?.blur()
 }
 
-function handleSearchBlur() {
+function handleSearchBlur(event) {
+  if (event.currentTarget.contains(event.relatedTarget)) return
   searchFocused.value = false
   searchOpen.value = false
+}
+
+function retrySearch() {
+  focusInput()
+  debouncedSearch()
 }
 
 async function performSearch() {
@@ -187,6 +200,7 @@ async function performSearch() {
   } catch {
     if (controller.signal.aborted) return
     console.error('Search failed')
+    searchError.value = true
     searchResults.value = { projects: [], trackers: [], files: [] }
   } finally {
     if (searchAbortController === controller) {
@@ -200,6 +214,7 @@ function debouncedSearch() {
   cancelSearch()
   selectedResultIndex.value = -1
   searchResults.value = { projects: [], trackers: [], files: [] }
+  searchError.value = false
   if (globalSearchQuery.value.length >= 2) {
     searchLoading.value = true
     searchDebounceTimer = setTimeout(performSearch, 200)
@@ -398,6 +413,7 @@ defineExpose({ focusInput, closeSearch })
 
 .v-search-result-title {
   flex: 1;
+  min-width: 0;
   font-size: var(--v-text-sm);
   color: var(--v-text);
   white-space: nowrap;
@@ -406,12 +422,20 @@ defineExpose({ focusInput, closeSearch })
 }
 
 .v-search-result-meta {
+  flex: 0 1 38%;
+  min-width: 0;
   font-size: var(--v-text-xs);
   color: var(--v-text-muted);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 
 .v-search-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--v-space-2);
   padding: var(--v-space-6);
   text-align: center;
   font-size: var(--v-text-sm);

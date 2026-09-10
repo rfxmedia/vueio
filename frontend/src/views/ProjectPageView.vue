@@ -37,6 +37,7 @@
           v-if="canEditDashboard"
           v-model="draft.title"
           class="dash-hero-title-input"
+          aria-label="Dashboard title"
           placeholder="Untitled dashboard"
           @input="scheduleSave"
           @blur="flushSave"
@@ -47,7 +48,8 @@
           v-if="canEditDashboard"
           v-model="draft.description"
           class="dash-hero-desc-input"
-          placeholder="Add a short client-facing description"
+          aria-label="Dashboard description"
+          placeholder="Add a description for clients"
           rows="1"
           @input="scheduleSave"
           @blur="flushSave"
@@ -113,6 +115,7 @@
                   v-if="canEditDashboard"
                   v-model="block.title"
                   class="dash-block-title-input"
+                  :aria-label="`${blockPlaceholder(block.type)} title`"
                   :placeholder="blockPlaceholder(block.type)"
                   @input="scheduleSave"
                   @blur="flushSave"
@@ -164,7 +167,8 @@
                   v-if="canEditDashboard"
                   v-model="block.body"
                   class="dash-text-input"
-                  placeholder="Write project notes, context, or instructions."
+                  aria-label="Project notes"
+                  placeholder="Add project notes or instructions"
                   @input="scheduleSave"
                   @blur="flushSave"
                 ></textarea>
@@ -221,7 +225,7 @@
                 </div>
                 <div v-else-if="!isPublicPresentation" class="dash-block-empty">
                   <svg class="icon"><use href="#icon-project"/></svg>
-                  <span>{{ canEditDashboard ? 'Pick trackers below to feature them on this dashboard.' : 'No Vue Trackers selected.' }}</span>
+                  <span>{{ canEditDashboard ? 'Choose trackers below.' : 'No trackers selected.' }}</span>
                 </div>
 
                 <div v-if="canEditDashboard" class="dash-tracker-picker">
@@ -234,6 +238,7 @@
                       class="dash-tracker-chip"
                       :class="{ 'is-selected': hasTracker(block, tracker) }"
                       :aria-pressed="hasTracker(block, tracker)"
+                      :title="tracker.name"
                       @click="toggleTracker(block, tracker)"
                     >
                       <svg v-if="hasTracker(block, tracker)" class="icon dash-tracker-chip-check" aria-hidden="true"><use href="#icon-check"/></svg>
@@ -260,7 +265,8 @@
                   <input
                     v-model="linkUrl"
                     class="dash-link-form-input"
-                    placeholder="Paste a URL (e.g. figma.com/file/…)"
+                    aria-label="Resource URL"
+                    placeholder="Paste a URL"
                     autofocus
                   />
                   <button type="submit" class="v-btn v-btn-primary v-btn-sm">Add link</button>
@@ -296,12 +302,13 @@
                         v-if="canEditDashboard"
                         v-model="resource.label"
                         class="dash-resource-title-input"
+                        aria-label="Resource name"
                         :placeholder="resourceName(resource)"
                         @input="scheduleSave"
                         @blur="flushSave"
                       />
-                      <strong v-else class="dash-resource-title-static v-truncate">{{ resource.label || resourceName(resource) }}</strong>
-                      <span class="dash-resource-meta v-truncate">{{ resourceMeta(resource) }}</span>
+                      <strong v-else class="dash-resource-title-static v-truncate" :title="resource.label || resourceName(resource)">{{ resource.label || resourceName(resource) }}</strong>
+                      <span class="dash-resource-meta v-truncate" :title="resourceMeta(resource)">{{ resourceMeta(resource) }}</span>
                       <span class="dash-resource-actions">
                         <button
                           type="button"
@@ -335,7 +342,7 @@
                 </div>
                 <div v-else-if="!isPublicPresentation && !(canEditDashboard && activeLinkBlockId === block.id)" class="dash-block-empty">
                   <svg class="icon"><use href="#icon-link"/></svg>
-                  <span>{{ canEditDashboard ? 'Add a link, storage file, or upload to start curating.' : 'No resources selected.' }}</span>
+                  <span>{{ canEditDashboard ? 'Add a link, choose a storage file, or upload a file.' : 'No resources selected.' }}</span>
                 </div>
 
                 <div v-if="canEditDashboard && activeLinkBlockId !== block.id" class="dash-resource-toolbar">
@@ -360,7 +367,8 @@
                   v-if="canEditDashboard"
                   v-model="block.description"
                   class="dash-text-input is-compact"
-                  placeholder="Short upload instructions (visible to clients on the share page)."
+                  aria-label="Upload instructions"
+                  placeholder="Add upload instructions for clients"
                   @input="scheduleSave"
                   @blur="flushSave"
                 ></textarea>
@@ -535,9 +543,9 @@ const isPublicPresentation = computed(() => shareMode.value || sharedPreviewMode
 
 const addBlockOptions = [
   { type: 'text', label: 'Text', hint: 'Notes, briefs, or context.', icon: '#icon-file' },
-  { type: 'tracker_list', label: 'Vue Trackers', hint: 'Spotlight project trackers.', icon: '#icon-project' },
+  { type: 'tracker_list', label: 'Vue Trackers', hint: 'Project trackers.', icon: '#icon-project' },
   { type: 'resource_list', label: 'Resources', hint: 'Links, storage files, uploads.', icon: '#icon-link' },
-  { type: 'upload_inbox', label: 'Client Uploads', hint: 'A drop zone for partners.', icon: '#icon-upload' },
+  { type: 'upload_inbox', label: 'Client uploads', hint: 'Collect files from clients.', icon: '#icon-upload' },
 ]
 
 const BLOCK_ICONS = {
@@ -1385,24 +1393,19 @@ function handleSharedUpload(block) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--v-radius-md);
-  background: var(--dash-surface-inset);
   color: var(--v-text-secondary);
   flex: 0 0 auto;
 }
 
 .dash-block-icon.is-tracker_list {
-  background: color-mix(in srgb, var(--v-accent) 14%, var(--dash-surface-inset));
   color: var(--v-accent);
 }
 
 .dash-block-icon.is-resource_list {
-  background: color-mix(in srgb, var(--v-info) 14%, var(--dash-surface-inset));
   color: color-mix(in srgb, var(--v-info) 90%, white);
 }
 
 .dash-block-icon.is-upload_inbox {
-  background: color-mix(in srgb, var(--v-warning) 14%, var(--dash-surface-inset));
   color: color-mix(in srgb, var(--v-warning) 92%, white);
 }
 
@@ -1556,8 +1559,7 @@ function handleSharedUpload(block) {
   cursor: pointer;
   transition:
     background var(--v-transition-fast),
-    border-color var(--v-transition-fast),
-    transform var(--v-transition-fast);
+    border-color var(--v-transition-fast);
 }
 
 .dash-tracker-card:hover,
@@ -1565,12 +1567,7 @@ function handleSharedUpload(block) {
   background: color-mix(in srgb, var(--v-surface-inline) 44%, var(--dash-surface));
   border-color: color-mix(in srgb, var(--v-accent) 42%, var(--v-control-border-hover));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-accent) 18%, transparent);
-  transform: translateY(-1px);
   outline: none;
-}
-
-.dash-tracker-card:active {
-  transform: translateY(0);
 }
 
 .dash-tracker-main {
@@ -1638,18 +1635,11 @@ function handleSharedUpload(block) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  border-radius: var(--v-radius-full);
-  background: var(--v-surface-tint-hover);
-  border: 1px solid color-mix(in srgb, var(--v-control-border) 46%, transparent);
   color: var(--v-text-secondary);
-  transition:
-    color var(--v-transition-fast),
-    background var(--v-transition-fast),
-    border-color var(--v-transition-fast),
-    transform var(--v-transition-fast);
+  transition: color var(--v-transition-fast);
 }
 
 .dash-tracker-open .icon {
@@ -1658,10 +1648,7 @@ function handleSharedUpload(block) {
 }
 
 .dash-tracker-card:hover .dash-tracker-open {
-  background: var(--v-accent-muted);
-  border-color: color-mix(in srgb, var(--v-accent) 36%, transparent);
   color: var(--v-accent);
-  transform: translateX(2px);
 }
 
 .dash-tracker-status-labels {
@@ -1764,13 +1751,11 @@ function handleSharedUpload(block) {
   transition:
     background var(--v-transition-fast),
     border-color var(--v-transition-fast),
-    color var(--v-transition-fast),
-    transform var(--v-transition-fast);
+    color var(--v-transition-fast);
 }
 
 .dash-tracker-chip:hover,
 .dash-add-pill:hover {
-  transform: translateY(-1px);
   background: var(--v-control-bg-hover);
   border-color: var(--v-control-border-hover);
   color: var(--v-text);
@@ -1982,6 +1967,15 @@ function handleSharedUpload(block) {
 
 .dash-resource-title-input::placeholder {
   color: var(--v-text-muted);
+}
+
+.dash-hero-title-input:focus-visible,
+.dash-hero-desc-input:focus-visible,
+.dash-block-title-input:focus-visible,
+.dash-resource-title-input:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: 4px;
+  border-radius: var(--v-radius-sm);
 }
 
 .dash-resource-meta {
@@ -2307,32 +2301,28 @@ function handleSharedUpload(block) {
   }
 
   .dash-hero-topline {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .dash-hero-eyebrow,
-  .dash-hero-tools {
-    width: 100%;
-  }
-
-  .dash-hero-eyebrow {
-    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--v-space-2);
   }
 
   .dash-hero-tools {
     justify-content: flex-end;
+    margin-left: auto;
   }
 
   .dash-preview-toggle {
-    min-height: 36px;
+    min-height: 44px;
   }
 
   .dash-hero-title-input,
   .dash-hero-title-static {
     font-size: 29px;
     line-height: 1.09;
+  }
+
+  .dash-hero-title-input {
+    /* Keep the heading above the shared mobile input minimum. */
+    font-size: 29px !important;
   }
 
   .dash-hero-desc-input,
@@ -2396,12 +2386,6 @@ function handleSharedUpload(block) {
     justify-content: flex-start;
   }
 
-  .dash-tracker-open {
-    flex: 0 0 auto;
-    width: 38px;
-    height: 38px;
-  }
-
   .dash-resource-grid {
     grid-template-columns: 1fr;
     gap: var(--v-space-2);
@@ -2430,7 +2414,7 @@ function handleSharedUpload(block) {
   .dash-add-pill {
     width: 100%;
     min-width: 0;
-    min-height: 40px;
+    min-height: 44px;
     justify-content: center;
   }
 
@@ -2438,6 +2422,15 @@ function handleSharedUpload(block) {
   .dash-resource-toolbar {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .dash-resource-open,
+  .dash-resource-download {
+    min-height: 44px;
+  }
+
+  .dash-resource-download {
+    width: 44px;
   }
 
   .dash-link-form {

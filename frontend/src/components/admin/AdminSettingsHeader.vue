@@ -32,21 +32,21 @@ defineProps({
   justify-content: space-between;
   gap: var(--v-space-6);
   min-width: 0;
-  padding: 0 0 18px;
+  padding: 0 0 var(--v-space-4);
   border-bottom: 1px solid var(--v-divider-subtle);
 }
 
 .settings-view-heading {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr);
+  grid-template-columns: var(--v-control-pill-height) minmax(0, 1fr);
   align-items: start;
-  gap: 14px;
+  gap: var(--v-space-3);
   min-width: 0;
 }
 
 .settings-view-icon {
-  width: 34px;
-  height: 34px;
+  width: var(--v-control-pill-height);
+  height: var(--v-control-pill-height);
   display: grid;
   place-items: center;
   border-radius: var(--v-radius-md);
@@ -71,7 +71,7 @@ defineProps({
 .settings-view-title {
   margin: 0;
   color: var(--v-text);
-  font-size: 22px;
+  font-size: var(--v-text-2xl);
   font-weight: 740;
   letter-spacing: -0.018em;
   line-height: 1.15;
@@ -81,7 +81,7 @@ defineProps({
   max-width: 680px;
   margin: 6px 0 0;
   color: var(--v-text-muted);
-  font-size: var(--v-text-md);
+  font-size: var(--v-text-base);
   line-height: 1.45;
 }
 
@@ -105,12 +105,12 @@ defineProps({
     align-items: flex-start;
     flex-direction: column;
     gap: var(--v-space-3);
-    padding: 0 0 14px;
+    padding: 0 0 var(--v-space-3);
   }
 
   .settings-view-heading {
     grid-template-columns: 30px minmax(0, 1fr);
-    gap: 11px;
+    gap: var(--v-space-3);
   }
 
   .settings-view-icon {
@@ -124,7 +124,7 @@ defineProps({
   }
 
   .settings-view-title {
-    font-size: 20px;
+    font-size: var(--v-text-2xl);
   }
 
   .settings-view-description {
@@ -147,7 +147,7 @@ defineProps({
 
   .settings-view-actions :deep(.v-btn) {
     flex: 1 1 auto;
-    min-height: 40px;
+    min-height: var(--v-btn-height-lg);
   }
 }
 </style>

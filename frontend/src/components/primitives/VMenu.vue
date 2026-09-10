@@ -38,10 +38,12 @@
   </div>
 </template>
 
+<script>
+let menuId = 0
+</script>
+
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-
-let menuId = 0
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -81,7 +83,7 @@ const panelStyle = computed(() => {
   } else {
     value = raw
   }
-  return { minWidth: value }
+  return { minWidth: `min(${value}, calc(100vw - 16px))` }
 })
 
 const floatingPanelStyle = computed(() => {
@@ -130,8 +132,13 @@ function requestClose({ restoreFocus = false } = {}) {
 function getMenuItems() {
   if (props.panelRole !== 'menu' || !panelRef.value) return []
   return Array.from(panelRef.value.querySelectorAll(
-    '[role="menuitem"]:not([aria-disabled="true"]), button:not([disabled]), a[href]',
-  )).filter((item, index, items) => items.indexOf(item) === index)
+    '[role="menuitem"], button, a[href], summary',
+  )).filter(item => (
+    !item.matches(':disabled, [aria-disabled="true"]')
+    && !item.closest('details:not([open]) > :not(summary)')
+    && item.getClientRects().length > 0
+    && getComputedStyle(item).visibility !== 'hidden'
+  ))
 }
 
 function focusMenuItem(direction) {
@@ -145,7 +152,7 @@ function focusMenuItem(direction) {
   else if (direction === 'next') nextIndex = currentIndex < 0 ? 0 : (currentIndex + 1) % items.length
   else nextIndex = currentIndex < 0 ? items.length - 1 : (currentIndex - 1 + items.length) % items.length
 
-  items[nextIndex]?.focus({ preventScroll: true })
+  items[nextIndex]?.focus()
   return true
 }
 

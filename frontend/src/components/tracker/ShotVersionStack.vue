@@ -37,7 +37,12 @@
         class="version-card v-card"
         :class="{ 'is-unavailable': latestVersion?.exists === false }"
         :title="hoverActionLabel"
+        role="button"
+        tabindex="0"
+        :aria-label="`${hoverActionLabel}: ${shot.shot_id || shot.shot_code}`"
         @click="openShotVideo(shot)"
+        @keydown.enter.stop.prevent="openShotVideo(shot)"
+        @keydown.space.stop.prevent="openShotVideo(shot)"
       >
         <VMediaThumbnail :src="getThumbnailUrl(latestVersion)" :alt="shot.shot_id" />
         <div v-if="latestVersion?.exists === false" class="version-unavailable-label">
@@ -286,8 +291,14 @@ onUnmounted(() => {
   height: 28px;
 }
 
-.version-card:hover .version-hover {
+.version-card:hover .version-hover,
+.version-card:focus-visible .version-hover {
   opacity: 1;
+}
+
+.version-card:focus-visible {
+  outline: 2px solid var(--v-accent);
+  outline-offset: -2px;
 }
 
 .version-card-empty {

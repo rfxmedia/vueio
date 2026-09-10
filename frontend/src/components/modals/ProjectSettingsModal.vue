@@ -501,7 +501,7 @@
         :disabled="saving || (scope === 'project' && !draftTitle?.trim())"
         @click="save"
       >
-        {{ saving ? 'Saving…' : 'Save Changes' }}
+        {{ saving ? 'Saving…' : 'Save changes' }}
       </button>
     </template>
   </VModal>
@@ -830,7 +830,7 @@ const dueDateFormatted = computed(() => {
 .ps-body {
   display: flex;
   flex-direction: column;
-  gap: 26px;
+  gap: var(--v-space-6);
 }
 
 /* ─── Hero card ────────────────────────────────────── */
@@ -1002,7 +1002,7 @@ const dueDateFormatted = computed(() => {
 .ps-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 12px;
+  gap: var(--v-space-4) var(--v-space-3);
 }
 
 .ps-field {

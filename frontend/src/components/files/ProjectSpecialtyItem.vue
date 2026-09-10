@@ -142,22 +142,22 @@ const activationLabel = computed(() => [
 
 .project-specialty-title {
   color: var(--v-text);
-  font-size: var(--v-text-sm);
+  font-size: var(--v-text-base);
   font-weight: 650;
   line-height: 1.2;
 }
 
 .project-specialty-meta {
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  line-height: 1.2;
+  font-size: var(--v-text-xs);
+  line-height: 1.35;
   font-variant-numeric: tabular-nums;
 }
 
 .project-specialty-activity {
   color: var(--v-text-secondary);
-  font-size: var(--v-text-2xs);
-  line-height: 1.2;
+  font-size: var(--v-text-xs);
+  line-height: 1.35;
   font-variant-numeric: tabular-nums;
 }
 

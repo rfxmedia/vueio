@@ -58,10 +58,6 @@
           <strong v-if="selectedVersionPickerShot" class="fp-target-title">{{ selectedVersionPickerShot.shot_id }}</strong>
           <strong v-else class="fp-target-title fp-target-empty">Select a shot to update</strong>
           <span v-if="selectedVersionPickerShot && selectedShotVersionLabel" class="v-tag v-tag--accent">{{ selectedShotVersionLabel }}</span>
-          <template v-if="selectedVersionPickerShot && targetDurationLabel">
-            <span class="fp-target-dot" aria-hidden="true">·</span>
-            <span class="fp-target-meta">{{ targetDurationLabel }}</span>
-          </template>
         </div>
       </div>
 
@@ -768,17 +764,6 @@ function getFileMetaLine(item) {
 .fp-target-empty {
   color: var(--v-text-muted);
   font-weight: 600;
-}
-
-.fp-target-dot {
-  color: var(--v-text-dim);
-  opacity: 0.5;
-  font-size: var(--v-text-sm);
-}
-
-.fp-target-meta {
-  font-size: var(--v-text-sm);
-  color: var(--v-text-muted);
 }
 
 .fp-shot-select {

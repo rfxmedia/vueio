@@ -12,7 +12,7 @@
         :class="{ active: activeModule === item.module }"
         :aria-current="activeModule === item.module ? 'page' : undefined"
         :data-tooltip="item.label"
-        :title="item.label"
+        :aria-label="item.label"
         type="button"
         @click="activateNav(item.action)"
       >
@@ -28,7 +28,6 @@
         type="button"
         :aria-label="`Vueio update available: ${latestVersion}`"
         :data-tooltip="`${latestVersion} available`"
-        :title="`${latestVersion} available`"
         @click="openUpdates"
       >
         <svg class="icon"><use href="#icon-download" /></svg>
@@ -63,10 +62,7 @@
           <span class="mobile-nav-brand-mark">
             <span class="logo-mark">V</span>
           </span>
-          <div class="mobile-nav-brand-copy">
-            <span class="mobile-nav-brand-title">vue.io</span>
-            <span class="mobile-nav-brand-subtitle">Horizons workspace</span>
-          </div>
+          <span class="mobile-nav-brand-title">vue.io</span>
         </button>
         <button class="v-btn v-btn-quiet v-btn-icon mobile-nav-close" type="button" aria-label="Close navigation" @click="closeMobileNav">
           <svg class="icon"><use href="#icon-close"/></svg>
@@ -75,14 +71,12 @@
 
       <div class="mobile-nav-body">
         <section class="mobile-nav-section">
-          <div class="mobile-nav-section-label">Search</div>
           <div class="mobile-nav-search-shell">
             <slot v-if="mobileNavOpen" name="search" />
           </div>
         </section>
 
         <section class="mobile-nav-section">
-          <div class="mobile-nav-section-label">Navigation</div>
           <nav class="mobile-nav-list" aria-label="Mobile primary">
             <button
               v-for="item in navItems"
@@ -98,7 +92,6 @@
               </span>
               <span class="mobile-nav-item-copy">
                 <span class="mobile-nav-item-label">{{ item.label }}</span>
-                <span v-if="activeModule === item.module" class="mobile-nav-item-state">Current</span>
               </span>
             </button>
           </nav>
@@ -124,7 +117,6 @@
         </section>
 
         <section class="mobile-nav-section mobile-nav-account" v-if="currentUser">
-          <div class="mobile-nav-section-label">Signed In</div>
           <div class="mobile-nav-account-card">
             <span class="mobile-nav-account-mark" :style="userIdentityStyle">{{ userInitial }}</span>
             <div class="mobile-nav-account-copy">
@@ -470,7 +462,6 @@ watch(
   border-radius: var(--v-button-radius);
   background: transparent;
   transition:
-    transform var(--v-duration-fast) var(--v-ease-soft),
     border-color var(--v-duration-fast) var(--v-ease-soft),
     background var(--v-duration-fast) var(--v-ease-soft);
 }
@@ -478,10 +469,6 @@ watch(
 .sidebar-logo:hover .logo-mark {
   border-color: color-mix(in srgb, var(--v-accent) 18%, var(--v-divider));
   background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-inline));
-}
-
-.sidebar-logo:active .logo-mark {
-  transform: scale(0.96);
 }
 
 .sidebar-logo:focus-visible {
@@ -523,7 +510,6 @@ watch(
   justify-content: center;
   color: var(--v-text-muted);
   transition:
-    transform var(--v-duration-fast) var(--v-ease-soft),
     border-color var(--v-duration-fast) var(--v-ease-soft),
     background var(--v-duration-fast) var(--v-ease-soft),
     color var(--v-duration-fast) var(--v-ease-soft);
@@ -533,10 +519,6 @@ watch(
   color: var(--v-text);
   border-color: color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
   background: color-mix(in srgb, var(--v-bg-hover) 78%, transparent);
-}
-
-.sidebar-item:active {
-  transform: scale(0.96);
 }
 
 .sidebar-item:focus-visible {
@@ -581,7 +563,8 @@ watch(
   transition: opacity var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
-.sidebar-item[data-tooltip]:hover::after {
+.sidebar-item[data-tooltip]:hover::after,
+.sidebar-item[data-tooltip]:focus-visible::after {
   opacity: 1;
 }
 
@@ -642,7 +625,7 @@ watch(
   align-items: center;
   justify-content: space-between;
   height: var(--v-shell-header-height);
-  padding: 0 18px;
+  padding: 0 var(--v-space-5);
   flex-shrink: 0;
   z-index: 40;
   backdrop-filter: none;
@@ -662,7 +645,7 @@ watch(
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--v-space-1);
   min-width: 0;
 }
 
@@ -680,7 +663,7 @@ watch(
   align-items: center;
   gap: 10px;
   min-width: 0;
-  margin-left: 5px;
+  margin-left: var(--v-space-1);
   padding-left: 12px;
   border-left: 1px solid var(--v-divider-subtle);
   overflow: hidden;
@@ -710,7 +693,7 @@ watch(
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 18px;
+  padding: 0 var(--v-space-4);
 }
 
 .nav-center-search:empty {
@@ -760,12 +743,6 @@ watch(
   border-color: var(--v-control-border);
   background: var(--v-surface-inline);
   color: var(--v-text);
-}
-
-.unified-nav .nav-left > .v-btn-icon:active:not(:disabled),
-.unified-nav .nav-right > .v-btn-icon:active:not(:disabled),
-.unified-nav .nav-account-activity > .v-btn-icon:active:not(:disabled) {
-  transform: scale(0.98);
 }
 
 .nav-menu-toggle.active {
@@ -1011,6 +988,12 @@ watch(
   height: 13px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-drawer {
+    transition: none !important;
+  }
+}
+
 @media (max-width: 768px) {
   .vueio {
     flex-direction: column;
@@ -1072,7 +1055,7 @@ watch(
     align-items: center;
     justify-content: space-between;
     gap: var(--v-space-3);
-    padding: max(18px, env(safe-area-inset-top, 0px) + 10px) 16px 14px;
+    padding: max(16px, env(safe-area-inset-top, 0px)) var(--v-space-4) var(--v-space-4);
     border-bottom: 1px solid var(--v-surface-border-soft);
   }
 
@@ -1102,23 +1085,10 @@ watch(
     box-shadow: var(--v-surface-shadow-raised);
   }
 
-  .mobile-nav-brand-copy {
-    display: flex;
-    flex-direction: column;
-    min-width: 0;
-  }
-
   .mobile-nav-brand-title {
     font-size: var(--v-text-lg);
     font-weight: 700;
     letter-spacing: 0;
-  }
-
-  .mobile-nav-brand-subtitle {
-    font-size: var(--v-text-xs);
-    color: var(--v-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.14em;
   }
 
   .mobile-nav-close {
@@ -1147,7 +1117,8 @@ watch(
     flex: 1;
     flex-direction: column;
     gap: var(--v-space-4);
-    padding: 14px 14px calc(18px + env(safe-area-inset-bottom, 0px));
+    padding: var(--v-space-4);
+    padding-bottom: calc(var(--v-space-4) + env(safe-area-inset-bottom, 0px));
   }
 
   .mobile-nav-section {
@@ -1177,7 +1148,7 @@ watch(
   .mobile-nav-list {
     display: flex;
     flex-direction: column;
-    gap: var(--v-space-2);
+    gap: var(--v-space-1);
   }
 
   .mobile-nav-item {
@@ -1185,22 +1156,20 @@ watch(
     align-items: center;
     gap: var(--v-space-3);
     width: 100%;
-    padding: 11px 12px;
-    border: 1px solid var(--v-control-border);
+    min-height: 48px;
+    padding: var(--v-space-3);
+    border: 1px solid transparent;
     border-radius: var(--v-button-radius);
-    background: var(--v-surface-raised);
-    box-shadow: var(--v-surface-shadow-raised);
+    background: transparent;
     color: var(--v-text-dim);
     text-align: left;
-    transition: background var(--v-transition-fast), border-color var(--v-transition-fast), color var(--v-transition-fast), transform var(--v-transition-fast);
+    transition: background var(--v-transition-fast), border-color var(--v-transition-fast), color var(--v-transition-fast);
   }
 
   .mobile-nav-item:active,
   .mobile-nav-item:hover {
     color: var(--v-text);
-    border-color: var(--v-control-border-hover);
-    background: var(--v-surface-raised-strong);
-    transform: none;
+    background: var(--v-surface-inline);
   }
 
   .mobile-nav-item.active {
@@ -1217,7 +1186,6 @@ watch(
 
   .mobile-nav-update .mobile-nav-item-icon {
     color: var(--v-info);
-    background: color-mix(in srgb, var(--v-info) 10%, var(--v-surface-inset));
   }
 
   .mobile-nav-update-arrow {
@@ -1228,23 +1196,16 @@ watch(
   }
 
   .mobile-nav-item-icon {
-    width: 42px;
-    height: 42px;
+    width: 24px;
+    height: 24px;
     flex-shrink: 0;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    border-radius: var(--v-radius-lg);
-    background: var(--v-surface-inset);
-    box-shadow: var(--v-surface-shadow-inset);
-    border: 1px solid var(--v-control-border);
   }
 
   .mobile-nav-item.active .mobile-nav-item-icon {
-    --mobile-nav-item-icon-bg: color-mix(in srgb, var(--v-accent) 10%, var(--v-surface-inset));
     color: var(--v-accent);
-    border-color: color-mix(in srgb, var(--mobile-nav-item-icon-bg) 97%, white);
-    background: var(--mobile-nav-item-icon-bg);
   }
 
   .mobile-nav-item-icon .icon {
@@ -1292,11 +1253,8 @@ watch(
     display: flex;
     align-items: center;
     gap: var(--v-space-3);
-    padding: var(--v-space-3);
-    border: 1px solid var(--v-control-border);
-    border-radius: var(--v-radius-lg);
-    background: var(--v-surface-raised);
-    box-shadow: var(--v-surface-shadow-raised);
+    padding-top: var(--v-space-4);
+    border-top: 1px solid var(--v-divider);
   }
 
   .mobile-nav-account-mark {
@@ -1326,13 +1284,12 @@ watch(
     font-size: var(--v-text-base);
     font-weight: 600;
     color: var(--v-text);
+    overflow-wrap: anywhere;
   }
 
   .mobile-nav-account-copy span {
     font-size: var(--v-text-xs);
     color: var(--v-text-muted);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
   }
 
   .unified-nav {

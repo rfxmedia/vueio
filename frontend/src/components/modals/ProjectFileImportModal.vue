@@ -10,12 +10,12 @@
     </template>
 
     <div class="v-modal-stack">
-      <p class="v-inline-note">{{ description }}</p>
+      <p v-if="description" class="v-inline-note">{{ description }}</p>
       <p v-if="uploadDisabledReason" class="v-inline-note v-text-danger">{{ uploadDisabledReason }}</p>
       <p v-if="uploadError" class="v-inline-note v-text-danger">{{ uploadError }}</p>
       <div v-if="requiresUploaderName" class="v-form-grid">
         <label class="v-field">
-          <span class="v-field-label">Your Name</span>
+          <span class="v-field-label">Your name</span>
           <input
             type="text"
             :value="uploaderName"
@@ -42,8 +42,8 @@
         <span class="v-modal-upload-zone-title">{{ canUpload ? activeTitle : 'Uploads unavailable in this folder' }}</span>
         <span class="v-modal-upload-zone-hint v-upload-zone-hint">{{ canUpload ? activeHint : (uploadDisabledReason || 'Uploads are currently disabled.') }}</span>
         <div v-if="canUpload" class="upload-zone-actions">
-          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click.prevent="openFilePicker">Choose Files</button>
-          <button type="button" class="v-btn v-btn-ghost v-btn-sm" @click.prevent="openFolderPicker">Choose Folder</button>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click.prevent="openFilePicker">Choose files</button>
+          <button type="button" class="v-btn v-btn-ghost v-btn-sm" @click.prevent="openFolderPicker">Choose folder</button>
         </div>
       </label>
 
@@ -83,8 +83,8 @@
           </div>
         </div>
         <div class="v-upload-footer">
-          <button class="v-btn v-btn-secondary" @click="cancelAllUploads" :disabled="!uploadHasActive">Cancel All</button>
-          <button class="v-btn v-btn-ghost" @click="clearCompletedUploads" :disabled="!uploadHasRemovable">Clear Completed</button>
+          <button class="v-btn v-btn-secondary" @click="cancelAllUploads" :disabled="!uploadHasActive">Cancel all</button>
+          <button class="v-btn v-btn-ghost" @click="clearCompletedUploads" :disabled="!uploadHasRemovable">Clear completed</button>
         </div>
       </div>
     </div>
@@ -102,7 +102,7 @@ import { formatSizeBytes } from '../../utils/formatters'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
-  title: { type: String, default: 'Upload Files' },
+  title: { type: String, default: 'Upload files' },
   description: { type: String, default: 'Upload files or drop folders from your device into this folder.' },
   canUpload: { type: Boolean, required: true },
   uploadDisabledReason: { type: String, default: '' },
@@ -150,7 +150,7 @@ function openFolderPicker() {
 </script>
 <style scoped>
 .upload-zone {
-  padding: 30px;
+  padding: var(--v-space-6);
 }
 
 .upload-zone .icon {

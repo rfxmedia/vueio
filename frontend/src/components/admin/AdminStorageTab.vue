@@ -1,9 +1,9 @@
 <template>
   <section class="admin-section storage-settings-section">
     <AdminSettingsHeader
-      :eyebrow="$route.query.setup === 'storage' ? 'Step 2 of 2 · Storage' : 'System'"
+      :eyebrow="$route.query.setup === 'storage' ? 'Step 2 of 2 · Storage' : ''"
       :title="$route.query.setup === 'storage' ? 'Your workspace is ready' : 'Storage & previews'"
-      :description="$route.query.setup === 'storage' ? 'Your account is created. Check the storage you chose in the installer, or connect another drive.' : 'Keep media on your own drives. Your accounts, comments and project history stay with this Vueio installation.'"
+      :description="$route.query.setup === 'storage' ? 'Your account is created. Check the storage you chose in the installer, or connect another drive.' : 'Manage media drives and preview processing.'"
       icon="#icon-package"
     />
 
@@ -39,7 +39,6 @@
       <section class="storage-locations" aria-labelledby="storage-locations-title">
         <header class="storage-locations-head">
           <div>
-            <p class="settings-eyebrow">Project storage</p>
             <div class="storage-locations-title-row">
               <h3 id="storage-locations-title">Your storage</h3>
               <span v-if="storageRoots.length" class="storage-location-summary">

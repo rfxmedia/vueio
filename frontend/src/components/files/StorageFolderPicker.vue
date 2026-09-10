@@ -1,17 +1,18 @@
 <template>
   <div class="storage-picker">
-    <div v-if="roots.length > 1" class="storage-picker__roots" role="tablist" aria-label="Storage root">
+    <div v-if="roots.length > 1" class="storage-picker__roots" role="group" aria-label="Storage root">
       <button
         v-for="root in roots"
         :key="root.id"
         type="button"
         class="v-control-pill storage-picker__root"
         :class="{ 'is-active': root.id === modelRoot }"
+        :aria-pressed="root.id === modelRoot"
         :title="root.read_only ? `${root.label} is read-only` : root.label"
         @click="chooseRoot(root.id)"
       >
         <svg class="icon"><use :href="root.read_only ? '#icon-lock' : '#icon-folder'" /></svg>
-        {{ root.label }}
+        <span class="v-truncate">{{ root.label }}</span>
       </button>
     </div>
 
@@ -28,7 +29,7 @@
         </button>
         <div class="storage-picker__location">
           <span>{{ activeRoot?.label || 'Storage' }}</span>
-          <strong>/{{ browsePath }}</strong>
+          <strong :title="`/${browsePath}`">/{{ browsePath }}</strong>
         </div>
         <button
           type="button"
@@ -46,6 +47,7 @@
           v-if="canCreate"
           type="button"
           class="v-btn v-btn-secondary v-btn-sm"
+          :aria-expanded="creating"
           @click="creating = !creating"
         >
           <svg class="icon"><use href="#icon-plus" /></svg>
@@ -54,7 +56,7 @@
       </div>
 
       <form v-if="creating" class="storage-picker__create" @submit.prevent="createFolder">
-        <input v-model="newFolderName" class="v-input" placeholder="Folder name" autofocus />
+        <input v-model="newFolderName" class="v-input" aria-label="Folder name" placeholder="Folder name" autofocus />
         <button class="v-btn v-btn-primary v-btn-sm" :disabled="!newFolderName.trim() || creatingFolder">
           {{ creatingFolder ? 'Creating…' : 'Create' }}
         </button>
@@ -72,7 +74,7 @@
         >
           <button type="button" class="storage-picker__folder" @click="openFolder(folder.path)">
             <span class="storage-picker__folder-icon"><svg class="icon"><use href="#icon-folder" /></svg></span>
-            <span>{{ folder.name }}</span>
+            <span class="v-truncate" :title="folder.name">{{ folder.name }}</span>
             <svg class="icon storage-picker__chevron"><use href="#icon-chevron-down" /></svg>
           </button>
           <button
@@ -210,8 +212,9 @@ watch(normalizedBasePath, (path) => {
 </script>
 
 <style scoped>
-.storage-picker { display: grid; gap: 10px; }
+.storage-picker { display: grid; gap: var(--v-space-3); min-width: 0; }
 .storage-picker__roots { display: flex; flex-wrap: wrap; gap: var(--v-space-2); }
+.storage-picker__root { max-width: 100%; }
 .storage-picker__root.is-active { color: var(--v-accent); border-color: color-mix(in srgb, var(--v-accent) 36%, var(--v-control-border)); background: var(--v-control-bg-active); }
 .storage-picker__browser { overflow: hidden; padding: 0; }
 .storage-picker__toolbar { min-height: 48px; padding: 8px 10px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: var(--v-space-2); border-bottom: 1px solid var(--v-modal-divider); }
@@ -230,16 +233,21 @@ watch(normalizedBasePath, (path) => {
 .storage-picker__folder-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: -2px; }
 .storage-picker__folder-select.is-selected { color: var(--v-accent); }
 .storage-picker__folder-select .icon { width: 15px; height: 15px; }
-.storage-picker__folder-icon { width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--v-radius-sm); color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-inset)); }
+.storage-picker__folder-icon { width: 30px; height: 30px; display: grid; place-items: center; color: var(--v-text-muted); }
+.storage-picker__folder-row.is-selected .storage-picker__folder-icon { color: var(--v-accent); }
 .storage-picker__folder-icon .icon { width: 15px; height: 15px; }
 .storage-picker__chevron { width: 13px; height: 13px; color: var(--v-text-muted); transform: rotate(-90deg); }
 .storage-picker__empty { min-height: 92px; display: grid; place-items: center; padding: 18px; color: var(--v-text-muted); font-size: var(--v-text-sm); }
 .storage-picker__create { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--v-space-2); padding: 10px; border-bottom: 1px solid var(--v-modal-divider); background: var(--v-surface-inset); }
 .storage-picker__error { margin: 8px 10px; color: var(--v-danger); }
-.storage-picker__selection { display: flex; align-items: center; gap: 6px; margin: 0; color: var(--v-text-muted); font-size: var(--v-text-xs); }
-.storage-picker__selection .icon { width: 13px; height: 13px; color: var(--v-accent); }
-.storage-picker__selection strong { color: var(--v-text); font-weight: 650; }
+.storage-picker__selection { display: flex; align-items: flex-start; gap: var(--v-space-2); min-width: 0; margin: 0; color: var(--v-text-muted); font-size: var(--v-text-xs); }
+.storage-picker__selection .icon { width: 13px; height: 13px; flex: 0 0 auto; margin-top: 2px; color: var(--v-accent); }
+.storage-picker__selection strong { min-width: 0; overflow-wrap: anywhere; color: var(--v-text); font-weight: 650; }
 .storage-picker__selection.is-empty .icon { color: var(--v-text-muted); }
+@media (max-width: 768px) {
+  .storage-picker__folder-row { grid-template-columns: minmax(0, 1fr) 44px; }
+  .storage-picker__folder-select { width: 44px; height: 44px; }
+}
 @media (max-width: 548px) {
   .storage-picker__toolbar { grid-template-columns: auto minmax(0, 1fr) auto; }
   .storage-picker__toolbar > .v-btn:not(.storage-picker__select-current) { grid-column: 1 / -1; width: 100%; }

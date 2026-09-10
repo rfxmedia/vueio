@@ -2,28 +2,31 @@
   <VModal
     :modelValue="props.showCreateProject"
     @update:modelValue="props.closeCreateProject"
-    title="New Project"
+    title="New project"
     size="md"
   >
     <template #header>
-      <VModalHeader title="New Project" @close="props.closeCreateProject" />
+      <VModalHeader title="New project" @close="props.closeCreateProject" />
     </template>
 
     <div class="v-form-grid v-modal-stack">
       <input
         :value="props.newProjectTitle"
+        aria-label="Project Title"
         placeholder="Project Title"
         class="v-input"
         @input="emit('update:newProjectTitle', $event.target.value)"
       />
       <textarea
         :value="props.newProjectDesc"
+        aria-label="Description"
         placeholder="Description (optional)"
         class="v-input modal-textarea"
         @input="emit('update:newProjectDesc', $event.target.value)"
       ></textarea>
       <input
         :value="props.newProjectDue"
+        aria-label="Due Date"
         type="date"
         placeholder="Due Date"
         class="v-input"
@@ -33,7 +36,7 @@
       <section class="v-modal-section create-project-storage">
         <div class="v-modal-section-head">
           <h3 class="v-modal-section-title">Working project folder</h3>
-          <p class="v-modal-section-copy">Choose the folder Vue should use for this project. Select an existing folder or create a new one.</p>
+          <p class="v-modal-section-copy">Select an existing project folder or create a new one.</p>
         </div>
         <StorageFolderPicker
           v-if="props.projectStorageRoots.length"
@@ -71,6 +74,7 @@
     <div class="v-form-grid v-modal-stack">
       <input
         :value="props.newPageTitle"
+        aria-label="Vue Dashboard title"
         placeholder="Vue Dashboard title"
         class="v-input"
         @input="emit('update:newPageTitle', $event.target.value)"
@@ -78,6 +82,7 @@
       />
       <textarea
         :value="props.newPageDesc"
+        aria-label="Description"
         placeholder="Description (optional)"
         class="v-input modal-textarea"
         @input="emit('update:newPageDesc', $event.target.value)"
@@ -102,6 +107,7 @@
 
     <input
       :value="props.newTrackerName"
+      aria-label="Vue Tracker name"
       placeholder="Vue Tracker name (e.g., VFX Shots)"
       class="v-input"
       @input="emit('update:newTrackerName', $event.target.value)"
@@ -117,15 +123,16 @@
   <VModal
     :modelValue="props.showCreateFolder"
     @update:modelValue="props.closeCreateFolder"
-    title="Create Folder"
+    title="Create folder"
     size="md"
   >
     <template #header>
-      <VModalHeader title="Create Folder" @close="props.closeCreateFolder" />
+      <VModalHeader title="Create folder" @close="props.closeCreateFolder" />
     </template>
 
     <input
       :value="props.newFolderName"
+      aria-label="Folder name"
       placeholder="Folder name"
       class="v-input"
       @input="emit('update:newFolderName', $event.target.value)"
@@ -150,6 +157,7 @@
 
     <input
       :value="props.renameNewName"
+      aria-label="New name"
       class="v-input"
       placeholder="New name"
       autofocus
@@ -185,20 +193,20 @@
         <label class="v-modal-upload-zone upload-zone">
           <input type="file" accept="image/*" hidden @change="props.handleThumbUpload"/>
           <svg class="icon"><use href="#icon-upload"/></svg>
-          <span class="v-modal-upload-zone-title">Upload image directly</span>
-          <span class="v-modal-upload-zone-hint">Drag one in or browse your device.</span>
+          <span class="v-modal-upload-zone-title">Upload image</span>
+          <span class="v-modal-upload-zone-hint">Choose an image from your device.</span>
         </label>
       </div>
 
       <div v-if="props.thumbUploadPreview" class="v-modal-card-soft thumb-preview">
-        <img :src="props.thumbUploadPreview" />
+        <img :src="props.thumbUploadPreview" alt="Thumbnail preview" />
         <span class="v-text-muted">{{ props.thumbUploadData?.name || 'Preview ready' }}</span>
       </div>
     </div>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeThumbUpload">Cancel</button>
-      <button class="v-btn v-btn-primary" @click="props.confirmThumbUpload" :disabled="!props.thumbUploadData">Set Thumbnail</button>
+      <button class="v-btn v-btn-primary" @click="props.confirmThumbUpload" :disabled="!props.thumbUploadData">Set thumbnail</button>
     </template>
   </VModal>
 </template>
@@ -289,7 +297,7 @@ const renameTargetLabel = computed(() => {
 })
 
 const thumbUploadTitle = computed(() => {
-  if (props.thumbUploadMode === 'project') return 'Set Project Thumbnail'
+  if (props.thumbUploadMode === 'project') return 'Set project thumbnail'
   if (props.thumbUploadMode === 'project-folder') return 'Set Folder Thumbnail'
   if (props.thumbUploadMode === 'browser-folder') return 'Set Folder Thumbnail'
   return 'Choose Thumbnail'

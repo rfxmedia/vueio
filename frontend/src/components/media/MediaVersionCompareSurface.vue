@@ -65,6 +65,7 @@
             type="button"
             class="v-view-toggle-btn"
             :class="{ active: mode === 'side-by-side' }"
+            :aria-pressed="mode === 'side-by-side'"
             @click="$emit('update:mode', 'side-by-side')"
           >
             Side by side
@@ -73,6 +74,7 @@
             type="button"
             class="v-view-toggle-btn"
             :class="{ active: mode === 'wipe' }"
+            :aria-pressed="mode === 'wipe'"
             @click="$emit('update:mode', 'wipe')"
           >
             Wipe
@@ -185,45 +187,42 @@
           @keydown.right.prevent="nudgeTimeline($event.shiftKey ? 1 : frameStepSeconds)"
         >
           <div class="timeline-bg" />
-          <div class="timeline-progress" :style="{ width: `${timelinePercent}%` }" />
+          <div class="timeline-progress" :style="{ transform: `translateY(-50%) scaleX(${timelinePercent / 100})` }" />
           <div class="timeline-handle" :style="{ left: `${timelinePercent}%` }" />
         </div>
       </div>
 
       <div class="controls-row">
         <div class="controls-bar" role="group" aria-label="Compare playback controls">
-          <div class="controls-bar__segment controls-bar__segment--play">
+          <div class="controls-zone controls-zone--left">
             <button
               type="button"
-              class="control-btn control-btn--play"
+              class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--play"
               :disabled="!canPlayVideoPair"
               :aria-label="isPlaying ? 'Pause comparison' : 'Play comparison'"
               @click="togglePlayback"
             >
               <span class="play-pause-morph" :class="{ 'is-playing': isPlaying }" aria-hidden="true">
-                <svg class="play-pause-morph__glyph play-pause-morph__glyph--play"><use href="#icon-play" /></svg>
-                <svg class="play-pause-morph__glyph play-pause-morph__glyph--pause"><use href="#icon-pause" /></svg>
+                <svg class="icon play-pause-morph__glyph play-pause-morph__glyph--play"><use href="#icon-play" /></svg>
+                <svg class="icon play-pause-morph__glyph play-pause-morph__glyph--pause"><use href="#icon-pause" /></svg>
               </span>
+            </button>
+            <button
+              type="button"
+              class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--icon loop-btn"
+              :class="{ active: loopEnabled }"
+              :aria-label="loopEnabled ? 'Disable loop' : 'Enable loop'"
+              @click="loopEnabled = !loopEnabled"
+            >
+              <svg class="icon"><use href="#icon-refresh" /></svg>
             </button>
           </div>
 
-          <div class="controls-bar__segment controls-bar__segment--main">
-            <div class="controls-bar__times">
+          <div class="controls-zone controls-zone--center">
+            <div class="controls-timecode">
               <span class="time-current">{{ formatSeconds(currentTime) }}</span>
               <span class="time-sep">/</span>
               <span class="time-duration">{{ formatSeconds(clampedDuration) }}</span>
-            </div>
-            <div class="controls-bar__spacer" />
-            <div class="controls-bar__actions">
-              <button
-                type="button"
-                class="control-btn control-btn--icon loop-btn"
-                :class="{ active: loopEnabled }"
-                :aria-label="loopEnabled ? 'Disable loop' : 'Enable loop'"
-                @click="loopEnabled = !loopEnabled"
-              >
-                <svg class="icon"><use href="#icon-refresh" /></svg>
-              </button>
             </div>
           </div>
         </div>

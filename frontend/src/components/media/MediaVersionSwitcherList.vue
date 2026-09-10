@@ -74,7 +74,7 @@
                 @keydown.space="handleVersionNotesKeydown(version, index, $event)"
               >
                 <span class="media-version-switcher-notes-header">
-                  <span class="media-version-switcher-notes-label">Version Notes</span>
+                  <span class="media-version-switcher-notes-label">Notes</span>
                   <svg v-if="canExpandVersionNotes(version)" class="icon media-version-switcher-notes-chevron" aria-hidden="true">
                     <use href="#icon-chevron-down" />
                   </svg>
@@ -623,11 +623,9 @@ function getSizeLabel(version) {
 
 .media-version-switcher-notes-label {
   color: var(--v-text-muted);
-  font-size: var(--v-text-3xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  line-height: 1;
-  text-transform: uppercase;
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .media-version-switcher-notes-chevron {

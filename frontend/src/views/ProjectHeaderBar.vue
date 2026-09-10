@@ -16,7 +16,7 @@
 
     <div class="project-header-info">
       <div class="project-title-row">
-        <h2 class="project-title-readonly">{{ currentProject.title }}</h2>
+        <h2 class="project-title-readonly" :title="currentProject.title">{{ currentProject.title }}</h2>
         <span
           v-if="currentProject.storage_read_only"
           class="project-storage-badge"
@@ -87,7 +87,7 @@
           <VMenuActionList :actions="projectCreateMenuActions" />
         </VMenu>
 
-        <button v-if="canOpenProjectSettings" type="button" class="v-btn v-btn-secondary v-btn-sm project-header-settings-btn project-header-action-slot" @click="openProjectSettings()">
+        <button v-if="canOpenProjectSettings" type="button" class="v-btn v-btn-secondary v-btn-sm project-header-settings-btn project-header-action-slot" :aria-label="currentTracker ? 'Tracker settings' : currentPage ? 'Dashboard settings' : 'Project settings'" @click="openProjectSettings()">
           <svg class="icon"><use href="#icon-settings"/></svg>
           <span class="project-header-btn-label">Settings</span>
         </button>
