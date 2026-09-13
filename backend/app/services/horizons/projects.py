@@ -371,7 +371,7 @@ def create_horizon_project(
         if not use_existing_project_folder:
             target.mkdir(parents=True, exist_ok=False)
             created_project_dir = True
-        make_project_path_smb_mutable(target)
+            make_project_path_smb_mutable(target)
     except FileExistsError:
         # A concurrent creator won the same external folder name after the
         # availability check. Reusing it could mix two projects.
@@ -459,8 +459,13 @@ def ensure_horizon_project_runtime_dir(db: Session, project_id: str) -> Path:
     project_dir = resolve_project_root(project)
     if project_storage_is_read_only(project):
         raise HTTPException(status_code=409, detail='This project storage location is read-only')
-    project_dir.mkdir(parents=True, exist_ok=True)
-    make_project_path_smb_mutable(project_dir)
+    try:
+        project_dir.mkdir(parents=True)
+    except FileExistsError:
+        if not project_dir.is_dir():
+            raise HTTPException(status_code=409, detail='Project storage path is not a folder')
+    else:
+        make_project_path_smb_mutable(project_dir)
     return project_dir
 
 

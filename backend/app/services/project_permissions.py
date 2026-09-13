@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
@@ -15,7 +16,12 @@ def make_project_path_smb_mutable(path: Path) -> None:
     """
     if path.is_symlink():
         return
-    mode = path.stat().st_mode
+    path_stat = path.stat()
+    # A shared folder can be writable without allowing Vueio to change its
+    # permissions. Keep permissions set by its owner during uploads and moves.
+    if path_stat.st_uid != os.geteuid():
+        return
+    mode = path_stat.st_mode
     current_permissions = stat.S_IMODE(mode)
     settings = get_settings()
     if stat.S_ISDIR(mode):

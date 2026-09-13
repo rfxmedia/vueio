@@ -261,7 +261,6 @@ def create_project(data: ProjectCreate, vueio_session: str = Cookie(None), x_vue
         storage_root=data.storage_root,
         storage_path=data.storage_path,
     )
-    ensure_horizon_project_runtime_dir(db, project.id)
     return serialize_horizon_project(db, project, user=user)
 
 
