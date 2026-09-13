@@ -8,6 +8,7 @@
         class="v-control-pill storage-picker__root"
         :class="{ 'is-active': root.id === modelRoot }"
         :aria-pressed="root.id === modelRoot"
+        :disabled="disabled || root.available === false"
         :title="root.read_only ? `${root.label} is read-only` : root.label"
         @click="chooseRoot(root.id)"
       >
@@ -21,7 +22,7 @@
         <button
           type="button"
           class="v-icon-btn v-icon-btn-sm"
-          :disabled="!canGoUp || loading"
+          :disabled="disabled || !canGoUp || loading"
           aria-label="Go to parent folder"
           @click="goUp"
         >
@@ -36,7 +37,7 @@
           class="v-btn v-btn-secondary v-btn-sm storage-picker__select-current"
           :class="{ 'is-selected': modelPath === browsePath }"
           :aria-pressed="modelPath === browsePath"
-          :disabled="!canSelectCurrentFolder"
+          :disabled="disabled || loading || !canSelectCurrentFolder"
           :title="canSelectCurrentFolder ? 'Use this folder' : 'Choose or create a folder first'"
           @click="selectFolder(browsePath)"
         >
@@ -48,6 +49,7 @@
           type="button"
           class="v-btn v-btn-secondary v-btn-sm"
           :aria-expanded="creating"
+          :disabled="disabled"
           @click="creating = !creating"
         >
           <svg class="icon"><use href="#icon-plus" /></svg>
@@ -56,8 +58,8 @@
       </div>
 
       <form v-if="creating" class="storage-picker__create" @submit.prevent="createFolder">
-        <input v-model="newFolderName" class="v-input" aria-label="Folder name" placeholder="Folder name" autofocus />
-        <button class="v-btn v-btn-primary v-btn-sm" :disabled="!newFolderName.trim() || creatingFolder">
+        <input v-model="newFolderName" :disabled="disabled || creatingFolder" class="v-input" aria-label="Folder name" placeholder="Folder name" autofocus />
+        <button class="v-btn v-btn-primary v-btn-sm" :disabled="disabled || !newFolderName.trim() || creatingFolder">
           {{ creatingFolder ? 'Creating…' : 'Create' }}
         </button>
       </form>
@@ -72,7 +74,7 @@
           class="storage-picker__folder-row"
           :class="{ 'is-selected': modelPath === folder.path }"
         >
-          <button type="button" class="storage-picker__folder" @click="openFolder(folder.path)">
+          <button type="button" class="storage-picker__folder" :disabled="disabled" @click="openFolder(folder.path)">
             <span class="storage-picker__folder-icon"><svg class="icon"><use href="#icon-folder" /></svg></span>
             <span class="v-truncate" :title="folder.name">{{ folder.name }}</span>
             <svg class="icon storage-picker__chevron"><use href="#icon-chevron-down" /></svg>
@@ -83,6 +85,7 @@
             :class="{ 'is-selected': modelPath === folder.path }"
             :aria-label="`${modelPath === folder.path ? 'Selected' : 'Select'} ${folder.name}`"
             :aria-pressed="modelPath === folder.path"
+            :disabled="disabled"
             @click="selectFolder(folder.path)"
           >
             <svg class="icon"><use :href="modelPath === folder.path ? '#icon-check' : '#icon-circle'" /></svg>
@@ -103,7 +106,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import api, { getApiErrorMessage } from '../../lib/api'
 
 const props = defineProps({
@@ -113,6 +116,7 @@ const props = defineProps({
   allowCreate: { type: Boolean, default: false },
   allowRootSelection: { type: Boolean, default: true },
   basePath: { type: String, default: '' },
+  disabled: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['update:modelRoot', 'update:modelPath'])
@@ -122,6 +126,8 @@ const error = ref('')
 const creating = ref(false)
 const creatingFolder = ref(false)
 const newFolderName = ref('')
+let browseRequest = 0
+onBeforeUnmount(() => { browseRequest += 1 })
 
 function normalizePath(path) {
   return String(path || '').split('/').filter(Boolean).join('/')
@@ -139,20 +145,25 @@ const canGoUp = computed(() => {
 })
 
 async function loadFolders() {
+  const request = ++browseRequest
   if (!props.modelRoot) {
     folders.value = []
+    loading.value = false
+    error.value = ''
     return
   }
   loading.value = true
   error.value = ''
   try {
     const { data } = await api.get('/api/storage/browse', { params: { root: props.modelRoot, path: browsePath.value } })
+    if (request !== browseRequest) return
     folders.value = data.folders || []
   } catch (requestError) {
+    if (request !== browseRequest) return
     folders.value = []
     error.value = getApiErrorMessage(requestError, 'Unable to browse this storage location.')
   } finally {
-    loading.value = false
+    if (request === browseRequest) loading.value = false
   }
 }
 
@@ -181,7 +192,8 @@ function goUp() {
 }
 
 async function createFolder() {
-  if (!newFolderName.value.trim() || !canCreate.value) return
+  if (props.disabled || creatingFolder.value || !newFolderName.value.trim() || !canCreate.value) return
+  const request = browseRequest
   creatingFolder.value = true
   error.value = ''
   try {
@@ -190,11 +202,13 @@ async function createFolder() {
       path: browsePath.value,
       name: newFolderName.value.trim(),
     })
+    if (request !== browseRequest) return
     newFolderName.value = ''
     creating.value = false
     browsePath.value = data.path
     emit('update:modelPath', data.path)
   } catch (requestError) {
+    if (request !== browseRequest) return
     error.value = getApiErrorMessage(requestError, 'Unable to create the folder.')
   } finally {
     creatingFolder.value = false

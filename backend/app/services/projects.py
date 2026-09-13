@@ -165,6 +165,43 @@ def resolve_project_root(project) -> Path:
     return resolve_storage_location(storage_root, storage_path)
 
 
+def lock_project_storage(db, project) -> None:
+    """Keep uploads and folder changes on the same project location."""
+    connection = db.connection()
+    if connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+        connection.exec_driver_sql('BEGIN IMMEDIATE')
+    db.refresh(project, with_for_update=True)
+
+
+def check_project_folder_assignment(db, storage_root: str, storage_path: str, *, project_id: str | None = None, lock: bool = False) -> Path:
+    """A project folder cannot expose another project's folder or app data."""
+    from sqlalchemy import text
+    from app.models import HorizonProject
+
+    if lock:
+        connection = db.connection()
+        if connection.dialect.name == 'postgresql':
+            # Only folder assignment uses this lock, not browsing or playback.
+            db.execute(text('SELECT pg_advisory_xact_lock(1987402301)'))
+        elif connection.dialect.name == 'sqlite' and not connection.connection.driver_connection.in_transaction:
+            connection.exec_driver_sql('BEGIN IMMEDIATE')
+    target = resolve_storage_location(storage_root, storage_path)
+    data_root = settings.DATA_DIR.resolve()
+    if storage_root != 'data' and (target.is_relative_to(data_root) or data_root.is_relative_to(target)):
+        raise HTTPException(status_code=409, detail='Choose a media folder outside Vue app data.')
+    roots = configured_project_storage_roots()
+    for other in db.query(HorizonProject).filter(HorizonProject.status != 'deleted').all():
+        if other.id == project_id:
+            continue
+        root = roots.get(other.storage_root or 'data')
+        if root is None:
+            continue
+        other_folder = (root / (other.storage_path or other.id)).resolve()
+        if target.is_relative_to(other_folder) or other_folder.is_relative_to(target):
+            raise HTTPException(status_code=409, detail='This folder overlaps another project. Choose a separate project folder.')
+    return target
+
+
 def resolve_horizon_project_root(db, project_id: str) -> Path:
     from app.models import HorizonProject
 

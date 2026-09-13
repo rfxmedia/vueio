@@ -531,19 +531,20 @@ def select_horizon_preview_asset(db: Session, project_id: str, *, user: dict | N
     for asset in list_visible_horizon_media_assets(db, project_id, user=user, access_role=access_role):
         if str(asset.id) in held_asset_ids:
             continue
-        full_path, _job_key, _storage_scope = resolve_media_asset_path(asset, project_id=project_id, db=db)
         ext = Path(asset.file_path or '').suffix.lower()
-        if not full_path or not full_path.exists():
-            continue
         if ext in image_extensions:
             rank = 0
         elif ext in video_extensions:
             rank = 1
         else:
-            rank = 2
+            continue
         ranked.append((rank, -(asset.updated_at or asset.created_at or 0), asset))
 
     if not ranked:
         return None
     ranked.sort(key=lambda item: (item[0], item[1]))
-    return ranked[0][2]
+    for _rank, _timestamp, asset in ranked:
+        full_path, _job_key, _storage_scope = resolve_media_asset_path(asset, project_id=project_id, db=db)
+        if full_path and full_path.is_file():
+            return asset
+    return None

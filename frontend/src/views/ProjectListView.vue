@@ -147,13 +147,9 @@
                   <div class="v-project-thumb-blank" :style="identityColorStyle(p.id)">
                     <span class="v-project-thumb-initials">{{ projectInitials(p) }}</span>
                   </div>
-                  <img
+                  <VMediaThumbnail
                     :src="getProjectThumbnailUrl(p.id, p.thumbnail_path)"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    @load="showProjectThumbnail"
-                    @error="$event.target.style.display='none'"
+                    class="v-project-cover"
                   />
 
                   <span
@@ -169,13 +165,7 @@
                 </div>
 
                 <div class="v-project-body">
-                  <span
-                    class="v-project-status-inline v-project-card-status"
-                    :class="`is-${projectStatusVariant(p.status)}`"
-                  >
-                    <span class="v-project-status-dot"></span>
-                    {{ projectStatusLabel(p.status) }}
-                  </span>
+                  <ProjectStatusControl :project="p" :editable="canOpenProjectSettingsItem(p)" />
                   <div class="v-project-title">{{ p.title }}</div>
 
                   <div class="v-project-meta">
@@ -258,13 +248,9 @@
                 <div class="v-project-thumb-blank v-project-thumb-blank-sm" :style="identityColorStyle(p.id)">
                   <span class="v-project-thumb-initials">{{ projectInitials(p) }}</span>
                 </div>
-                <img
+                <VMediaThumbnail
                   :src="getProjectThumbnailUrl(p.id, p.thumbnail_path)"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  @load="showProjectThumbnail"
-                  @error="$event.target.style.display='none'"
+                  class="v-project-cover"
                 />
               </div>
 
@@ -277,10 +263,7 @@
                     Read-only
                     <svg class="icon v-project-readonly-info"><use href="#icon-info" /></svg>
                   </span>
-                  <span class="v-project-status-inline v-project-status-mobile" :class="`is-${projectStatusVariant(p.status)}`">
-                    <span class="v-project-status-dot"></span>
-                    {{ projectStatusLabel(p.status) }}
-                  </span>
+                  <ProjectStatusControl class="v-project-status-mobile" :project="p" :editable="canOpenProjectSettingsItem(p)" />
                   <span v-if="shouldFlagOfflineMedia(p)" class="v-project-capability-inline is-warning">
                     <svg class="icon"><use href="#icon-alert" /></svg>
                     Media offline
@@ -307,10 +290,7 @@
 
               <!-- Status -->
               <div class="v-project-list-status" @click.stop>
-                  <span class="v-status v-project-status-chip is-list" :class="`is-${projectStatusVariant(p.status)}`">
-                  <span class="v-project-status-dot"></span>
-                  <span class="v-project-status-label">{{ projectStatusLabel(p.status) }}</span>
-                </span>
+                <ProjectStatusControl :project="p" :editable="canOpenProjectSettingsItem(p)" />
               </div>
 
               <!-- Due Date -->
@@ -353,6 +333,8 @@
 
 <script setup>
 import { computed } from 'vue'
+import ProjectStatusControl from '../components/projects/ProjectStatusControl.vue'
+import VMediaThumbnail from '../components/media/VMediaThumbnail.vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../components/primitives'
 import { getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
 import { useProjectSettingsStore } from '../ownership/projectSettings'
@@ -402,8 +384,7 @@ function projectMenuActions(project) {
     { divider: true },
     { label: 'Share project', icon: '#icon-share', show: canShareProjectItem(project), run: () => shareProjectFromList(project) },
     { divider: true },
-    { label: 'Set project folder', icon: '#icon-folder', show: canStorage && project.uses_internal_storage, run: () => openProjectStorage(project, 'migrate') },
-    { label: 'Relocate project', icon: '#icon-map-pin', show: canStorage, run: () => openProjectStorage(project, 'relocate') },
+    { label: 'Project folder', icon: '#icon-folder', show: canStorage, run: () => openProjectStorage(project) },
     { divider: true },
     { label: 'Delete project', icon: '#icon-trash', danger: true, show: canDeleteProjectItem(project), run: () => deleteProjectConfirm(project) },
   ]
@@ -595,10 +576,6 @@ function projectInitials(p) {
   return (letters || title.charAt(0)).toUpperCase()
 }
 
-function showProjectThumbnail(event) {
-  event.target.style.removeProperty('display')
-  event.target.classList.add('loaded')
-}
 </script>
 
 <style>
@@ -689,24 +666,17 @@ function showProjectThumbnail(event) {
   background: var(--v-surface-panel-soft);
 }
 
-.v-project-thumb img {
+.v-project-thumb .v-project-cover,
+.v-project-list-thumb .v-project-cover {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
   z-index: 1;
-  opacity: 0;
-  transform: scale(1.005);
-  transition: opacity var(--v-duration-normal) var(--v-ease-emphasized),
-              transform var(--v-duration-slow) var(--v-ease-emphasized);
 }
 
-.v-project-thumb img.loaded { opacity: 1; }
-
-.v-project-card:hover .v-project-thumb img {
-  transform: scale(1.018);
-}
+.v-project-thumb .v-project-cover.is-failed,
+.v-project-list-thumb .v-project-cover.is-failed { display: none; }
 
 /* Soft inner vignette to anchor the status pill regardless of image content */
 .v-project-thumb::after {
@@ -776,36 +746,7 @@ function showProjectThumbnail(event) {
 .v-project-readonly-badge__info,
 .v-project-readonly-info { opacity: 0.72; }
 
-/* Status chip — overlaid on the thumbnail (top-right) for grid cards */
-.v-project-status-chip {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 3;
-  gap: 5px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: var(--v-radius-full);
-  font-size: var(--v-text-2xs);
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: rgba(255, 255, 255, 0.9);
-  background: rgba(8, 12, 15, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: none;
-  white-space: nowrap;
-  pointer-events: none;
-}
 
-.v-project-status-chip.is-list {
-  position: static;
-  background: var(--v-surface-inline);
-  border: 1px solid var(--v-control-border);
-  box-shadow: none;
-  color: var(--v-text);
-  font-weight: 650;
-}
 
 .v-project-status-inline.is-readonly {
   color: var(--v-accent);
@@ -825,15 +766,10 @@ function showProjectThumbnail(event) {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-draft) 22%, transparent);
 }
 
-.v-project-status-chip.is-active .v-project-status-dot,
 .v-project-status-inline.is-active .v-project-status-dot { background: var(--v-status-active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-active) 24%, transparent); }
-.v-project-status-chip.is-review .v-project-status-dot,
 .v-project-status-inline.is-review .v-project-status-dot { background: var(--v-status-review); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-review) 24%, transparent); }
-.v-project-status-chip.is-done .v-project-status-dot,
 .v-project-status-inline.is-done .v-project-status-dot { background: var(--v-status-done); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-done) 24%, transparent); }
-.v-project-status-chip.is-hold .v-project-status-dot,
 .v-project-status-inline.is-hold .v-project-status-dot { background: var(--v-status-hold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-hold) 24%, transparent); }
-.v-project-status-chip.is-draft .v-project-status-dot,
 .v-project-status-inline.is-draft .v-project-status-dot { background: var(--v-status-draft); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-draft) 20%, transparent); }
 
 .v-project-status-inline {
@@ -895,15 +831,6 @@ function showProjectThumbnail(event) {
   height: 12px;
   flex-shrink: 0;
   opacity: 0.48;
-}
-
-.v-project-card-status {
-  align-self: flex-start;
-  font-size: var(--v-text-2xs);
-  font-weight: 750;
-  letter-spacing: 0.08em;
-  line-height: 1;
-  text-transform: uppercase;
 }
 
 .v-project-meta-item.is-overdue,
@@ -1047,18 +974,6 @@ function showProjectThumbnail(event) {
   flex-shrink: 0;
 }
 
-.v-project-list-thumb img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  opacity: 0;
-  transition: opacity var(--v-duration-normal) var(--v-ease-emphasized);
-}
-
-.v-project-list-thumb img.loaded { opacity: 1; }
-
 .v-project-thumb-blank-sm .v-project-thumb-initials {
   font-size: var(--v-text-md);
 }
@@ -1090,7 +1005,7 @@ function showProjectThumbnail(event) {
   color: var(--v-text-secondary);
 }
 
-.v-project-status-mobile {
+.v-project-list-item .v-project-status-control.v-project-status-mobile {
   display: none;
 }
 
@@ -1130,15 +1045,6 @@ function showProjectThumbnail(event) {
   display: flex;
   align-items: center;
   min-width: 0;
-}
-
-.v-project-list-status .v-project-status-chip {
-  justify-content: flex-start;
-  min-width: 0;
-  max-width: 118px;
-  height: 26px;
-  padding: 0 9px;
-  background: transparent;
 }
 
 .v-project-list-due {
@@ -1262,7 +1168,7 @@ function showProjectThumbnail(event) {
     padding: var(--v-space-3);
   }
 
-  .v-project-status-mobile {
+  .v-project-list-item .v-project-status-control.v-project-status-mobile {
     display: inline-flex;
   }
 }
@@ -1358,14 +1264,6 @@ function showProjectThumbnail(event) {
     border-radius: var(--v-radius-lg) var(--v-radius-lg) 0 0;
     aspect-ratio: 4 / 3;
   }
-  .v-project-status-chip {
-    top: 8px;
-    right: 8px;
-    height: 22px;
-    font-size: var(--v-text-2xs);
-    padding: 0 8px 0 7px;
-  }
-  .v-project-status-chip .v-project-status-label { display: none; }
   .v-project-body {
     padding: 10px 10px 12px;
     gap: var(--v-space-1);
@@ -1722,16 +1620,6 @@ function showProjectThumbnail(event) {
 
 @media (max-width: 420px) {
   .v-project-card .v-project-meta-sep {
-    display: none;
-  }
-
-  .v-project-status-chip {
-    width: 22px;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .v-project-status-chip .v-project-status-label {
     display: none;
   }
 

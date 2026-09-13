@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import shutil
 import threading
 import time
@@ -10,15 +12,22 @@ from typing import Callable
 
 from fastapi import HTTPException
 from sqlalchemy import or_
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Comment, FileOperationJournal, HorizonProject, HorizonShot, HorizonShotVersion, MediaAsset, ShareLink
-from app.services.file_operation_journal import cancel_file_operation, complete_file_operation, create_file_operation
-from app.services.media_assets import GENERATED_STORAGE_SCOPES, content_fingerprint, file_matches_content_identity
-from app.services.media_resolution import source_signature, stored_media_asset_cache_identity
+from app.models import FileOperationJournal, HorizonProject, MediaAsset, ShareLink, UploadSession
+from app.config import get_settings
+from app.services.file_operation_journal import complete_file_operation
+from app.services.media_assets import GENERATED_STORAGE_SCOPES, file_matches_content_identity, media_asset_reference_clause
+from app.services.media_relink import MediaRelinkMatcher, apply_media_match, contained_file, relocation_plan_id, require_reviewed_plan
+from app.services.media_resolution import source_signature
+from app.services.path_references import rewrite_project_links_payload, rewrite_project_path_references
+from app.services.storage_capacity import ensure_path_capacity
 from app.services.projects import (
     discard_staged_project_links,
+    check_project_folder_assignment,
     load_project_links,
+    lock_project_storage,
     promote_staged_project_links,
     resolve_project_root,
     resolve_storage_location,
@@ -36,52 +45,17 @@ VUEIO_PROJECT_METADATA_FILENAMES = {
 }
 
 
-def _asset_target(destination: Path, file_path: str | None) -> Path | None:
-    """Return a contained, non-symlink-escaped destination for an asset."""
-    destination = destination.resolve()
-    try:
-        target = (destination / str(file_path or '').strip().lstrip('/')).resolve(strict=False)
-        target.relative_to(destination)
-    except (OSError, RuntimeError, ValueError):
-        return None
-    return target
-
-
-def _project_asset_ids_in_use(db: Session, project_id: str) -> set[str]:
-    ids = {
-        value
-        for (value,) in db.query(HorizonShot.latest_media_asset_id)
-        .filter(HorizonShot.project_id == project_id)
-        .filter(HorizonShot.latest_media_asset_id.isnot(None))
-    }
-    ids.update(
-        value
-        for (value,) in db.query(HorizonShotVersion.media_asset_id)
-        .filter(HorizonShotVersion.project_id == project_id)
-        .filter(HorizonShotVersion.media_asset_id.isnot(None))
-    )
-    ids.update(
-        value
-        for (value,) in db.query(Comment.horizons_media_asset_id)
-        .filter(Comment.project_id == project_id)
-        .filter(Comment.horizons_media_asset_id.isnot(None))
-    )
-    return ids
-
-
 def _project_assets_for_relink(db: Session, project_id: str) -> list[MediaAsset]:
-    referenced_ids = _project_asset_ids_in_use(db, project_id)
-    query = (
+    referenced = media_asset_reference_clause(db)
+    return (
         db.query(MediaAsset)
         .filter(MediaAsset.project_id == project_id)
         .filter(~MediaAsset.storage_scope.in_(GENERATED_STORAGE_SCOPES))
+        .filter(or_(MediaAsset.unavailable_at.is_(None), referenced))
+        .filter(or_(MediaAsset.storage_scope != 'media_root', referenced))
+        .order_by(MediaAsset.file_path.asc(), MediaAsset.created_at.desc())
+        .all()
     )
-    if referenced_ids:
-        query = query.filter(or_(MediaAsset.unavailable_at.is_(None), MediaAsset.id.in_(referenced_ids)))
-        query = query.filter(or_(MediaAsset.storage_scope != 'media_root', MediaAsset.id.in_(referenced_ids)))
-    else:
-        query = query.filter(MediaAsset.unavailable_at.is_(None), MediaAsset.storage_scope != 'media_root')
-    return query.order_by(MediaAsset.file_path.asc(), MediaAsset.created_at.desc()).all()
 
 
 def _asset_relative_candidates(asset: MediaAsset) -> list[str]:
@@ -94,62 +68,15 @@ def _asset_relative_candidates(asset: MediaAsset) -> list[str]:
     return [str(PurePosixPath(*parts[index:])) for index in range(len(parts))]
 
 
-def _match_asset_at_destination(destination: Path, asset: MediaAsset) -> tuple[dict | None, dict | None]:
-    expected_size = int(asset.file_size or 0)
-    candidates = _asset_relative_candidates(asset)
-    existing: list[tuple[str, int]] = []
-    matching: list[tuple[str, int]] = []
-    for relative_path in candidates:
-        target = _asset_target(destination, relative_path)
-        if target is None or not target.exists() or not target.is_file():
-            continue
-        actual_size = target.stat().st_size
-        existing.append((relative_path, actual_size))
-        if expected_size and actual_size != expected_size:
-            continue
-        if asset.content_hash and not file_matches_content_identity(target, asset.content_hash):
-            continue
-        matching.append((relative_path, actual_size))
-        # An exact relative path is authoritative once its content identity
-        # matches. Looser suffix candidates are only for legacy media-root
-        # paths whose old top-level hierarchy is no longer present.
-        if relative_path == str(asset.file_path or '').strip().replace('\\', '/').strip('/'):
-            matching = [(relative_path, actual_size)]
-            break
-
-    if len(matching) == 1:
-        relative_path, actual_size = matching[0]
-        return {
-            'asset_id': asset.id,
-            'path': relative_path,
-            'source_path': asset.file_path,
-            'size': actual_size,
-            'legacy_rebased': asset.storage_scope == 'media_root' and relative_path != asset.file_path,
-        }, None
-    if len(matching) > 1:
-        return None, {
-            'asset_id': asset.id,
-            'path': asset.file_path,
-            'source_path': asset.file_path,
-            'reason': 'ambiguous_match',
-            'candidates': [path for path, _size in matching],
-        }
-    if existing:
-        relative_path, actual_size = existing[0]
-        return None, {
-            'asset_id': asset.id,
-            'path': relative_path,
-            'source_path': asset.file_path,
-            'reason': 'content_mismatch' if asset.content_hash and (not expected_size or expected_size == actual_size) else 'size_mismatch',
-            'expected_size': expected_size,
-            'actual_size': actual_size,
-        }
-    return None, {
-        'asset_id': asset.id,
-        'path': asset.file_path,
-        'source_path': asset.file_path,
-        'reason': 'not_found' if candidates else 'invalid_path',
-    }
+def _project_path_changes(matched: list[dict]) -> dict[str, str]:
+    destinations: dict[str, set[str]] = {}
+    for item in matched:
+        if item.get('source_scope') != 'media_root':
+            destinations.setdefault(item['source_path'], set()).add(item['path'])
+    # Historical versions can share an old filename. Their stable IDs remain
+    # authoritative; a path-only reference must not pick one arbitrarily.
+    return {source: next(iter(paths)) for source, paths in destinations.items()
+            if len(paths) == 1 and source not in paths}
 
 
 def _rebased_link_source(link: dict, matched: list[dict]) -> str | None:
@@ -157,6 +84,8 @@ def _rebased_link_source(link: dict, matched: list[dict]) -> str | None:
     if not source:
         return None
     for item in matched:
+        if item.get('source_scope') != 'media_root':
+            continue
         old_path = str(item.get('source_path') or '').strip().strip('/')
         new_path = str(item.get('path') or '').strip().strip('/')
         suffix = old_path[len(source):].lstrip('/') if old_path == source or old_path.startswith(f'{source}/') else None
@@ -180,7 +109,7 @@ def _match_link_at_destination(destination: Path, index: int, link: dict) -> tup
     matching: list[str] = []
     source = str(link.get('source_path') or '').strip().replace('\\', '/').strip('/')
     for relative_path in candidates:
-        target = _asset_target(destination, relative_path)
+        target = contained_file(destination, relative_path)
         if target is None or not target.exists():
             continue
         if (expected_folder and not target.is_dir()) or (not expected_folder and not target.is_file()):
@@ -218,21 +147,35 @@ def _rebased_project_links(project_id: str, matched: list[dict], link_matches: l
             link['source_path'] = new_source
             link['storage_scope'] = 'project'
             changed = True
+    path_changes = _project_path_changes(matched)
+    if path_changes:
+        links_data, rewritten = rewrite_project_links_payload(links_data, old_path=path_changes, new_path=None)
+        changed = changed or bool(rewritten)
     return links_data if changed else None
 
 
 def plan_project_relocation(db: Session, project: HorizonProject, storage_root: str, storage_path: str) -> dict:
-    destination = resolve_storage_location(storage_root, storage_path)
+    destination = check_project_folder_assignment(db, storage_root, storage_path, project_id=project.id)
     if not destination.exists() or not destination.is_dir():
         raise HTTPException(status_code=404, detail='Selected project folder does not exist')
 
     matched: list[dict] = []
     missing: list[dict] = []
+    external_sources: list[dict] = []
+    matcher = MediaRelinkMatcher(destination)
     for asset in _project_assets_for_relink(db, project.id):
-        match, issue = _match_asset_at_destination(destination, asset)
+        match, issue = matcher.match(asset, _asset_relative_candidates(asset))
         if match is not None:
             matched.append(match)
         elif issue is not None:
+            if asset.storage_scope == 'media_root':
+                original = contained_file(get_settings().MEDIA_ROOT, asset.file_path)
+                if original is not None and original.is_file() and (
+                    file_matches_content_identity(original, asset.content_hash)
+                    or (not asset.content_hash and asset.source_signature == source_signature(original))
+                ):
+                    external_sources.append({'asset_id': asset.id, 'path': asset.file_path, 'signature': source_signature(original)})
+                    continue
             missing.append(issue)
 
     # A destination file may satisfy at most one asset identity. Reject every
@@ -273,18 +216,23 @@ def plan_project_relocation(db: Session, project: HorizonProject, storage_root: 
         if link_match is not None:
             link_matches.append(link_match)
         elif link_issue is not None:
+            original = contained_file(get_settings().MEDIA_ROOT, link.get('source_path'))
+            expected_folder = str(link.get('type') or '').lower() in {'folder', 'directory'}
+            if original is not None and (original.is_dir() if expected_folder else original.is_file()):
+                continue
             link_missing.append(link_issue)
 
     matched_count = len(matched)
     total_count = matched_count + len(missing)
     link_matched_count = len(link_matches)
     link_total_count = link_matched_count + len(link_missing)
-    return {
+    plan = {
         'project_id': project.id,
         'root': storage_root,
         'path': storage_path,
         'matched': matched,
         'missing': missing,
+        'retained': external_sources,
         'link_matches': link_matches,
         'link_missing': link_missing,
         'matched_count': matched_count,
@@ -294,8 +242,13 @@ def plan_project_relocation(db: Session, project: HorizonProject, storage_root: 
         'link_missing_count': len(link_missing),
         'link_total_count': link_total_count,
         'legacy_rebased_count': sum(1 for item in matched if item.get('legacy_rebased')),
-        'can_commit': (total_count > 0 and matched_count > 0) or (link_total_count > 0 and link_matched_count > 0),
+        'read_only': storage_location_is_read_only(destination),
+        'directory_identity': [destination.stat().st_dev, destination.stat().st_ino],
+        'links_digest': hashlib.sha256(json.dumps(links_data, sort_keys=True).encode()).hexdigest(),
+        'can_commit': (total_count == 0 and link_total_count == 0) or matched_count > 0 or link_matched_count > 0,
     }
+    plan['plan_id'] = relocation_plan_id(project, plan)
+    return plan
 
 
 def commit_project_relocation(
@@ -305,101 +258,99 @@ def commit_project_relocation(
     storage_path: str,
     *,
     revoke_shares: bool = False,
-    allow_empty: bool = False,
+    expected_plan_id: str | None = None,
 ) -> dict:
+    check_project_folder_assignment(db, storage_root, storage_path, project_id=project.id, lock=True)
+    lock_project_storage(db, project)
     plan = plan_project_relocation(db, project, storage_root, storage_path)
-    if not plan['can_commit'] and not allow_empty:
+    require_reviewed_plan(plan, expected_plan_id)
+    if not plan['can_commit']:
         raise HTTPException(status_code=409, detail={'message': 'No tracked project files matched this folder', 'plan': plan})
-    pending_link_relocation = (
+    return commit_project_media_plan(db, project, plan, revoke_shares=revoke_shares)
+
+
+def _require_idle_project_files(db: Session, project_id: str) -> None:
+    pending_operation = (
         db.query(FileOperationJournal)
-        .filter(FileOperationJournal.project_id == project.id)
-        .filter(FileOperationJournal.operation_type == 'relocate_project_links')
+        .filter(FileOperationJournal.project_id == project_id)
         .filter(FileOperationJournal.status.in_(['pending', 'in_progress', 'manual_review']))
         .first()
     )
-    if pending_link_relocation is not None:
-        raise HTTPException(status_code=409, detail='A previous project relocation still needs recovery')
+    if pending_operation is not None:
+        raise HTTPException(status_code=409, detail='A file operation is still pending for this project. Finish or recover it before changing the folder.')
+    if db.query(UploadSession.id).filter(
+        or_(UploadSession.project_id == project_id,
+            UploadSession.share_id.in_(db.query(ShareLink.id).filter(ShareLink.project_id == project_id))),
+        UploadSession.status == 'active',
+        or_(UploadSession.expires_at.is_(None), UploadSession.expires_at > time.time()),
+    ).first():
+        raise HTTPException(status_code=409, detail='This project has an active upload. Finish or cancel it before changing the folder.')
 
+
+def commit_project_media_plan(db: Session, project: HorizonProject, plan: dict, *, update_folder: bool = True, revoke_shares: bool = False) -> dict:
+    """Commit verified bindings and their path references in one transaction."""
+    _require_idle_project_files(db, project.id)
+    storage_root = plan['root'] if update_folder else project.storage_root or 'data'
+    storage_path = plan['path'] if update_folder else project.storage_path or project.id
     destination = resolve_storage_location(storage_root, storage_path)
     matched_by_id = {item['asset_id']: item for item in plan['matched']}
     now = time.time()
     original_storage_root = project.storage_root
     original_storage_path = project.storage_path
-    links_update = _rebased_project_links(project.id, plan['matched'], plan['link_matches'])
+    links_update = _rebased_project_links(project.id, plan['matched'], plan.get('link_matches', []))
     link_operation = None
     staged_links_name = None
     staged_links_digest = None
     if links_update is not None:
         staged_links_name, staged_links_digest = stage_project_links(project.id, links_update)
         try:
-            link_operation = create_file_operation(
-                db,
-                operation_type='relocate_project_links',
-                project_id=project.id,
-                payload={
+            link_operation = FileOperationJournal(
+                id=str(uuid.uuid4()), operation_type='relocate_project_links',
+                project_id=project.id, status='pending',
+                payload_json=json.dumps({
                     'original_storage_root': original_storage_root,
                     'original_storage_path': original_storage_path,
                     'target_storage_root': storage_root,
                     'target_storage_path': storage_path,
                     'staged_name': staged_links_name,
                     'staged_digest': staged_links_digest,
-                },
+                }),
             )
+            db.add(link_operation)
         except Exception:
             discard_staged_project_links(project.id, staged_links_name)
             raise
 
+    path_changes = _project_path_changes(plan['matched'])
     try:
-        for asset in _project_assets_for_relink(db, project.id):
+        asset_ids = list(matched_by_id)
+        if update_folder:
+            asset_ids.extend(item['asset_id'] for item in plan['missing'])
+        assets = db.query(MediaAsset).filter(MediaAsset.project_id == project.id, MediaAsset.id.in_(asset_ids)).with_for_update().all()
+        if len(assets) != len(set(asset_ids)):
+            raise HTTPException(status_code=409, detail='Project media changed during the check. Check the folder again.')
+        # Release the old unique path bindings before applying the new map.
+        # These changes are private to this transaction, including on rollback.
+        for asset in assets:
+            asset.unavailable_at = asset.unavailable_at or now
+        db.flush()
+        for asset in assets:
             match = matched_by_id.get(asset.id)
             if match is None:
-                if asset.unavailable_at is None:
-                    asset.unavailable_at = now
+                if asset.unavailable_reason is None:
                     asset.unavailable_reason = 'relink_missing'
                     asset.updated_at = now
                     db.add(asset)
                 continue
-            target = _asset_target(destination, match['path'])
-            if target is None:
-                continue
-            signature_before = source_signature(target)
-            stat = target.stat()
-            if stat.st_size != int(match.get('size') or 0) or (
-                asset.content_hash
-                and not file_matches_content_identity(target, asset.content_hash)
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail='A destination file changed while the relocation was being verified; review the plan and retry',
-                )
-            verified_content_hash = asset.content_hash or content_fingerprint(target)
-            signature_after = source_signature(target)
-            stat = target.stat()
-            if (
-                verified_content_hash is None
-                or signature_before != signature_after
-                or stat.st_size != int(match.get('size') or 0)
-            ):
-                raise HTTPException(
-                    status_code=409,
-                    detail='A destination file changed while the relocation was being verified; review the plan and retry',
-                )
-            if not asset.artifact_identity:
-                asset.artifact_identity = stored_media_asset_cache_identity(asset)
-            if asset.storage_scope == 'media_root':
-                asset.file_path = match['path']
-                asset.storage_scope = 'project'
-            asset.source_signature = signature_after
-            asset.content_hash = verified_content_hash
-            asset.file_size = stat.st_size
-            asset.modified_at = stat.st_mtime
-            asset.unavailable_at = None
-            asset.unavailable_reason = None
-            asset.updated_at = now
+            apply_media_match(asset, destination, match, now)
             db.add(asset)
 
-        project.storage_root = storage_root
-        project.storage_path = storage_path
+        if path_changes:
+            rewrite_project_path_references(db, project.id, path_changes, None, commit=False)
+
+        if update_folder:
+            project.storage_root = storage_root
+            project.storage_path = storage_path
         project.updated_at = now
         if revoke_shares:
             db.query(ShareLink).filter(ShareLink.project_id == project.id).filter(ShareLink.is_active.isnot(False)).update(
@@ -408,14 +359,12 @@ def commit_project_relocation(
             )
         db.add(project)
         db.commit()
-    except Exception:
+    except Exception as exc:
         db.rollback()
         if staged_links_name is not None:
             discard_staged_project_links(project.id, staged_links_name)
-        if link_operation is not None:
-            operation = db.get(FileOperationJournal, link_operation.id)
-            if operation is not None:
-                cancel_file_operation(db, operation, 'Project relocation database update did not commit')
+        if isinstance(exc, IntegrityError):
+            raise HTTPException(status_code=409, detail='Another request registered one of these files. Nothing was relinked. Check the folder again.') from exc
         raise
 
     db.refresh(project)
@@ -447,10 +396,13 @@ def _file_digest(path: Path) -> str:
 def _is_vueio_project_metadata(relative_path: Path) -> bool:
     """Return whether an internal-project file belongs to Vueio, not the user."""
     return (
-        len(relative_path.parts) == 1
-        and (
-            relative_path.name in VUEIO_PROJECT_METADATA_FILENAMES
-            or relative_path.name.endswith('.tracker.json')
+        '.thumbnails' in relative_path.parts[:1]
+        or (
+            len(relative_path.parts) == 1
+            and (
+                relative_path.name in VUEIO_PROJECT_METADATA_FILENAMES
+                or relative_path.name.endswith('.tracker.json')
+            )
         )
     )
 
@@ -459,7 +411,9 @@ def plan_internal_storage_migration(db: Session, project: HorizonProject, storag
     if (project.storage_root or 'data') != 'data':
         raise HTTPException(status_code=409, detail='Project already uses an external storage location')
     source = resolve_project_root(project)
-    destination = resolve_storage_location(storage_root, storage_path)
+    destination = check_project_folder_assignment(db, storage_root, storage_path, project_id=project.id)
+    if destination.is_relative_to(source.resolve()) or source.resolve().is_relative_to(destination):
+        raise HTTPException(status_code=409, detail='Choose a separate folder for the copy.')
     if storage_location_is_read_only(destination):
         raise HTTPException(status_code=409, detail='Selected storage location is read-only')
     copy_items: list[dict] = []
@@ -476,22 +430,22 @@ def plan_internal_storage_migration(db: Session, project: HorizonProject, storag
             if _is_vueio_project_metadata(relative_path):
                 continue
             relative = str(relative_path)
-            destination_file = _asset_target(destination, relative)
+            destination_file = contained_file(destination, relative)
             if destination_file is None:
                 conflicts.append({'path': relative, 'reason': 'invalid_path'})
                 continue
             size = source_file.stat().st_size
             if not destination_file.exists():
-                copy_items.append({'path': relative, 'size': size})
+                copy_items.append({'path': relative, 'size': size, 'signature': source_signature(source_file)})
                 continue
             if not destination_file.is_file() or destination_file.stat().st_size != size:
                 conflicts.append({'path': relative, 'reason': 'different_file'})
                 continue
             if _file_digest(source_file) == _file_digest(destination_file):
-                adopted.append({'path': relative, 'size': size})
+                adopted.append({'path': relative, 'size': size, 'signature': source_signature(source_file)})
             else:
                 conflicts.append({'path': relative, 'reason': 'different_file'})
-    return {
+    plan = {
         'project_id': project.id,
         'root': storage_root,
         'path': storage_path,
@@ -504,6 +458,8 @@ def plan_internal_storage_migration(db: Session, project: HorizonProject, storag
         'conflict_count': len(conflicts),
         'copy_bytes': sum(item['size'] for item in copy_items),
     }
+    plan['plan_id'] = relocation_plan_id(project, plan)
+    return plan
 
 
 def migrate_internal_project_storage(
@@ -513,12 +469,22 @@ def migrate_internal_project_storage(
     storage_path: str,
     *,
     progress: MigrationProgress | None = None,
+    expected_plan_id: str | None = None,
 ) -> dict:
+    check_project_folder_assignment(db, storage_root, storage_path, project_id=project.id, lock=True)
+    lock_project_storage(db, project)
+    _require_idle_project_files(db, project.id)
     plan = plan_internal_storage_migration(db, project, storage_root, storage_path)
+    require_reviewed_plan(plan, expected_plan_id)
     if plan['conflicts']:
         raise HTTPException(status_code=409, detail={'message': 'Destination contains conflicting files', 'plan': plan})
     source = resolve_project_root(project)
     destination = resolve_storage_location(storage_root, storage_path)
+    ensure_path_capacity(
+        destination, minimum_free_bytes=get_settings().UPLOAD_MIN_FREE_BYTES,
+        required_bytes=plan['copy_bytes'], unavailable_detail='Cannot check free space on this drive.',
+        insufficient_detail='This drive does not have enough free space for the copy.',
+    )
     destination.mkdir(parents=True, exist_ok=True)
     total = len(plan['copy_items'])
     copied_bytes = 0
@@ -526,24 +492,43 @@ def migrate_internal_project_storage(
         progress(0, total, copied_bytes)
     for index, item in enumerate(plan['copy_items'], start=1):
         source_file = source / item['path']
-        destination_file = _asset_target(destination, item['path'])
+        destination_file = contained_file(destination, item['path'])
         if destination_file is None:
             raise HTTPException(status_code=409, detail=f'Invalid destination path during migration: {item["path"]}')
+        if source_signature(source_file) != item['signature']:
+            raise HTTPException(status_code=409, detail='A source file changed. Let the save finish, then check the folder again.')
         destination_file.parent.mkdir(parents=True, exist_ok=True)
+        created_identity = None
         try:
             with source_file.open('rb') as source_handle, destination_file.open('xb') as destination_handle:
+                stat = os.fstat(destination_handle.fileno())
+                created_identity = (stat.st_dev, stat.st_ino)
                 shutil.copyfileobj(source_handle, destination_handle, length=1024 * 1024)
+                destination_handle.flush()
+                os.fsync(destination_handle.fileno())
+            if (source_signature(source_file) != item['signature']
+                    or destination_file.stat().st_size != item['size']
+                    or _file_digest(destination_file) != _file_digest(source_file)):
+                raise HTTPException(status_code=409, detail='The copy could not be verified. The original project folder was kept.')
             shutil.copystat(source_file, destination_file)
         except FileExistsError:
             if destination_file.stat().st_size != source_file.stat().st_size or _file_digest(destination_file) != _file_digest(source_file):
                 raise HTTPException(status_code=409, detail=f'File appeared at destination during migration: {item["path"]}')
-        if destination_file.stat().st_size != source_file.stat().st_size or _file_digest(destination_file) != _file_digest(source_file):
-            raise HTTPException(status_code=500, detail=f'Copied file failed verification: {item["path"]}')
+        except Exception:
+            # Remove only the incomplete file created by this copy attempt.
+            # Originals and files that were already at the destination stay put.
+            try:
+                stat = destination_file.lstat()
+                if created_identity == (stat.st_dev, stat.st_ino):
+                    destination_file.unlink()
+            except OSError:
+                pass
+            raise
         copied_bytes += int(item.get('size') or 0)
         if progress:
             progress(index, total, copied_bytes)
 
-    relocation = commit_project_relocation(db, project, storage_root, storage_path, allow_empty=True)
+    relocation = commit_project_relocation(db, project, storage_root, storage_path)
     return {**plan, 'status': 'complete', 'old_path': str(source), 'relocation': relocation}
 
 
@@ -554,10 +539,12 @@ def _update_migration_job(job_id: str, **patch) -> None:
             current.update(patch, updated_at=time.time())
 
 
-def start_project_migration(project_id: str, storage_root: str, storage_path: str) -> tuple[dict, bool]:
+def start_project_migration(project_id: str, storage_root: str, storage_path: str, *, expected_plan_id: str | None = None) -> tuple[dict, bool]:
     with _migration_jobs_lock:
         for job in _migration_jobs.values():
             if job['project_id'] == project_id and job['status'] in {'queued', 'running'}:
+                if (job['root'], job['path']) != (storage_root, storage_path):
+                    raise HTTPException(status_code=409, detail='A copy to another folder is already running. Wait for it to finish.')
                 return dict(job), False
         job_id = str(uuid.uuid4())
         job = {
@@ -565,6 +552,7 @@ def start_project_migration(project_id: str, storage_root: str, storage_path: st
             'project_id': project_id,
             'root': storage_root,
             'path': storage_path,
+            'expected_plan_id': expected_plan_id,
             'status': 'queued',
             'completed_files': 0,
             'total_files': 0,
@@ -605,7 +593,7 @@ def run_project_migration(job_id: str) -> None:
                 copied_bytes=copied_bytes,
             )
 
-        result = migrate_internal_project_storage(db, project, job['root'], job['path'], progress=report)
+        result = migrate_internal_project_storage(db, project, job['root'], job['path'], progress=report, expected_plan_id=job.get('expected_plan_id'))
         _update_migration_job(job_id, status='complete', result=result)
     except Exception as exc:
         db.rollback()

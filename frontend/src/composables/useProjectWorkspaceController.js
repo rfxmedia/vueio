@@ -53,6 +53,7 @@ export function useProjectWorkspaceController({
   currentPage,
   openingProjectId,
   getCurrentUser = () => null,
+  isFolderVisible = () => true,
   shareMode,
   sharedItemType,
   pendingShareId,
@@ -88,6 +89,7 @@ export function useProjectWorkspaceController({
   const browser = useProjectBrowser({
     currentProject,
     getCurrentUser,
+    isFolderVisible,
     shareMode,
     pendingShareId,
     shareAccessToken,
@@ -152,8 +154,8 @@ export function useProjectWorkspaceController({
     if (!chrome.newProjectTitle.value.trim()) return
     const storage = getProjectStorageSelection()
     const workingRoot = storage.roots.find(root => root.id === storage.rootId)
-    if (!workingRoot?.available || workingRoot.read_only) {
-      notify('Choose an available, writable project storage location')
+    if (!workingRoot?.available) {
+      notify('Choose an available project storage location')
       return
     }
     try {

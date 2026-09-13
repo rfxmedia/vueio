@@ -97,18 +97,21 @@ class ProjectRelocateRequest(BaseModel):
     path: str
     dry_run: bool = True
     revoke_shares: bool = False
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
 
 
 class ProjectMigrateStorageRequest(BaseModel):
     root: str = 'projects'
     path: str
     dry_run: bool = True
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
 
 
 class MissingMediaRelinkRequest(BaseModel):
     root: str
     path: str
     dry_run: bool = True
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
 
 
 def _root_payload(name: str, item: dict) -> dict:
@@ -201,6 +204,7 @@ def relocate_project(project_id: str, data: ProjectRelocateRequest, vueio_sessio
         root,
         normalized,
         revoke_shares=data.revoke_shares,
+        expected_plan_id=data.plan_id,
     )
     return {**result, 'project': serialize_horizon_project(db, project, user=user)}
 
@@ -216,6 +220,7 @@ def relink_missing_project_media(project_id: str, data: MissingMediaRelinkReques
         project,
         root,
         normalized,
+        expected_plan_id=data.plan_id,
     )
     return {**result, 'project': serialize_horizon_project(db, project, user=user)}
 
@@ -229,7 +234,7 @@ def migrate_project_storage(project_id: str, data: ProjectMigrateStorageRequest,
     if data.dry_run:
         result = plan_internal_storage_migration(db, project, root, normalized)
         return {**result, 'project': serialize_horizon_project(db, project, user=user)}
-    job, is_new = start_project_migration(project.id, root, normalized)
+    job, is_new = start_project_migration(project.id, root, normalized, expected_plan_id=data.plan_id)
     if is_new:
         background_tasks.add_task(run_project_migration, job['job_id'])
     return job

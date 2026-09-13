@@ -30,7 +30,6 @@
     :remove-team-member="settings.removeProjectTeamMember"
     :open-relocate-project="openRelocateProject"
     :open-relink-media="openRelinkMedia"
-    :open-migrate-project="openMigrateProject"
     @update:draft-title="settings.projectSettingsDraftTitle = $event"
     @update:draft-description="settings.projectSettingsDraftDescription = $event"
     @update:draft-due-date="settings.projectSettingsDraftDueDate = $event"
@@ -320,10 +319,6 @@ function openRelocateProject() {
 
 function openRelinkMedia() {
   settings.openProjectStorage(settings.activeProjectSettingsTarget, 'relink-media')
-}
-
-function openMigrateProject() {
-  settings.openProjectStorage(settings.activeProjectSettingsTarget, 'migrate')
 }
 
 function updateTrackerSettings(value) {

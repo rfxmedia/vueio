@@ -282,9 +282,9 @@ export function useTrackerListController(ctx) {
   }
 
   function getShotThumbnailUrl(shot) {
-    const filePath = getLatestShotFilePath(shot)
-    if (!filePath) return null
-    return ctx.getThumbnailUrl(filePath)
+    const latest = shot?.versions?.at(-1)
+    if (!latest?.file_path) return ''
+    return ctx.getThumbnailUrl(latest)
   }
 
   function queueTrackerSave(changeType, shot = null) {

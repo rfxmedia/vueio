@@ -136,7 +136,8 @@ def build_command(input_path, output_path, recipe, device=None):
     if kind == 'thumbnail':
         decode, download = thumbnail_decode_options(device)
         width = int(recipe['width'])
-        return cmd + decode + ['-ss', str(recipe['seek']), '-i', str(input_path), '-frames:v', '1', '-vf',
+        seek = ['-ss', str(recipe['seek'])] if recipe['seek'] > 0 else []
+        return cmd + decode + seek + ['-i', str(input_path), '-frames:v', '1', '-vf',
                               f'{download}scale=ceil(iw*sar/2)*2:ih,setsar=1,scale={width}:-2', '-q:v', '2', str(output_path)]
     cmd += ['-fflags', '+genpts', '-i', str(input_path)] if kind == 'hls' else ['-i', str(input_path)]
     upload = ',format=nv12,hwupload' if encoder == 'h264_vaapi' else ''

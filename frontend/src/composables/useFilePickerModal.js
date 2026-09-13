@@ -1,10 +1,11 @@
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onScopeDispose, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { normalizeMediaEntity } from '../lib/mediaEntity'
 import { normalizeProjectContentItems } from '../lib/projectContentItems'
 import { notify } from '../utils/toasts'
 import { formatVersionLabel } from '../utils/versionLabels'
 import { hasAppAccess } from '../utils/accountAccess'
+import { useFolderChanges } from './useFolderChanges'
 
 const TRACKER_IMPORT_MEDIA_EXTS = new Set([
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif',
@@ -59,6 +60,9 @@ export function useFilePickerModal({
   const pendingPickerMediaInfoPaths = new Set()
   let versionPickerCurrentInfoToken = 0
   let pickerMediaInfoQueueRunning = false
+  const loadedPickerFolder = ref(null)
+  let pickerLoadToken = 0
+  let pickerLoadController = null
 
   const currentTrackerRef = () => (
     currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || ''
@@ -86,6 +90,9 @@ export function useFilePickerModal({
     if (!canUseNasPicker.value) return 'project'
     return pickerSource.value
   })
+  const pickerContext = computed(() => JSON.stringify([
+    currentUser?.value?.id || '', currentProject.value?.id || '', effectivePickerSource.value, pickerMode.value,
+  ]))
   const pickerSourceTabs = computed(() => {
     if (!canUseProjectPicker.value) return []
     if (pickerMode.value === 'comment-reference') return [{ value: 'project', label: 'Project Files' }]
@@ -215,8 +222,16 @@ export function useFilePickerModal({
   }
 
   function closeFilePicker() {
-    pendingPickerMediaInfoPaths.clear()
+    cancelPickerLoad()
     showFilePicker.value = false
+  }
+
+  function cancelPickerLoad() {
+    pickerLoadToken += 1
+    pickerLoadController?.abort()
+    pickerLoadController = null
+    loadedPickerFolder.value = null
+    pendingPickerMediaInfoPaths.clear()
   }
 
   function setVersionPickerFileSearch(value) {
@@ -298,8 +313,8 @@ export function useFilePickerModal({
     await loadPickerFiles('')
   }
 
-  function normalizePickerItems(items = []) {
-    if (effectivePickerSource.value !== 'project') return items || []
+  function normalizePickerItems(items = [], source = effectivePickerSource.value) {
+    if (source !== 'project') return items || []
     return normalizeProjectContentItems(items)
   }
 
@@ -314,6 +329,7 @@ export function useFilePickerModal({
   }
 
   async function fetchBatchMediaInfo(paths) {
+    const context = pickerContext.value
     const uniquePaths = [...new Set((paths || []).filter(Boolean))].filter(path => {
       const cached = mediaQuickInfo[path]
       return !cached || (!cached._loading && !cached._loaded)
@@ -323,6 +339,7 @@ export function useFilePickerModal({
     uniquePaths.forEach(path => {
       mediaQuickInfo[path] = { ...(mediaQuickInfo[path] || {}), path, _loading: true, _loaded: false }
     })
+    const loadingEntries = new Map(uniquePaths.map(path => [path, mediaQuickInfo[path]]))
 
     try {
       let data
@@ -337,12 +354,16 @@ export function useFilePickerModal({
         data = response.data
       }
 
+      if (context !== pickerContext.value) return
       for (const item of data.items || []) {
+        if (mediaQuickInfo[item.path] !== loadingEntries.get(item.path)) continue
         mediaQuickInfo[item.path] = { ...(mediaQuickInfo[item.path] || {}), ...item, _loading: false, _loaded: true }
       }
     } catch (error) {
+      if (context !== pickerContext.value) return
       console.warn('Failed to load batch media info')
       uniquePaths.forEach(path => {
+        if (mediaQuickInfo[path] !== loadingEntries.get(path)) return
         mediaQuickInfo[path] = { ...(mediaQuickInfo[path] || {}), path, _loading: false, _loaded: false }
       })
     }
@@ -419,7 +440,7 @@ export function useFilePickerModal({
     resetPickerSource()
     resetVersionPickerState()
     if (shot) setVersionPickerTarget(shot)
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     if (!shot && mode === 'bulk-version-update' && versionPickerShots.value.length) {
       setVersionPickerTarget(versionPickerShots.value[0])
     }
@@ -437,7 +458,7 @@ export function useFilePickerModal({
     resetPickerSource()
     resetVersionPickerState()
 
-    await loadPickerFiles(pickerSource.value === 'project' ? '' : nextPath)
+    if (!await loadPickerFiles(pickerSource.value === 'project' ? '' : nextPath)) return
 
     if (allowedMode === 'bulk-version-update' && versionPickerShots.value.length) {
       setVersionPickerTarget(versionPickerShots.value[0])
@@ -462,7 +483,7 @@ export function useFilePickerModal({
     pickerSource.value = 'nas'
     pickerPath.value = ''
     pickerSelectedItems.value = []
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     showFilePicker.value = true
   }
 
@@ -475,7 +496,7 @@ export function useFilePickerModal({
     commentReferenceLimit.value = Math.max(1, Number(limit) || 3)
     commentReferenceApplyHandler = onApply
     commentUploadHandler = typeof onUpload === 'function' ? onUpload : null
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     showFilePicker.value = true
   }
 
@@ -490,7 +511,7 @@ export function useFilePickerModal({
     pickerMode.value = 'page-resource'
     pickerSource.value = 'nas'
     pickerPath.value = ''
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     showFilePicker.value = true
   }
 
@@ -498,7 +519,7 @@ export function useFilePickerModal({
     pickerMode.value = 'thumbnail-source'
     pickerSource.value = 'nas'
     pickerPath.value = ''
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     showFilePicker.value = true
   }
 
@@ -506,7 +527,7 @@ export function useFilePickerModal({
     pickerMode.value = 'delivery-logo-source'
     pickerSource.value = 'nas'
     pickerPath.value = ''
-    await loadPickerFiles('')
+    if (!await loadPickerFiles('')) return
     showFilePicker.value = true
   }
 
@@ -790,34 +811,100 @@ export function useFilePickerModal({
     }
   }
 
-  async function loadPickerFiles(path) {
-    pendingPickerMediaInfoPaths.clear()
+  async function loadPickerFiles(path, { background = false, signal } = {}) {
+    const context = pickerContext.value
+    const previousPath = pickerPath.value
+    const wasOpen = showFilePicker.value
+    if (signal?.aborted || (background && (
+      !wasOpen || loadedPickerFolder.value?.context !== context || path !== previousPath
+    ))) return false
+    pickerLoadController?.abort()
+    const controller = new AbortController()
+    pickerLoadController = controller
+    const token = ++pickerLoadToken
+    const source = effectivePickerSource.value
+    const projectId = currentProject.value?.id
+    const isCurrent = () => token === pickerLoadToken && context === pickerContext.value
+      && previousPath === pickerPath.value && wasOpen === showFilePicker.value
+    const abort = () => controller.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    if (!background) {
+      pendingPickerMediaInfoPaths.clear()
+      loadedPickerFolder.value = null
+    }
     try {
-      const items = await fetchPickerItems(path)
+      const items = await fetchPickerItems(path, { signal: controller.signal, source, projectId })
+      if (controller.signal.aborted || !isCurrent()) return false
       const isTrackerMediaMode = ['shot-import', 'shot', 'bulk-version-update'].includes(pickerMode.value)
+      const previousItems = path === previousPath ? pickerFiles.value : []
+      const previousKeys = new Set(previousItems.map(getPickerSelectionKey))
+      const nextItems = new Map(items.map(item => [getPickerSelectionKey(item), item]))
+      const identityFields = ['source_signature', 'media_asset_id', 'source_path', 'storage_scope', 'mtime', 'size']
+      for (const item of previousItems) {
+        const next = nextItems.get(getPickerSelectionKey(item))
+        if (next && !identityFields.some(field => next[field] !== item[field])) continue
+        for (const mediaPath of [item.path, item.source_path].filter(Boolean)) {
+          delete mediaQuickInfo[mediaPath]
+          pendingPickerMediaInfoPaths.delete(mediaPath)
+        }
+      }
+      const removedFolders = previousItems.filter(item => item.type === 'folder'
+        && nextItems.get(getPickerSelectionKey(item))?.type !== 'folder')
+      // Selection can span folders. Reconcile this folder and any removed
+      // branches while leaving selections from other folders intact.
+      pickerSelectedItems.value = pickerSelectedItems.value.flatMap(item => {
+        const key = getPickerSelectionKey(item)
+        if (nextItems.has(key)) return [nextItems.get(key)]
+        const inFolder = item.path && item.path.split('/').slice(0, -1).join('/') === path
+        const inRemovedFolder = removedFolders.some(folder => item.path?.startsWith(`${folder.path}/`))
+        return previousKeys.has(key) || inFolder || inRemovedFolder ? [] : [item]
+      })
       pickerFiles.value = isTrackerMediaMode
         ? items.filter(item => item.type === 'folder' || isTrackerImportMediaItem(item))
         : items
       pickerPath.value = path
-      versionPickerVisibleCount.value = 36
-      if (versionPickerSelectedCandidatePath.value && !items.some(item => item.path === versionPickerSelectedCandidatePath.value)) {
+      loadedPickerFolder.value = { context, path, source, projectId }
+      if (!background) versionPickerVisibleCount.value = 36
+      if (versionPickerSelectedCandidatePath.value && !pickerFiles.value.some(item => (
+        item.path === versionPickerSelectedCandidatePath.value && item.type !== 'folder' && isTrackerImportMediaItem(item)
+      ))) {
         versionPickerSelectedCandidatePath.value = ''
       }
+      return true
     } catch (error) {
+      if (controller.signal.aborted || !isCurrent()) return false
+      if ([400, 401, 403, 404, 409, 410].includes(error?.response?.status)) {
+        pendingPickerMediaInfoPaths.clear()
+        for (const mediaPath of Object.keys(mediaQuickInfo)) delete mediaQuickInfo[mediaPath]
+        pickerFiles.value = []
+        pickerSelectedItems.value = []
+        versionPickerSelectedCandidatePath.value = ''
+      }
       console.warn('Failed to load picker files')
+      if (!background) notify(getApiErrorMessage(error, 'Folder is unavailable.'))
+      return false
+    } finally {
+      signal?.removeEventListener('abort', abort)
+      if (token === pickerLoadToken) pickerLoadController = null
     }
   }
 
-  async function fetchPickerItems(path) {
-    if (effectivePickerSource.value === 'project' && currentProject.value?.id) {
-      const { data } = await api.get(`/api/projects/${currentProject.value.id}/contents`, {
+  async function fetchPickerItems(path, {
+    signal,
+    source = effectivePickerSource.value,
+    projectId = currentProject.value?.id,
+  } = {}) {
+    if (source === 'project') {
+      if (!projectId) return []
+      const { data } = await api.get(`/api/projects/${projectId}/contents`, {
         params: { path, include_counts: true },
+        signal,
       })
-      return normalizePickerItems(data.items || [])
+      return normalizePickerItems(data.items || [], source)
     }
 
-    const { data } = await api.get('/api/files', { params: { path } })
-    return normalizePickerItems(data.items || [])
+    const { data } = await api.get('/api/files', { params: { path }, signal })
+    return normalizePickerItems(data.items || [], source)
   }
 
   function pickerGoUp() {
@@ -895,7 +982,8 @@ export function useFilePickerModal({
 
   watch(showFilePicker, (value) => {
     if (!value) {
-      pendingPickerMediaInfoPaths.clear()
+      cancelPickerLoad()
+      versionPickerCurrentInfoToken += 1
       pickerSelectedItems.value = []
       pickerShot.value = null
       shotImportApplyBusy.value = false
@@ -904,7 +992,40 @@ export function useFilePickerModal({
       commentUploadHandler = null
       resetVersionPickerState()
     }
+  }, { flush: 'sync' })
+
+  onMounted(() => {
+    watch(pickerContext, (_context, previous) => {
+      cancelPickerLoad()
+      pickerFiles.value = []
+      pickerSelectedItems.value = []
+      versionPickerSelectedCandidatePath.value = ''
+      versionPickerCurrentInfoToken += 1
+      versionPickerCurrentInfo.value = null
+      for (const path of Object.keys(mediaQuickInfo)) delete mediaQuickInfo[path]
+      const [previousUser, previousProject] = JSON.parse(previous)
+      if (previousUser !== (currentUser?.value?.id || '') || previousProject !== (currentProject.value?.id || '')) {
+        closeFilePicker()
+      }
+    }, { flush: 'sync' })
   })
+
+  useFolderChanges(
+    () => {
+      const folder = loadedPickerFolder.value
+      if (!showFilePicker.value || !folder || folder.context !== pickerContext.value || folder.path !== pickerPath.value) return null
+      return {
+        userId: currentUser?.value?.id,
+        projectId: folder.source === 'project' ? folder.projectId : undefined,
+        paths: [folder.path],
+      }
+    },
+    async (paths, { signal }) => {
+      if (paths.includes(pickerPath.value)) await loadPickerFiles(pickerPath.value, { background: true, signal })
+    },
+  )
+
+  onScopeDispose(cancelPickerLoad)
 
   watch(versionPickerShots, (shots) => {
     if (!isVersionPickerMode.value) return

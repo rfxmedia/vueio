@@ -111,14 +111,15 @@ export function useThumbnailEditor({
         }
 
         if (entityType === 'project') {
+          const thumbnailMarker = `__entity_thumbnail__:${Date.now()}`
           if (thumbUploadTarget.value?.thumbnail_path !== undefined) {
-            thumbUploadTarget.value.thumbnail_path = '__entity_thumbnail__'
+            thumbUploadTarget.value.thumbnail_path = thumbnailMarker
           }
           if (projectSettingsTarget.value?.id === thumbUploadTarget.value.id) {
-            projectSettingsTarget.value.thumbnail_path = '__entity_thumbnail__'
+            projectSettingsTarget.value.thumbnail_path = thumbnailMarker
           }
           if (currentProject.value?.id === thumbUploadTarget.value.id) {
-            currentProject.value.thumbnail_path = '__entity_thumbnail__'
+            currentProject.value.thumbnail_path = thumbnailMarker
             bumpProjectHeaderThumbnailRefresh()
           }
           await loadProjects()

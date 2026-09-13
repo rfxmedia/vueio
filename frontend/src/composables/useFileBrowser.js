@@ -5,6 +5,8 @@ import { useBrowserSession } from './useBrowserSession'
 import { useBrowserRenderWindow } from './useBrowserRenderWindow'
 import { useFileBrowserViewState } from './useFileBrowserViewState'
 import { useShareAccess } from './useShareAccess'
+import { useFolderChanges } from './useFolderChanges'
+import { requestWorkspacePayload, workspaceCacheKey } from '../lib/workspacePayloadCache'
 import { buildCommentBatchTarget, chunkCommentTargets } from '../lib/commentTargets'
 import { formatCountLabel, getParentBrowserPath, openBrowserMediaItem } from '../lib/browserSurface'
 import { isFileBrowserEntry } from '../utils/fileBrowserItems'
@@ -44,6 +46,7 @@ export function useFileBrowser(ctx) {
   const sharedSingleFile = ref(null)
   const commentCounts = ref({})
   const filesError = ref('')
+  const loadedScope = ref('')
   const browserSession = ctx.browserSession || useBrowserSession()
   const shareAccess = useShareAccess({
     shareAccessToken: ctx.shareAccessToken,
@@ -134,12 +137,23 @@ export function useFileBrowser(ctx) {
     return true
   }
 
-  async function loadFiles(path = '') {
+  function fileScope() {
+    return ctx.shareMode.value ? `share:${ctx.pendingShareId.value}` : `user:${ctx.currentUser?.value?.id || ''}`
+  }
+
+  async function loadFiles(path = '', options = {}) {
+    if (options.signal?.aborted) return
     const loadToken = ++filesLoadToken
     const expectedShareId = ctx.shareMode.value ? ctx.pendingShareId.value : null
+    const scope = fileScope()
     let commentCountsStarted = false
-    ctx.loading.value = true
-    filesError.value = ''
+    let requestController = null
+    const abort = () => requestController?.abort()
+    options.signal?.addEventListener('abort', abort, { once: true })
+    if (!options.background) {
+      ctx.loading.value = true
+      filesError.value = ''
+    }
 
     try {
       const context = {
@@ -154,12 +168,21 @@ export function useFileBrowser(ctx) {
         },
       }
       const result = await browserSession.switchContext(context, async (_context, { signal }) => {
+        requestController = browserSession.getAbortController?.()
+        if (options.signal?.aborted) { abort(); return null }
         const shareId = ctx.shareMode.value ? ctx.pendingShareId.value : null
         const query = buildShareCredentialQuery(
           { path, include_counts: true, ...(shareId ? { share_id: shareId } : {}) },
           shareId ? getShareCredential(shareId) : {},
         )
-        const response = await api.get(`/api/files${query}`, { signal })
+        // Navigation and the open folder use the same listing. Neither consumer
+        // cancels the shared request; switchContext ignores obsolete replies.
+        const response = shareId
+          ? await api.get(`/api/files${query}`, { signal })
+          : await requestWorkspacePayload(
+              workspaceCacheKey('files', ctx.currentUser?.value?.id || 'session', path),
+              () => api.get(`/api/files${query}`),
+            )
         return {
           ...response.data,
           entries: response.data?.items || [],
@@ -171,30 +194,50 @@ export function useFileBrowser(ctx) {
       })
       if (!result || disposed || loadToken !== filesLoadToken) return
       if (expectedShareId && ctx.pendingShareId.value !== expectedShareId) return
+      if (scope !== fileScope() || options.signal?.aborted) return
 
-      resetRenderLimit()
+      if (!options.background) resetRenderLimit()
       files.value = (result.items || result.entries || []).filter(isFileBrowserEntry)
       breadcrumbs.value = result.breadcrumbs || []
       currentPath.value = path
+      loadedScope.value = scope
+      filesError.value = ''
       if (ctx.shareMode.value) {
         ctx.shareAllowUpload.value = result._share_allow_upload || false
       }
-      commentCounts.value = {}
-      ctx.loading.value = false
+      if (!options.background) {
+        commentCounts.value = {}
+        ctx.loading.value = false
+      }
       commentCountsStarted = true
       void loadCommentCounts(visibleFiles.value, browserSession.getAbortController?.(), loadToken)
     } catch (e) {
       if (ctx.isRequestCanceled?.(e)) return
       if (disposed || loadToken !== filesLoadToken) return
-      console.error('Failed to load files')
-      filesError.value = getApiErrorMessage(e, 'Failed to load files.')
+      if (!options.background || [400, 401, 403, 404, 409, 410].includes(e.response?.status)) {
+        filesError.value = getApiErrorMessage(e, 'Failed to load files.')
+        if (options.background) files.value = []
+      }
     } finally {
+      options.signal?.removeEventListener('abort', abort)
       if (!disposed && loadToken === filesLoadToken) {
-        ctx.loading.value = false
+        if (!options.background) ctx.loading.value = false
         if (!commentCountsStarted) browserSession.abort?.()
       }
     }
   }
+
+  useFolderChanges(() => {
+    if (ctx.activeModule.value !== 'files' || ctx.showMainContent?.value === false
+      || ctx.loading.value || ctx.shareRequestFiles.value || ctx.sharePasswordRequired.value
+      || loadedScope.value !== fileScope()) return null
+    return {
+      userId: ctx.shareMode.value ? '' : ctx.currentUser?.value?.id,
+      shareId: ctx.shareMode.value ? ctx.pendingShareId.value : '',
+      authRevision: ctx.shareMode.value ? ctx.shareAccessToken?.value : '',
+      paths: [currentPath.value],
+    }
+  }, (_paths, { signal }) => loadFiles(currentPath.value, { background: true, signal }))
 
   async function loadSharedContent(shareId, type, password = null, subPath = '') {
     const loadToken = ++shareLoadToken

@@ -17,9 +17,11 @@ from app.models import (
     MediaAsset,
 )
 from app.services.naming import slugify
+from app.services.media_assets import unavailable_project_media_query
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.projects import (
     configured_project_storage_roots,
+    check_project_folder_assignment,
     get_project_dir,
     normalize_project_storage_path,
     project_storage_is_read_only,
@@ -86,10 +88,8 @@ def serialize_horizon_project(db: Session, project: HorizonProject, user: dict |
         version_count = db.query(func.count(HorizonShotVersion.id)).filter(HorizonShotVersion.project_id == project.id).scalar() or 0
 
     unavailable_asset_count = (
-        db.query(func.count(MediaAsset.id))
-        .filter(MediaAsset.project_id == project.id)
-        .filter(MediaAsset.unavailable_at.isnot(None))
-        .filter(MediaAsset.unavailable_reason != 'duplicate_active_generation')
+        unavailable_project_media_query(db, project.id)
+        .with_entities(func.count(MediaAsset.id))
         .scalar() or 0
     )
 
@@ -125,10 +125,7 @@ def list_horizon_project_summaries(db: Session) -> list[dict]:
 
 def list_unavailable_project_media(db: Session, project_id: str, *, limit: int = 100) -> dict:
     query = (
-        db.query(MediaAsset)
-        .filter(MediaAsset.project_id == project_id)
-        .filter(MediaAsset.unavailable_at.isnot(None))
-        .filter(MediaAsset.unavailable_reason != 'duplicate_active_generation')
+        unavailable_project_media_query(db, project_id)
         .order_by(MediaAsset.file_path.asc())
     )
     total = query.count()
@@ -333,16 +330,10 @@ def create_horizon_project(
         if not configured_roots[requested_root].is_dir():
             raise HTTPException(status_code=409, detail='Selected storage location is unavailable')
         final_storage_path = normalize_project_storage_path(storage_path)
-        target = resolve_storage_location(requested_root, final_storage_path)
+        target = check_project_folder_assignment(db, requested_root, final_storage_path, lock=True)
         if target.exists() and not target.is_dir():
             raise HTTPException(status_code=409, detail='Selected project folder is not a folder')
         use_existing_project_folder = target.is_dir()
-        claimed = db.query(HorizonProject.id).filter(
-            HorizonProject.storage_root == requested_root,
-            HorizonProject.storage_path == final_storage_path,
-        ).first()
-        if claimed:
-            raise HTTPException(status_code=409, detail='This folder is already used by another project')
     else:
         target = resolve_storage_location(requested_root, final_storage_path)
 
@@ -364,7 +355,7 @@ def create_horizon_project(
     if not project.title:
         raise HTTPException(status_code=400, detail='Project title is required')
 
-    if storage_location_is_read_only(target):
+    if not use_existing_project_folder and storage_location_is_read_only(target):
         raise HTTPException(status_code=409, detail='Selected storage location is read-only')
     created_project_dir = False
     try:

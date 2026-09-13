@@ -5,13 +5,7 @@
       class="project-header-art"
       aria-hidden="true"
     >
-      <img
-        :src="currentProjectHeaderThumbnailUrl"
-        alt=""
-        decoding="async"
-        @load="$event.target.style.removeProperty('display')"
-        @error="$event.target.style.display='none'"
-      />
+      <VMediaThumbnail :src="currentProjectHeaderThumbnailUrl" class="project-header-thumbnail" />
     </div>
 
     <div class="project-header-info">
@@ -102,7 +96,7 @@
         <span class="project-header-notice__icon" aria-hidden="true"><svg class="icon"><use href="#icon-alert" /></svg></span>
         <p class="project-header-notice__copy">
           <strong>Some media is offline</strong>
-          <span>{{ currentProject.unavailable_asset_count }} file{{ currentProject.unavailable_asset_count === 1 ? '' : 's' }} missing at this location</span>
+          <span>{{ currentProject.unavailable_asset_count }} file{{ currentProject.unavailable_asset_count === 1 ? '' : 's' }} need{{ currentProject.unavailable_asset_count === 1 ? 's' : '' }} attention</span>
         </p>
         <div v-if="isAdmin" class="project-header-notice__actions">
           <button type="button" class="v-btn v-btn-quiet v-btn-sm" :aria-expanded="showOfflineDetails" @click="toggleOfflineDetails">
@@ -137,12 +131,12 @@
                   {{ formatOfflineReference(item.references[0]) }}
                   <template v-if="item.references.length > 1"> · +{{ item.references.length - 1 }} more</template>
                 </span>
-                <span v-else>Project files</span>
+                <span>{{ ['replaced', 'external_signature_mismatch'].includes(item.unavailable_reason) ? 'File changed since it was linked' : 'File not found at its saved location' }}</span>
                 <small :title="item.file_path">{{ item.file_path }}</small>
               </div>
             </div>
             <p v-if="offlineDetailsTotal > offlineMedia.length" class="project-offline-details__more">
-              Showing {{ offlineMedia.length }} of {{ offlineDetailsTotal }} missing files
+              Showing {{ offlineMedia.length }} of {{ offlineDetailsTotal }} files
             </p>
           </div>
         </div>
@@ -154,7 +148,7 @@
           <strong>Legacy internal storage</strong>
           <span>Choose a working project folder</span>
         </p>
-        <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="openMigrateProject">Set folder</button>
+        <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="openRelocateProject">Relink folder</button>
       </div>
     </div>
 
@@ -163,6 +157,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import VMediaThumbnail from '../components/media/VMediaThumbnail.vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { VMenu, VMenuActionList } from '../components/primitives'
 import { useProjectCreateMenu } from '../composables/useProjectCreateMenu'
@@ -180,7 +175,7 @@ const {
   canViewTrackerDetails,
   openProjectSettings,
   openRelinkMedia,
-  openMigrateProject,
+  openRelocateProject,
   trackerTotalDuration,
   trackerTotalFrames,
   showNewMenu,
@@ -325,13 +320,15 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
   pointer-events: none;
 }
 
-.project-header-art img {
+.project-header-thumbnail {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
   filter: saturate(0.84) contrast(1.06);
 }
+
+.project-header-thumbnail .v-media-thumb-status { display: none; }
 
 .project-header-art::after {
   content: '';

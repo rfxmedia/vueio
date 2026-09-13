@@ -24,6 +24,8 @@ export function createFileBrowserStore(ctx) {
     route: ctx.route,
     loading: shell.loading,
     activeModule: shell.activeModule,
+    showMainContent: shell.showMainContent,
+    currentUser: session.currentUser,
     shareMode: share.shareMode,
     shareRoot: share.shareRoot,
     shareAllowDownload: share.shareAllowDownload,

@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import tempfile
 from pathlib import Path, PurePosixPath
 
+from fastapi import HTTPException
+from fastapi.responses import FileResponse
+
 from app.config import get_settings
-from app.services.media import get_file_hash
+from app.services.media import DELIVERY_POSTER_WIDTH, THUMBNAIL_WIDTH, get_file_hash, queue_thumbnail_generation, thumbnail_placeholder_response
 from app.services.projects import get_project_dir
 
 settings = get_settings()
@@ -117,3 +121,38 @@ def build_horizon_entity_upload_name(project_id: str, entity_type: str, entity_p
 
 def get_horizon_entity_upload_path(upload_name: str) -> Path:
     return settings.thumbnail_dir / Path(upload_name).name
+
+
+def project_thumbnail_snapshot(project_id: str, identity: str, *, source: Path | None = None, cached: Path | None = None, poster: bool = False, queue_missing: bool = True):
+    """A project cover belongs to app data, not to a movable media file or cache."""
+    target = get_project_dir(project_id) / '.thumbnails' / f'{get_file_hash(identity)}-{int(poster)}.jpg'
+    rendered = settings.thumbnail_dir / f'project-cover-{get_file_hash(project_id + ":" + identity)}-{int(poster)}.jpg'
+    headers = {'Cache-Control': 'private, no-cache'}
+    if target.is_file() and target.stat().st_size:
+        return FileResponse(target, media_type='image/jpeg', headers=headers)
+    if rendered.is_file() and rendered.stat().st_size:
+        cached = rendered
+    if cached and cached.is_file() and cached.stat().st_size:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(dir=target.parent, suffix='.part')
+        try:
+            with os.fdopen(fd, 'wb') as output, cached.open('rb') as input_file:
+                shutil.copyfileobj(input_file, output)
+            os.replace(temporary, target)
+        except FileNotFoundError:
+            # Cache cleanup can race this request; the original can still render.
+            pass
+        finally:
+            Path(temporary).unlink(missing_ok=True)
+        if target.is_file():
+            return FileResponse(target, media_type='image/jpeg', headers=headers)
+    if source and source.is_file():
+        if queue_missing:
+            # Keep GPU helper output inside its existing cache-only boundary.
+            # The completed frame is adopted into app data on the next request.
+            rendered.parent.mkdir(parents=True, exist_ok=True)
+            queue_thumbnail_generation(source, rendered, width=DELIVERY_POSTER_WIDTH if poster else THUMBNAIL_WIDTH)
+        return thumbnail_placeholder_response()
+    if source is not None:
+        raise HTTPException(status_code=404, detail='Thumbnail source not found')
+    return None

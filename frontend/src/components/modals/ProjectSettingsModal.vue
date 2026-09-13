@@ -343,7 +343,7 @@
             </div>
             <div class="ps-storage-copy">
               <strong>Some media is offline</strong>
-              <span>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} missing. Search the working folder to reconnect files that were moved.</span>
+              <span>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} need{{ project.unavailable_asset_count === 1 ? 's' : '' }} attention. Search the working folder to reconnect files that were moved.</span>
             </div>
             <div v-if="canEditProject" class="ps-storage-actions">
               <button type="button" class="v-btn v-btn-primary v-btn-sm" @click="openRelinkMedia">
@@ -359,15 +359,12 @@
             </div>
             <div class="ps-storage-copy">
               <strong>{{ project.storage_read_only ? 'Read-only storage' : project.uses_internal_storage ? 'Internal storage' : 'Working project folder' }}</strong>
-              <span>{{ project.storage_read_only ? 'Files play from a read-only location. Relocate the project to make changes.' : project.uses_internal_storage ? 'Move Vue-owned files into your real working folder when you are ready.' : 'Vue follows this folder wherever you relocate it.' }}</span>
+              <span>{{ project.storage_read_only ? 'Files play from a read-only location. Relink to writable storage to make changes.' : 'Moved the files yourself? Relink their folder. Read-only folders work too.' }}</span>
               <code>{{ project.storage_root || 'data' }} / {{ project.storage_path || project.id }}</code>
             </div>
             <div v-if="canEditProject" class="ps-storage-actions">
-              <button v-if="project.uses_internal_storage" type="button" class="v-btn v-btn-secondary v-btn-sm" @click="openMigrateProject">
-                Set project folder
-              </button>
               <button type="button" class="v-btn v-btn-secondary v-btn-sm" @click="openRelocateProject">
-                Relocate…
+                Project folder…
               </button>
             </div>
           </div>
@@ -551,7 +548,6 @@ const props = defineProps({
   removeTeamMember: { type: Function, default: () => {} },
   openRelocateProject: { type: Function, default: () => {} },
   openRelinkMedia: { type: Function, default: () => {} },
-  openMigrateProject: { type: Function, default: () => {} },
 })
 
 const emit = defineEmits([

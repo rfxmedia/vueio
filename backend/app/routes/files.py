@@ -153,7 +153,7 @@ def list_files(
     for item in items:
         if item.get('type') == 'folder':
             continue
-        asset = register_media_asset(db, None, item.get('path') or '', storage_scope='media_root', commit=False)
+        asset = register_media_asset(db, None, item.get('path') or '', storage_scope='media_root')
         if asset:
             item.update(merge_media_asset_metadata(item, asset))
         item.update(get_latest_upload_metadata(db, scope_type=UPLOAD_SCOPE_SHARED, final_path=item.get('path') or '') or {})

@@ -3,7 +3,7 @@
     v-if="context"
     ref="navigatorElement"
     class="app-navigator"
-    :class="[`is-${variant}`, { 'is-collapsed': collapsed, 'is-resizing': resizing }]"
+    :class="[`is-${variant}`, { 'is-collapsed': collapsed, 'is-resizing': resizing, 'with-thumbnails': navigatorThumbnails }]"
     :style="navigatorStyle"
     aria-label="Context navigation"
     :aria-hidden="collapsed ? 'true' : undefined"
@@ -18,7 +18,7 @@
           @click="activate(context.scope.run)"
         >
           <span class="navigator-scope-mark" :class="{ 'has-thumb': showThumb }">
-            <img v-if="showThumb" :src="context.thumbnail" alt="" @error="thumbFailed = true"/>
+            <VMediaThumbnail v-if="showThumb" :src="context.thumbnail" class="navigator-scope-thumbnail" />
             <svg v-else class="icon" aria-hidden="true"><use :href="context.icon"/></svg>
           </span>
           <span class="navigator-scope-copy">
@@ -65,6 +65,7 @@
                 v-for="item in visibleItems(group)"
                 :key="item.key"
                 :item="item"
+                :show-thumbnails="navigatorThumbnails && treeIsVisible && groupIsOpen(group)"
                 @select="activate"
               />
 
@@ -86,6 +87,10 @@
                 :load-items="group.tree.loadItems"
                 :empty-label="group.tree.emptyLabel"
                 :drag-scope="variant === 'rail' ? group.tree.dragScope : null"
+                :watch-scope="group.tree.watchScope"
+                :active="treeIsVisible && groupIsOpen(group)"
+                :selection-mode="variant === 'rail'"
+                :thumbnail-for="navigatorThumbnails ? navigatorFileThumbnail : null"
                 @open-folder="(path) => activate(() => group.tree.openFolder(path))"
                 @open-file="(item) => activate(() => group.tree.openFile(item))"
               />
@@ -95,6 +100,13 @@
 
         <p v-if="!sections.length" class="navigator-empty">{{ context.emptyLabel || 'Nothing here yet' }}</p>
       </div>
+      <footer class="navigator-footer">
+        <button class="v-btn v-btn-quiet v-btn-sm" type="button" :aria-pressed="navigatorThumbnails" @click="toggleNavigatorThumbnails">
+          <svg class="icon" aria-hidden="true"><use href="#icon-image" /></svg>
+          <span>Thumbnails</span>
+          <span class="navigator-view-state">{{ navigatorThumbnails ? 'Previews' : 'Compact' }}</span>
+        </button>
+      </footer>
     </div>
 
     <div
@@ -121,9 +133,11 @@
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref } from 'vue'
 import AppNavigatorItem from './AppNavigatorItem.vue'
 import AppNavigatorTree from './AppNavigatorTree.vue'
+import VMediaThumbnail from '../media/VMediaThumbnail.vue'
+import { useAppChromeStore } from '../../ownership/appChrome'
 import {
   NAVIGATOR_DEFAULT_WIDTH,
   NAVIGATOR_MAX_WIDTH,
@@ -146,6 +160,9 @@ const props = defineProps({
 const emit = defineEmits(['navigate'])
 
 const {
+  navigatorThumbnails,
+  navigatorFileThumbnail,
+  toggleNavigatorThumbnails,
   navigatorContext: context,
   navigatorWidth,
   setNavigatorWidth,
@@ -153,9 +170,13 @@ const {
   isGroupOpen,
   toggleGroup,
 } = useContextNavigator()
+const { isMobile, mobileNavOpen } = useAppChromeStore()
+
+const treeIsVisible = computed(() => !props.collapsed && (
+  props.variant === 'drawer' ? isMobile.value && mobileNavOpen.value : !isMobile.value
+))
 
 const expandedGroups = reactive(new Set())
-const thumbFailed = ref(false)
 const navigatorElement = ref(null)
 const resizeHandle = ref(null)
 const resizing = ref(false)
@@ -187,9 +208,7 @@ const sections = computed(() => {
   return groups
 })
 
-const showThumb = computed(() => Boolean(context.value?.thumbnail) && !thumbFailed.value)
-
-watch(() => context.value?.thumbnail, () => { thumbFailed.value = false })
+const showThumb = computed(() => Boolean(context.value?.thumbnail))
 
 function visibleItems(group) {
   if (expandedGroups.has(group.key)) return group.items
@@ -286,6 +305,15 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.app-navigator.is-rail.with-thumbnails { --navigator-row-height: 35px; }
+.navigator-footer {
+  flex-shrink: 0;
+  padding: 8px 10px;
+  border-top: 1px solid var(--v-divider);
+}
+.navigator-footer .v-btn { width: 100%; justify-content: flex-start; }
+.navigator-footer .v-btn[aria-pressed="true"] { color: var(--v-accent); }
+.navigator-view-state { margin-left: auto; color: var(--v-text-muted); font-size: var(--v-text-xs); }
 .app-navigator {
   --navigator-row-height: 30px;
   --navigator-group-height: 30px;
@@ -430,7 +458,7 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, white 6%, transparent);
 }
 
-.navigator-scope-mark img {
+.navigator-scope-thumbnail {
   width: 100%;
   height: 100%;
   object-fit: cover;

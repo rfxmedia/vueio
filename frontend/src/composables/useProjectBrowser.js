@@ -4,6 +4,7 @@ import api, { buildShareCredentialQuery, getApiErrorMessage, resolveAccessEndpoi
 import { useBrowserSession } from './useBrowserSession'
 import { useBrowserRenderWindow } from './useBrowserRenderWindow'
 import { useFileBrowserViewState } from './useFileBrowserViewState'
+import { useFolderChanges } from './useFolderChanges'
 import {
   cloneProjectFolderContext,
   getParentBrowserPath,
@@ -21,6 +22,7 @@ import {
 export function useProjectBrowser({
   currentProject,
   getCurrentUser = () => null,
+  isFolderVisible = () => true,
   shareMode,
   pendingShareId,
   shareAccessToken,
@@ -40,6 +42,8 @@ export function useProjectBrowser({
   const artistWorkspaceRoot = ref('')
   const projectContentsLoading = ref(false)
   const projectContentsError = ref('')
+  const loadedProjectId = ref('')
+  const loadedScope = ref('')
   const browserViewState = providedFileBrowserViewState || useFileBrowserViewState()
   const {
     viewMode,
@@ -133,12 +137,20 @@ export function useProjectBrowser({
     return ''
   }
 
-  function applyProjectContentsSnapshot(snapshot) {
-    resetProjectFileRenderLimit()
-    resetProjectFolderRenderLimit()
-    resetProjectShortcutTrackerRenderLimit()
-    resetProjectPageRenderLimit()
-    resetProjectTrackerRenderLimit()
+  function accessScope() {
+    return shareMode.value ? `share:${pendingShareId.value}` : `user:${getCurrentUser()?.id || ''}`
+  }
+
+  function applyProjectContentsSnapshot(snapshot, { preserveWindow = false } = {}) {
+    if (!preserveWindow) {
+      resetProjectFileRenderLimit()
+      resetProjectFolderRenderLimit()
+      resetProjectShortcutTrackerRenderLimit()
+      resetProjectPageRenderLimit()
+      resetProjectTrackerRenderLimit()
+    }
+    loadedProjectId.value = snapshot?.projectId || currentProject.value?.id || ''
+    loadedScope.value = accessScope()
     projectContents.value = snapshot?.items || []
     projectPath.value = snapshot?.path || ''
     if (Array.isArray(snapshot?.rootVueAssets)) {
@@ -206,7 +218,9 @@ export function useProjectBrowser({
   }
 
   async function loadProjectContents(projectId, path = '', options = {}) {
+    if (options.signal?.aborted) return
     const loadToken = ++projectLoadToken
+    const expectedScope = accessScope()
     const userId = getCurrentUser()?.id || ''
     const cacheEnabled = !shareMode.value && Boolean(userId)
     const cacheKey = workspaceCacheKey(
@@ -233,10 +247,13 @@ export function useProjectBrowser({
       }
     }
 
-    projectContentsLoading.value = true
-    projectContentsError.value = ''
+    if (!options.background) {
+      projectContentsLoading.value = true
+      projectContentsError.value = ''
+    }
 
-    const abortFromCaller = () => browserSession.abort?.()
+    let requestController = null
+    const abortFromCaller = () => requestController?.abort()
     options.signal?.addEventListener('abort', abortFromCaller, { once: true })
     if (options.signal?.aborted) abortFromCaller()
     try {
@@ -255,6 +272,8 @@ export function useProjectBrowser({
         permissions: { download: !shareMode.value },
       }
       const loadSnapshot = () => browserSession.switchContext(context, async (_context, { signal }) => {
+        requestController = browserSession.getAbortController?.()
+        if (options.signal?.aborted) { abortFromCaller(); return null }
         if (!path || shareMode.value || !getCurrentUser()) {
           return resolveProjectContentsSnapshot(projectId, path, { signal })
         }
@@ -286,32 +305,53 @@ export function useProjectBrowser({
         ? requestWorkspacePayload(cacheKey, loadSnapshot)
         : loadSnapshot())
       if (!snapshot || disposed || loadToken !== projectLoadToken) return
+      if (expectedScope !== accessScope() || options.signal?.aborted) return
       if (cacheEnabled) writeWorkspacePayload(cacheKey, snapshot)
       if (options.commit !== false) {
-        applyProjectContentsSnapshot(snapshot)
+        applyProjectContentsSnapshot(snapshot, { preserveWindow: options.background })
+        projectContentsError.value = ''
       }
       return snapshot
     } catch (error) {
       if (isRequestCanceledError?.(error)) return
       if (disposed || loadToken !== projectLoadToken) return
-      console.error('Failed to load project contents')
       if (options.commit !== false) {
-        projectContentsError.value = getApiErrorMessage(error, 'Failed to load project folder.')
+        if (!options.background || [400, 401, 403, 404, 409, 410].includes(error.response?.status)) {
+          projectContentsError.value = getApiErrorMessage(error, 'Failed to load project folder.')
+          if (options.background) {
+            projectContents.value = []
+            projectRootVueAssets.value = { projectId: '', items: null }
+          }
+        }
         return
       }
       throw error
     } finally {
       options.signal?.removeEventListener('abort', abortFromCaller)
-      if (!disposed && loadToken === projectLoadToken) {
+      if (!options.background && !disposed && loadToken === projectLoadToken) {
         projectContentsLoading.value = false
       }
     }
   }
 
-  async function refreshProjectContents() {
+  async function refreshProjectContents({ resetPath = false } = {}) {
     if (!currentProject.value) return
-    await loadProjectContents(currentProject.value.id, projectPath.value, { refreshRootAssets: true })
+    await loadProjectContents(currentProject.value.id, resetPath ? '' : projectPath.value, { force: true, refreshRootAssets: true })
   }
+
+  useFolderChanges(() => {
+    if (!isFolderVisible() || projectContentsLoading.value || !currentProject.value?.id
+      || loadedProjectId.value !== currentProject.value.id || loadedScope.value !== accessScope()) return null
+    return {
+      userId: shareMode.value ? '' : getCurrentUser()?.id,
+      projectId: currentProject.value.id,
+      shareId: shareMode.value ? pendingShareId.value : '',
+      authRevision: shareMode.value ? shareAccessToken?.value : '',
+      paths: [projectPath.value],
+    }
+  }, (_paths, { signal }) => loadProjectContents(currentProject.value.id, projectPath.value, {
+    force: true, background: true, signal,
+  }))
 
   async function navigateProjectFolder(path) {
     if (!currentProject.value) return

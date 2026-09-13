@@ -1,9 +1,10 @@
-import { computed, inject, provide, ref } from 'vue'
+import { computed, inject, provide, reactive, ref } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
 import { useModal } from '../composables/useModal'
 import { useProjectTeamManagement } from '../composables/useProjectTeamManagement'
 import { useTrackerSettings } from '../composables/useTrackerSettings'
 import { notify } from '../utils/toasts'
+import { resetWorkspacePayloadCache } from '../lib/workspacePayloadCache'
 
 export const projectSettingsStoreKey = Symbol('vueio.projectSettingsStore')
 
@@ -22,6 +23,7 @@ export function createProjectSettingsStore(ctx) {
 
   const projectTarget = ref(null)
   const projectSaving = ref(false)
+  const statusSavingIds = reactive(new Set())
   const projectDraftTitle = ref('')
   const projectDraftDescription = ref('')
   const projectDraftDueDate = ref('')
@@ -63,7 +65,7 @@ export function createProjectSettingsStore(ctx) {
   ))
   const projectThumbnailUrl = computed(() => {
     const target = activeProject.value
-    if (!target?.id || !target?.thumbnail_path) return ''
+    if (!target?.id) return ''
     return ctx.getProjectThumbnailUrl(target.id, target.thumbnail_path)
   })
 
@@ -139,6 +141,27 @@ export function createProjectSettingsStore(ctx) {
     team.resetAddMemberDraft()
   }
 
+  function applyProjectUpdate(target, data) {
+    Object.assign(target, data)
+    if (ctx.currentProject.value?.id === target.id) Object.assign(ctx.currentProject.value, data)
+    const listed = ctx.projects.value.find(project => project.id === target.id)
+    if (listed) Object.assign(listed, data)
+  }
+
+  async function setProjectStatus(project, status) {
+    if (ctx.shareMode.value || !canManageProject(project) || statusSavingIds.has(project.id)) return
+    if (!PROJECT_STATUS_OPTIONS.some(option => option.value === status) || status === project.status) return
+    statusSavingIds.add(project.id)
+    try {
+      const { data } = await api.put(`/api/projects/${project.id}`, { status })
+      applyProjectUpdate(project, data)
+    } catch (error) {
+      notify(getApiErrorMessage(error, 'Could not change project status'))
+    } finally {
+      statusSavingIds.delete(project.id)
+    }
+  }
+
   async function saveProjectSettings() {
     const target = activeProject.value
     if (!target || !canEditActiveProject.value) return
@@ -150,14 +173,10 @@ export function createProjectSettingsStore(ctx) {
         description: projectDraftDescription.value,
         due_date: projectDraftDueDate.value || null,
         status: projectDraftStatus.value,
-        thumbnail_path: target.thumbnail_path || null,
       }
       const { data } = await api.put(`/api/projects/${target.id}`, payload)
       if (data && typeof data === 'object') {
-        Object.assign(target, data)
-        if (ctx.currentProject.value?.id === data.id) Object.assign(ctx.currentProject.value, data)
-        const listed = ctx.projects.value.find(project => project.id === data.id)
-        if (listed) Object.assign(listed, data)
+        applyProjectUpdate(target, data)
       } else {
         Object.assign(target, {
           title: payload.title,
@@ -207,11 +226,12 @@ export function createProjectSettingsStore(ctx) {
 
   async function handleProjectStorageUpdated(project) {
     if (!project?.id) return
+    resetWorkspacePayloadCache()
     const listed = ctx.projects.value.find(item => item.id === project.id)
     if (listed) Object.assign(listed, project)
     if (ctx.currentProject.value?.id === project.id) {
       Object.assign(ctx.currentProject.value, project)
-      await ctx.refreshProjectContents()
+      await ctx.refreshProjectContents({ resetPath: true })
     }
   }
 
@@ -251,6 +271,8 @@ export function createProjectSettingsStore(ctx) {
   }
 
   return Object.freeze({
+    setProjectStatus,
+    projectStatusSavingIds: statusSavingIds,
     PROJECT_STATUS_OPTIONS,
     showProjectSettingsModal: projectModal.isOpen,
     showProjectStorageModal: storageModal.isOpen,

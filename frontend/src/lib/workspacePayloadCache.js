@@ -41,6 +41,10 @@ export function invalidateWorkspacePayload(prefix) {
   for (const key of payloads.keys()) {
     if (key.startsWith(prefix)) payloads.delete(key)
   }
+  // A refresh after an edit must not reuse a snapshot requested before the edit.
+  for (const key of inFlightRequests.keys()) {
+    if (key.startsWith(prefix)) inFlightRequests.delete(key)
+  }
 }
 
 export function invalidateTrackerPayloads(scope, projectId) {

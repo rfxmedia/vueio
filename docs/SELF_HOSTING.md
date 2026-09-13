@@ -441,6 +441,26 @@ version, and restarts unhealthy services. It never changes project storage or
 restores a backup. Local HTTP produces a warning even when every required
 check passes.
 
+## Automatic folder updates
+
+Open project and storage folders update when files are added, renamed, changed,
+or removed. Expanded folders in the navigation and open file pickers update too.
+Vueio keeps the current view, scroll position, and valid selections. Hidden
+browser tabs stop watching. Returning to the tab refreshes its folders.
+
+Local Linux storage uses filesystem notifications. New renders normally appear
+within a second or two after the file closes or moves into place. Views share watches
+and combine bursts of changes into one refresh.
+
+Network mounts can miss filesystem notifications. For those mounts, Vueio checks
+the open folder's metadata every four seconds and checks new files until their
+size and modification time settle. New files normally appear within four to
+eight seconds. Existing files changed in place can take about 30 seconds plus
+settling time. These checks do not read media contents or scan subfolders.
+
+Share links keep their existing access and publication rules. Folder updates
+do not publish unregistered or held media.
+
 ## Workspace preview LUTs
 
 Administrators can upload `.cube` files in **Settings → Preview LUTs**. Saved

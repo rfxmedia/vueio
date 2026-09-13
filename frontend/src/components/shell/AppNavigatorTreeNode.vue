@@ -12,7 +12,10 @@
       :selected="tree.isSelected(node.path)"
       :draggable="tree.canDrag(node)"
       :dragging="tree.isDragging(node.path)"
+      :selection-mode="tree.selectionMode.value"
+      :thumbnail="tree.thumbnailFor(node)"
       @select="tree.select(node, $event)"
+      @open="tree.openNode(node)"
       @toggle="tree.toggle(node.path)"
       @dragstart="tree.startDrag(node, $event)"
       @dragend="tree.finishDrag"
@@ -24,7 +27,7 @@
           <AppNavigatorTreeNode v-for="child in visibleChildren" :key="child.path" :node="child" />
 
           <li v-if="hiddenCount" class="nav-tree-aside">
-            <button class="nav-tree-more" type="button" @click="showAll = true">
+            <button class="nav-tree-more" type="button" @click="tree.revealAll(node.path)">
               Show {{ hiddenCount }} more
             </button>
           </li>
@@ -37,25 +40,20 @@
 </template>
 
 <script setup>
-import { computed, inject, ref } from 'vue'
+import { computed, inject } from 'vue'
 import AppNavigatorRow from './AppNavigatorRow.vue'
 import { navigatorTreeKey } from './navigatorTreeKey'
-
-const LEVEL_LIMIT = 12
 
 const props = defineProps({
   node: { type: Object, required: true },
 })
 
 const tree = inject(navigatorTreeKey)
-const showAll = ref(false)
 
 const isFolder = computed(() => props.node.type !== 'file')
 const isOpen = computed(() => tree.isExpanded(props.node.path))
 const children = computed(() => tree.childrenOf(props.node.path))
-const visibleChildren = computed(() => (
-  showAll.value ? children.value : children.value.slice(0, LEVEL_LIMIT)
-))
+const visibleChildren = computed(() => tree.visibleChildrenOf(props.node.path))
 const hiddenCount = computed(() => children.value.length - visibleChildren.value.length)
 const metaLabel = computed(() => (
   Number.isFinite(props.node.count) ? String(props.node.count) : props.node.meta || ''

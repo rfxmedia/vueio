@@ -10,6 +10,7 @@
       :expandable="Boolean(item.loadChildren)"
       :expanded="expanded"
       :loading="loading"
+      :thumbnail="showThumbnails ? item.thumbnail : ''"
       @select="$emit('select', item.run)"
       @toggle="toggle"
     />
@@ -25,6 +26,7 @@
             :meta="child.meta"
             :tone="child.tone || item.tone"
             :active="child.active"
+            :thumbnail="showThumbnails && expanded ? child.thumbnail : ''"
             @select="$emit('select', child.run)"
           />
 
@@ -50,6 +52,7 @@
                     :meta="child.meta"
                     tone="default"
                     :active="child.active"
+                    :thumbnail="showThumbnails && expanded && archiveExpanded ? child.thumbnail : ''"
                     @select="$emit('select', child.run)"
                   />
                 </div>
@@ -74,6 +77,7 @@ import AppNavigatorRow from './AppNavigatorRow.vue'
 
 const props = defineProps({
   item: { type: Object, required: true },
+  showThumbnails: { type: Boolean, default: false },
 })
 
 defineEmits(['select'])

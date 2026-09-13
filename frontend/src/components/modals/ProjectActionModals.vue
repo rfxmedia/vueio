@@ -276,10 +276,9 @@ const emit = defineEmits([
 
 const workingProjectRoot = computed(() => props.projectStorageRoots.find(root => root.id === props.newProjectStorageRoot) || null)
 const workingProjectStorageAvailable = computed(() => (
-  !!workingProjectRoot.value?.available && !workingProjectRoot.value?.read_only
+  !!workingProjectRoot.value?.available
 ))
 const workingProjectStorageIssue = computed(() => {
-  if (workingProjectRoot.value?.read_only) return 'This storage location is read-only. Choose a writable location.'
   if (workingProjectRoot.value && !workingProjectRoot.value.available) return 'This storage location is unavailable. Choose another location.'
   return 'No project storage locations are available. Check the storage configuration before creating a project.'
 })

@@ -3,7 +3,7 @@
     class="nav-row"
     :class="[
       `is-tone-${tone}`,
-      { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging },
+      { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging, 'has-thumbnail': thumbnail, 'is-selectable': selectionMode },
     ]"
   >
     <button
@@ -25,19 +25,34 @@
       type="button"
       :draggable="draggable"
       :aria-current="active ? 'page' : undefined"
+      :aria-pressed="selectionMode ? selected : undefined"
+      @dblclick="selectionMode && !$event.shiftKey && !$event.metaKey && !$event.ctrlKey && $emit('open')"
+      @keydown.enter.prevent="selectionMode ? $emit('open') : $emit('select', $event)"
+      @mousedown.shift.prevent
       @click="$emit('select', $event)"
       @dragstart="$emit('dragstart', $event)"
       @dragend="$emit('dragend', $event)"
     >
-      <span v-if="dot" class="nav-row-dot" :class="`is-${dot}`" aria-hidden="true"></span>
+      <span v-if="thumbnail" class="nav-row-thumbnail" aria-hidden="true"><VMediaThumbnail :src="thumbnail" /></span>
+      <span v-else-if="dot" class="nav-row-dot" :class="`is-${dot}`" aria-hidden="true"></span>
       <svg v-else class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
       <span class="nav-row-label v-truncate" :title="label">{{ label }}</span>
       <span v-if="meta" class="nav-row-meta">{{ meta }}</span>
     </button>
+    <button
+      v-if="selectionMode"
+      type="button"
+      class="nav-row-open"
+      :aria-label="`Open ${label}`"
+      :title="`Open ${label}`"
+      @click.stop="$emit('open')"
+    ><svg class="icon" aria-hidden="true"><use :href="expandable ? '#icon-chevron-right' : '#icon-play'" /></svg></button>
   </div>
 </template>
 
 <script setup>
+import VMediaThumbnail from '../media/VMediaThumbnail.vue'
+
 defineProps({
   label: { type: String, required: true },
   icon: { type: String, default: '#icon-folder' },
@@ -55,9 +70,11 @@ defineProps({
   selected: { type: Boolean, default: false },
   draggable: { type: Boolean, default: false },
   dragging: { type: Boolean, default: false },
+  thumbnail: { type: String, default: '' },
+  selectionMode: { type: Boolean, default: false },
 })
 
-defineEmits(['select', 'toggle', 'dragstart', 'dragend'])
+defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 </script>
 
 <style scoped>
@@ -125,6 +142,30 @@ defineEmits(['select', 'toggle', 'dragstart', 'dragend'])
 .nav-row.is-dragging {
   opacity: 0.58;
 }
+
+
+.nav-row.is-selectable { grid-template-columns: var(--navigator-disclosure-width, 22px) minmax(0, 1fr) 26px; }
+.nav-row.has-thumbnail .nav-row-main { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; }
+.nav-row-thumbnail { width: 34px; height: 24px; overflow: hidden; border-radius: 4px; }
+.nav-row-open {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  padding: 0;
+  border: 0;
+  border-radius: var(--v-radius-sm);
+  background: transparent;
+  color: var(--v-text-dim);
+  opacity: 0;
+  cursor: pointer;
+}
+.nav-row-open .icon { width: 13px; height: 13px; }
+.nav-row:hover .nav-row-open,
+.nav-row:focus-within .nav-row-open,
+.nav-row.is-selected .nav-row-open { opacity: 1; }
+.nav-row-open:hover { color: var(--v-text); background: var(--v-bg-hover); }
+.nav-row-open:focus-visible { outline: 2px solid var(--v-border-focus); outline-offset: -2px; }
+@media (hover: none) { .nav-row-open { opacity: 1; } }
 
 .nav-row.is-active::before {
   transform: scaleY(1);

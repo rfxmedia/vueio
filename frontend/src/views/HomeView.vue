@@ -70,14 +70,10 @@
               >
                 <span class="home-edit-project-thumb" aria-hidden="true">
                   <svg class="icon"><use href="#icon-project" /></svg>
-                  <img
+                  <VMediaThumbnail
                     :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    @load="showLoadedImage"
-                    @error="hideBrokenImage"
-                  >
+                    class="home-project-cover"
+                  />
                 </span>
                 <span class="home-edit-project-copy">
                   <strong>{{ project.title }}</strong>
@@ -226,14 +222,10 @@
                 aria-hidden="true"
               >
                 <svg class="icon"><use href="#icon-project" /></svg>
-                <img
+                <VMediaThumbnail
                   :src="getProjectThumbnailUrl(project.id, project.thumbnail_path)"
-                  alt=""
-                  loading="lazy"
-                  decoding="async"
-                  @load="showLoadedImage"
-                  @error="hideBrokenImage"
-                >
+                  class="home-project-cover"
+                />
               </span>
               <span class="home-project-copy">
                 <strong>{{ project.title }}</strong>
@@ -317,6 +309,7 @@
 </template>
 
 <script setup>
+import VMediaThumbnail from '../components/media/VMediaThumbnail.vue'
 import { computed, onMounted, ref } from 'vue'
 import api from '../lib/api'
 import { getTrackerEventColor, getTrackerEventIcon, getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
@@ -472,14 +465,6 @@ function statusClass(status) {
   if (status === 'edits_requested') return 'v-status-hold'
   if (status === 'done') return 'v-status-done'
   return 'v-status-draft'
-}
-
-function hideBrokenImage(event) {
-  event.target.style.display = 'none'
-}
-
-function showLoadedImage(event) {
-  event.target.style.removeProperty('display')
 }
 
 function editDateTime(value) {
@@ -753,8 +738,7 @@ onMounted(() => {
   height: 16px;
 }
 
-.home-edit-project-thumb img,
-.home-project-thumbnail img {
+.home-project-cover {
   position: absolute;
   inset: 0;
   width: 100%;

@@ -63,6 +63,7 @@ def create_app() -> FastAPI:
     from app.routes.comments import router as comments_router
     from app.routes.app_state import router as app_state_router
     from app.routes.files import router as files_router
+    from app.routes.folder_events import router as folder_events_router
     from app.routes.horizons_fresh import router as horizons_fresh_router
     from app.routes.horizons_media_objects import router as horizons_media_objects_router
     from app.routes.horizons_project_support import router as horizons_project_support_router
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     from app.services.transcode_lifecycle import enforce_transcode_cache_budget
     from app.services.zip_utils import cleanup_orphaned_zip_temp_files, recover_interrupted_package_jobs
     from app.services.voice_transcription import start_voice_transcription_worker
+    from app.services.folder_events import folder_events
 
     run_migrations()
     _warn_insecure_runtime_defaults()
@@ -127,7 +129,10 @@ def create_app() -> FastAPI:
         else:
             logger.info('Discord bot token not configured; notification dispatcher is idle')
         start_voice_transcription_worker()
-        yield
+        try:
+            yield
+        finally:
+            folder_events.close()
 
     app = FastAPI(title='vue.io', version=settings.VUEIO_VERSION, lifespan=lifespan)
     app.state.limiter = limiter
@@ -140,6 +145,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router)
     app.include_router(admin_router)
     app.include_router(files_router)
+    app.include_router(folder_events_router)
     app.include_router(health_router)
     app.include_router(luts_router)
     app.include_router(horizons_fresh_router)

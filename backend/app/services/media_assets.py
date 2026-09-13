@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Query, Session, aliased
 
 from app.models import (
     Comment,
@@ -218,16 +218,20 @@ def content_fingerprint(path: Path) -> str | None:
         return None
 
 
+def read_content_identity(path: Path, expected: str | None) -> str | None:
+    """Read the same fingerprint format as a stored media identity."""
+    normalized = str(expected or '').strip().lower()
+    if normalized.startswith(f'{SOURCE_FINGERPRINT_ALGORITHM}:'):
+        return content_fingerprint(path)
+    if len(normalized) == 64 and all(char in '0123456789abcdef' for char in normalized):
+        return _content_hash_for_file(path)
+    return None
+
+
 def file_matches_content_identity(path: Path, expected: str | None) -> bool:
     """Compare a file with a stored runtime fingerprint or full SHA-256."""
     normalized = str(expected or '').strip().lower()
-    if not normalized:
-        return False
-    if normalized.startswith(f'{SOURCE_FINGERPRINT_ALGORITHM}:'):
-        return content_fingerprint(path) == normalized
-    if len(normalized) == 64 and all(char in '0123456789abcdef' for char in normalized):
-        return _content_hash_for_file(path) == normalized
-    return False
+    return bool(normalized) and read_content_identity(path, normalized) == normalized
 
 
 def _asset_owner(project_id: str | None, storage_scope: str) -> str:
@@ -353,6 +357,45 @@ def cleanup_retired_media_asset(db: Session, asset: MediaAsset) -> None:
     _purge_asset_cache(db, asset)
 
 
+def media_asset_reference_clause(db: Session):
+    return or_(
+        *(db.query(column).filter(column == MediaAsset.id).exists() for column in (
+            HorizonShot.latest_media_asset_id,
+            HorizonShotVersion.media_asset_id,
+            Comment.horizons_media_asset_id,
+            ShareLink.media_asset_id,
+            ShotRegistryEntry.latest_media_asset_id,
+            VersionRegistryEntry.media_asset_id,
+        )),
+        db.query(Comment.id).filter(
+            Comment.project_id == MediaAsset.project_id,
+            Comment.attachments_data.contains('"' + MediaAsset.id + '"'),
+        ).exists(),
+    )
+
+
+def unavailable_project_media_query(db: Session, project_id: str) -> Query:
+    """Keep real offline references, not unused generations from normal saves."""
+    current = aliased(MediaAsset)
+    replacement_exists = db.query(current.id).filter(
+        current.project_id == MediaAsset.project_id,
+        current.storage_scope == MediaAsset.storage_scope,
+        current.file_path == MediaAsset.file_path,
+        current.unavailable_at.is_(None),
+    ).exists()
+    return db.query(MediaAsset).filter(
+        MediaAsset.project_id == project_id,
+        MediaAsset.unavailable_at.isnot(None),
+        or_(MediaAsset.unavailable_reason.is_(None), MediaAsset.unavailable_reason != 'duplicate_active_generation'),
+        or_(
+            MediaAsset.unavailable_reason.is_(None),
+            MediaAsset.unavailable_reason.notin_(['replaced', 'external_signature_mismatch']),
+            ~replacement_exists,
+            media_asset_reference_clause(db),
+        ),
+    )
+
+
 def _commit_and_cleanup(db: Session, retired_assets: list[MediaAsset]) -> None:
     for asset in retired_assets:
         cleanup_retired_media_asset(db, asset)
@@ -371,6 +414,15 @@ def validate_media_asset_source(db: Session, asset: MediaAsset, full_path: Path 
             stat = full_path.stat()
             current_signature = source_signature(full_path)
             if file_matches_content_identity(full_path, asset.content_hash):
+                # A later registration can already own this path. Keep both
+                # identities intact instead of violating the unique live binding.
+                if db.query(MediaAsset.id).filter(
+                    MediaAsset.project_id == asset.project_id,
+                    MediaAsset.storage_scope == asset.storage_scope,
+                    MediaAsset.file_path == asset.file_path,
+                    MediaAsset.unavailable_at.is_(None), MediaAsset.id != asset.id,
+                ).first():
+                    return False
                 asset.source_signature = current_signature
                 asset.file_size = stat.st_size
                 asset.modified_at = stat.st_mtime
@@ -491,6 +543,19 @@ def register_media_asset(
         for duplicate in active_assets[1:]:
             retire_media_asset(db, duplicate, 'duplicate_active_generation')
             retired_assets.append(duplicate)
+
+        # Listing an unchanged file must not turn every refresh into a write.
+        # Keep the caller's commit behavior, including any pending changes.
+        if (
+            asset is not None
+            and not retired_assets
+            and asset.source_signature == current_signature
+            and asset.content_hash
+            and asset.file_size == stat.st_size
+            and asset.modified_at == stat.st_mtime
+            and asset.unavailable_reason is None
+        ):
+            return asset, retired_assets
 
         if asset is not None and not asset.source_signature:
             asset.source_signature = current_signature

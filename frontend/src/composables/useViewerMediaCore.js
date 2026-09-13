@@ -196,6 +196,9 @@ export function useViewerMediaCore(ctx) {
   function getProjectThumbnailUrl(projectId, thumbnailPath, cacheBustToken = null, options = {}) {
     if (!projectId) return ''
     const params = new URLSearchParams({ entity_type: 'project' })
+    // Version the cover, not project activity. Status and tracker edits must
+    // not evict it; selecting a new cover must not reuse an old image response.
+    if (thumbnailPath) params.set('v', thumbnailPath)
     if (cacheBustToken !== null && cacheBustToken !== undefined && cacheBustToken !== false) {
       params.set('t', String(cacheBustToken === true ? Date.now() : cacheBustToken))
     }

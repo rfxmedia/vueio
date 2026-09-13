@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app.models import HorizonProject, MediaAsset
 from app.services.auth import get_request_user
 from app.services.file_access import require_user_file_browser_read_access
 from app.services.horizons_fresh import (
@@ -23,7 +24,7 @@ from app.services.horizons_fresh import (
     select_horizon_preview_asset,
     update_horizon_project,
 )
-from app.services.horizons.media import get_visible_horizon_media_assets_by_paths
+from app.services.horizons.media import can_access_horizon_media_asset_id, get_visible_horizon_media_assets_by_paths
 from app.services.hls_streaming import get_hls_thumbnail_source
 from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_path
 from app.services.media import (
@@ -44,6 +45,7 @@ from app.services.horizon_entity_thumbnails import (
     build_horizon_entity_upload_name,
     get_horizon_entity_thumbnail_record,
     get_horizon_entity_upload_path,
+    project_thumbnail_snapshot,
     normalize_horizon_thumbnail_entity,
     set_horizon_entity_thumbnail_record,
 )
@@ -52,6 +54,8 @@ from app.services.media_resolution import (
     delivery_poster_cache_path_for_identity,
     delivery_poster_cache_path_for_media,
     generated_thumbnail_cache_path_for_identity,
+    media_root_cache_identity,
+    stored_media_asset_cache_identity,
     resolve_media_asset_path,
     resolve_media_full_path,
     thumbnail_cache_path_for_media,
@@ -185,7 +189,8 @@ def _resolve_horizons_thumbnail_source(
 
 
 def _set_project_thumbnail_marker(db: Session, project_id: str):
-    update_horizon_project(db, project_id, thumbnail_path='__entity_thumbnail__', fields_set={'thumbnail_path'})
+    marker = f'__entity_thumbnail__:{time.time_ns()}'
+    update_horizon_project(db, project_id, thumbnail_path=marker, fields_set={'thumbnail_path'})
 
 
 def _build_project_thumbnail_response(full_path: Path, thumb_path: Path, *, missing_detail: str, cache_key: str | None, queue_missing: bool, delivery_poster: bool):
@@ -201,14 +206,19 @@ def _build_project_thumbnail_response(full_path: Path, thumb_path: Path, *, miss
 
 
 def _resolve_legacy_project_thumbnail(db: Session, project_id: str, project, user: dict | None, access_role: str | None, *, queue_missing: bool = True, delivery_poster: bool = False):
-    thumbnail_path = str(project.thumbnail_path or '').strip()
+    original_marker = project.thumbnail_path
+    thumbnail_path = str(original_marker or '').strip()
     if thumbnail_path and thumbnail_path.startswith('__uploaded_project_'):
         upload_path = settings.thumbnail_dir / f'project_{project_id}.jpg'
-        if upload_path.exists():
-            return FileResponse(upload_path, media_type='image/jpeg')
+        response = project_thumbnail_snapshot(project_id, f'legacy:{thumbnail_path}', cached=upload_path, poster=delivery_poster)
+        if response is not None:
+            return response
         raise HTTPException(status_code=404, detail='No project thumbnail')
 
-    if thumbnail_path and not thumbnail_path.startswith('__entity_thumbnail__'):
+    if thumbnail_path.startswith('__entity_thumbnail__'):
+        raise HTTPException(status_code=404, detail='No project thumbnail')
+
+    if thumbnail_path and not thumbnail_path.startswith('__auto_asset__:'):
         _source_path, full_path, thumb_path, _resolved_scope, cache_key = _resolve_horizons_thumbnail_source(
             db,
             project_id,
@@ -220,15 +230,37 @@ def _resolve_legacy_project_thumbnail(db: Session, project_id: str, project, use
         )
         return _build_project_thumbnail_response(full_path, thumb_path, missing_detail='No project thumbnail', cache_key=cache_key, queue_missing=queue_missing, delivery_poster=delivery_poster)
 
-    asset = select_horizon_preview_asset(db, project_id, user=user, access_role=access_role)
-    if not asset:
+    if thumbnail_path.startswith('__auto_asset__:'):
+        asset = db.get(MediaAsset, thumbnail_path.removeprefix('__auto_asset__:'))
+    else:
+        # Pin the first eligible cover in the existing project field. A compare
+        # and set keeps concurrent requests from replacing a manual selection.
+        asset = select_horizon_preview_asset(db, project_id, user=user, access_role='share')
+        if asset:
+            marker = f'__auto_asset__:{asset.id}'
+            changed = db.query(HorizonProject).filter(HorizonProject.id == project_id, HorizonProject.thumbnail_path == original_marker).update({'thumbnail_path': marker}, synchronize_session=False)
+            db.commit()
+            db.refresh(project)
+            if not changed:
+                return resolve_horizon_entity_thumbnail_response(db, project_id, 'project', None, user=user, access_role=access_role, project=project, queue_missing=queue_missing, delivery_poster=delivery_poster)
+    if not asset or asset.project_id != project_id or not can_access_horizon_media_asset_id(db, project_id, asset.id, user=user, access_role=access_role):
         raise HTTPException(status_code=404, detail='No project thumbnail')
+    if access_role == 'share':
+        from app.services.horizons.version_publication import held_media_asset_ids_for_project
+        if asset.id in held_media_asset_ids_for_project(db, project_id):
+            raise HTTPException(status_code=404, detail='No project thumbnail')
+    identity = f'auto:{asset.id}'
+    cache_identity = stored_media_asset_cache_identity(asset)
+    cached = delivery_poster_cache_path_for_identity(cache_identity) if delivery_poster else generated_thumbnail_cache_path_for_identity(cache_identity)
+    response = project_thumbnail_snapshot(project_id, identity, cached=cached, poster=delivery_poster)
+    if response is not None:
+        return response
     full_path, cache_key, _storage_scope = resolve_media_asset_path(asset, project_id=project_id, db=db)
     if not full_path or not full_path.exists():
         raise HTTPException(status_code=404, detail='No project thumbnail')
     cache_identity = cache_key or f'asset:{asset.id}'
     thumb_path = delivery_poster_cache_path_for_identity(cache_identity) if delivery_poster else generated_thumbnail_cache_path_for_identity(cache_identity)
-    return _build_project_thumbnail_response(full_path, thumb_path, missing_detail='No project thumbnail', cache_key=cache_identity, queue_missing=queue_missing, delivery_poster=delivery_poster)
+    return project_thumbnail_snapshot(project_id, identity, source=full_path, cached=thumb_path, poster=delivery_poster, queue_missing=queue_missing)
 
 
 def resolve_horizon_entity_thumbnail_response(db: Session, project_id: str, entity_type: str, entity_path: str | None, *, user: dict | None = None, access_role: str | None = None, project=None, queue_missing: bool = True, delivery_poster: bool = False):
@@ -242,12 +274,31 @@ def resolve_horizon_entity_thumbnail_response(db: Session, project_id: str, enti
         if mode == 'uploaded':
             upload_name = str(record.get('upload_name') or '').strip()
             upload_path = get_horizon_entity_upload_path(upload_name)
+            if normalized_type == 'project' and upload_name:
+                response = project_thumbnail_snapshot(project_id, f'uploaded:{upload_name}:{record.get("updated_at", "")}', source=upload_path, poster=delivery_poster, queue_missing=queue_missing)
+                if response is not None:
+                    return response
             if upload_name and upload_path.exists():
                 return FileResponse(upload_path)
             raise HTTPException(status_code=404, detail='No thumbnail uploaded')
         if mode == 'source':
             source_path = str(record.get('source_path') or '').strip()
             storage_scope = str(record.get('storage_scope') or 'media_root').strip() or 'media_root'
+            identity = f'selected:{storage_scope}:{source_path}:{record.get("updated_at", "")}'
+            if normalized_type == 'project' and storage_scope == 'media_root':
+                if access_role == 'share':
+                    from app.services.horizons.version_publication import held_media_paths_for_project
+                    if (settings.MEDIA_ROOT / source_path).resolve(strict=False) in held_media_paths_for_project(db, project_id):
+                        raise HTTPException(status_code=404, detail='No project thumbnail')
+                # Explicitly selected covers remain available after media moves.
+                # Existing cached frames can be adopted without touching media.
+                key = media_root_cache_identity(source_path)
+                cached = delivery_poster_cache_path_for_identity(key) if delivery_poster else generated_thumbnail_cache_path_for_identity(key)
+                if delivery_poster and not cached.is_file():
+                    cached = generated_thumbnail_cache_path_for_identity(key)
+                response = project_thumbnail_snapshot(project_id, identity, cached=cached, poster=delivery_poster)
+                if response is not None:
+                    return response
             _source_path, full_path, thumb_path, _resolved_scope, cache_key = _resolve_horizons_thumbnail_source(
                 db,
                 project_id,
@@ -257,6 +308,8 @@ def resolve_horizon_entity_thumbnail_response(db: Session, project_id: str, enti
                 access_role=access_role,
                 delivery_poster=delivery_poster,
             )
+            if normalized_type == 'project':
+                return project_thumbnail_snapshot(project_id, identity, source=full_path, cached=thumb_path, poster=delivery_poster, queue_missing=queue_missing)
             return _build_project_thumbnail_response(full_path, thumb_path, missing_detail='No thumbnail', cache_key=cache_key, queue_missing=queue_missing, delivery_poster=delivery_poster)
 
     if normalized_type == 'project':

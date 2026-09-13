@@ -7,6 +7,7 @@ import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useShareAccessContext } from '../ownership/shareAccessContext'
 import { useTrackerStore } from '../ownership/tracker'
+import { useViewerStore } from '../ownership/viewer'
 import { getMediaKind } from '../lib/mediaEntity'
 import { isFileBrowserEntry } from '../utils/fileBrowserItems'
 import { isRestrictedProjectMember } from '../utils/accountAccess'
@@ -69,6 +70,10 @@ function readStoredWidth() {
 // Shared across every mount point so the rail and the mobile drawer agree.
 const navigatorOpen = ref(readStoredOpen())
 const navigatorWidth = ref(readStoredWidth())
+const navigatorThumbnails = ref((() => {
+  try { return globalThis.localStorage?.getItem('vueio.navigator.thumbnails') === '1' }
+  catch { return false }
+})())
 const collapsedGroups = reactive(new Set(readCollapsedGroups()))
 
 function persistOpen(value) {
@@ -116,7 +121,7 @@ function statusLabel(status) {
     .replace(/^./, (letter) => letter.toUpperCase())
 }
 
-export function buildProjectNavigatorGroups(projects, openProject) {
+export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor = () => '') {
   const buckets = new Map()
   for (const project of projects || []) {
     const status = canonicalProjectStatus(project.status)
@@ -124,6 +129,7 @@ export function buildProjectNavigatorGroups(projects, openProject) {
     buckets.get(status).push({
       key: `project:${project.id}`,
       label: project.title,
+      thumbnail: thumbnailFor(project),
       meta: project.shot_count ? String(project.shot_count) : '',
       dot: projectStatusVariant(status),
       tone: 'default',
@@ -207,17 +213,25 @@ export function useContextNavigator() {
   } = useProjectWorkspaceStore()
   const { currentPath, handleClick, navigateTo, goToFiles } = useFileBrowserStore().browser
   const trackerStore = useTrackerStore()
+  const { getProjectThumbnailUrl, getProjectFileThumbnailUrl, getThumbnailUrl } = useViewerStore().media.core
 
-  async function loadProjectItems(path) {
+  function navigatorFileThumbnail(item) {
+    if (!item || !['image', 'video'].includes(getMediaKind(item))) return ''
+    return currentProject.value ? getProjectFileThumbnailUrl(item) : getThumbnailUrl(item)
+  }
+
+  async function loadProjectItems(path, { force = false, signal } = {}) {
     const projectId = currentProject.value?.id
-    if (!projectId) return []
+    if (!projectId || signal?.aborted) return []
     const cacheKey = workspaceCacheKey('contents', currentUser.value?.id || 'session', projectId, path || '')
-    const cached = readWorkspacePayload(cacheKey)
+    const cached = force ? null : readWorkspacePayload(cacheKey)
     const toItems = snapshot => (snapshot?.items || [])
       .filter(isFileBrowserEntry)
       .map(toNavigatorNode)
     const query = buildShareCredentialQuery({ path: path || '', include_counts: true })
     const request = requestWorkspacePayload(cacheKey, async () => {
+      // The main folder view can share this request. A tree closing must not
+      // abort its load; the tree ignores replies after its own scope changes.
       const { data } = await api.get(`/api/projects/${projectId}/contents${query}`)
       const snapshot = {
         items: data?.items || [],
@@ -233,12 +247,18 @@ export function useContextNavigator() {
       void request.catch(() => {})
       return toItems(cached)
     }
-    return toItems(await request)
+    const snapshot = await request
+    if (!snapshot) throw new Error('Folder request did not complete')
+    return toItems(snapshot)
   }
 
-  async function loadStorageItems(path) {
+  async function loadStorageItems(path, { signal } = {}) {
+    if (signal?.aborted) return []
     const query = buildShareCredentialQuery({ path: path || '', include_counts: true })
-    const { data } = await api.get(`/api/files${query}`)
+    const { data } = await requestWorkspacePayload(
+      workspaceCacheKey('files', currentUser.value?.id || 'session', path || ''),
+      () => api.get(`/api/files${query}`),
+    )
     return (data?.items || [])
       .filter(isFileBrowserEntry)
       .map(toNavigatorNode)
@@ -275,6 +295,7 @@ export function useContextNavigator() {
       label: shot.shot_id || shot.name || 'Untitled shot',
       meta: countLabel(shot.versions?.length),
       icon: shotIcon(shot),
+      thumbnail: trackerStore.getShotThumbnailUrl(shot),
       tone: 'accent',
       active: trackerStore.currentTrackerViewerShot?.value && (
         shotRef(trackerStore.currentTrackerViewerShot.value) === shotRef(shot)
@@ -379,12 +400,13 @@ export function useContextNavigator() {
         openFile: openFileFromProject,
         emptyLabel: 'No files or folders yet',
         dragScope: { projectId: project.id },
+        watchScope: { userId: currentUser.value?.id, projectId: project.id },
       },
     }
   })
 
   const projectsContext = computed(() => {
-    const groups = buildProjectNavigatorGroups(sortedProjects.value, openProject)
+    const groups = buildProjectNavigatorGroups(sortedProjects.value, openProject, project => getProjectThumbnailUrl(project.id, project.thumbnail_path))
 
     return {
       key: 'projects',
@@ -417,6 +439,7 @@ export function useContextNavigator() {
       openFolder: navigateTo,
       openFile: handleClick,
       emptyLabel: 'No files or folders here',
+      watchScope: { userId: currentUser.value?.id },
     },
   }))
 
@@ -458,6 +481,13 @@ export function useContextNavigator() {
   }
 
   return {
+    navigatorThumbnails,
+    navigatorFileThumbnail,
+    toggleNavigatorThumbnails() {
+      navigatorThumbnails.value = !navigatorThumbnails.value
+      try { globalThis.localStorage?.setItem('vueio.navigator.thumbnails', navigatorThumbnails.value ? '1' : '0') }
+      catch { /* Preference persistence is best effort. */ }
+    },
     navigatorContext,
     hasNavigator,
     navigatorOpen,

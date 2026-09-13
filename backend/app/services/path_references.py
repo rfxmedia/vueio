@@ -20,8 +20,16 @@ from app.models import (
 )
 
 
-def rewrite_path(value: str | None, old_path: str, new_path: str) -> str | None:
+def rewrite_path(value: str | None, old_path: str | dict[str, str], new_path: str | None) -> str | None:
     """Rewrite one exact project path or a descendant of it."""
+    if isinstance(old_path, dict):
+        # Apply a relocation map once, against the original value. Sequential
+        # replacements would corrupt references when two filenames swap places.
+        for source in sorted(old_path, key=len, reverse=True):
+            rewritten = rewrite_path(value, source, old_path[source])
+            if rewritten != value:
+                return rewritten
+        return value
     value_text = str(value or '').strip().strip('/')
     old_text = str(old_path or '').strip().strip('/')
     new_text = str(new_path or '').strip().strip('/')
@@ -38,8 +46,8 @@ def rewrite_path(value: str | None, old_path: str, new_path: str) -> str | None:
 def rewrite_project_links_payload(
     payload: dict | None,
     *,
-    old_path: str,
-    new_path: str,
+    old_path: str | dict[str, str],
+    new_path: str | None,
 ) -> tuple[dict, int]:
     """Rewrite project-owned link sources without changing virtual placement."""
     source = payload if isinstance(payload, dict) else {}
@@ -61,7 +69,7 @@ def rewrite_project_links_payload(
     return {**source, 'links': rewritten_links}, changed
 
 
-def _rewrite_page_blocks(raw: str | None, old_path: str, new_path: str) -> tuple[str | None, int]:
+def _rewrite_page_blocks(raw: str | None, old_path: str | dict[str, str], new_path: str | None) -> tuple[str | None, int]:
     try:
         blocks = json.loads(raw or '[]')
     except (TypeError, ValueError):
@@ -95,7 +103,7 @@ def _rewrite_page_blocks(raw: str | None, old_path: str, new_path: str) -> tuple
     )
 
 
-def _rewrite_comment_attachments(raw: str | None, old_path: str, new_path: str) -> tuple[str | None, int]:
+def _rewrite_comment_attachments(raw: str | None, old_path: str | dict[str, str], new_path: str | None) -> tuple[str | None, int]:
     try:
         attachments = json.loads(raw or '[]')
     except (TypeError, ValueError):
@@ -104,11 +112,16 @@ def _rewrite_comment_attachments(raw: str | None, old_path: str, new_path: str) 
         return raw, 0
     changed = 0
     for attachment in attachments:
-        if (
-            not isinstance(attachment, dict)
-            or attachment.get('attachment_type') == 'reference'
-            or attachment.get('scope') != 'project'
-        ):
+        if not isinstance(attachment, dict):
+            continue
+        if attachment.get('attachment_type') == 'reference':
+            if attachment.get('target_type') == 'folder':
+                rewritten = rewrite_path(attachment.get('target_id'), old_path, new_path)
+                if rewritten != attachment.get('target_id'):
+                    attachment['target_id'] = rewritten
+                    changed += 1
+            continue
+        if attachment.get('scope') != 'project':
             continue
         rewritten = rewrite_path(attachment.get('rel_path'), old_path, new_path)
         if rewritten != attachment.get('rel_path'):
@@ -123,8 +136,8 @@ def _rewrite_comment_attachments(raw: str | None, old_path: str, new_path: str) 
 def rewrite_project_path_references(
     db: Session,
     project_id: str,
-    old_path: str,
-    new_path: str,
+    old_path: str | dict[str, str],
+    new_path: str | None,
     *,
     moved_is_folder: bool = False,
     commit: bool = True,

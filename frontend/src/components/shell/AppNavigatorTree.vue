@@ -5,10 +5,13 @@
 </template>
 
 <script setup>
-import { computed, provide, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, provide, reactive, ref, watch } from 'vue'
 import AppNavigatorTreeNode from './AppNavigatorTreeNode.vue'
 import { navigatorTreeKey } from './navigatorTreeKey'
 import { clearProjectItemDrag, writeProjectItemDrag } from '../../lib/projectItemDrag'
+import { useFolderChanges } from '../../composables/useFolderChanges'
+
+const LEVEL_LIMIT = 12
 
 const props = defineProps({
   rootLabel: { type: String, default: 'Folders' },
@@ -17,15 +20,21 @@ const props = defineProps({
   loadItems: { type: Function, required: true },
   emptyLabel: { type: String, default: 'No files or folders yet' },
   dragScope: { type: Object, default: null },
+  watchScope: { type: Object, default: null },
+  active: { type: Boolean, default: true },
+  selectionMode: { type: Boolean, default: true },
+  thumbnailFor: { type: Function, default: null },
 })
 
 const emit = defineEmits(['open-folder', 'open-file'])
 
 const nodes = reactive({})
 const expandedPaths = reactive(new Set())
+const revealedPaths = reactive(new Set())
 const selectedPaths = reactive(new Set())
 const draggingPaths = reactive(new Set())
 const selectionAnchor = ref('')
+const requests = new Map()
 
 const rootNode = computed(() => ({ path: props.rootPath || '', name: props.rootLabel }))
 
@@ -39,6 +48,15 @@ function stateOf(path) {
 
 function childrenOf(path) {
   return stateOf(path)?.items || []
+}
+
+function visibleChildrenOf(path) {
+  const children = childrenOf(path)
+  return revealedPaths.has(keyFor(path)) ? children : children.slice(0, LEVEL_LIMIT)
+}
+
+function revealAll(path) {
+  revealedPaths.add(keyFor(path))
 }
 
 function hasLoaded(path) {
@@ -89,10 +107,11 @@ function clearSelection() {
   selectionAnchor.value = ''
 }
 
-function visibleDraggableNodes(path = props.rootPath, result = []) {
-  for (const child of childrenOf(path)) {
-    if (canDrag(child)) result.push(child)
-    if (child.type !== 'file' && isExpanded(child.path)) visibleDraggableNodes(child.path, result)
+function visibleNodes(path = props.rootPath, result = []) {
+  if (!isExpanded(path)) return result
+  for (const child of visibleChildrenOf(path)) {
+    result.push(child)
+    if (child.type !== 'file' && isExpanded(child.path)) visibleNodes(child.path, result)
   }
   return result
 }
@@ -101,7 +120,7 @@ function updateSelection(node, event) {
   const path = keyFor(node.path)
   const additive = Boolean(event?.metaKey || event?.ctrlKey)
   if (event?.shiftKey) {
-    const visible = visibleDraggableNodes()
+    const visible = visibleNodes()
     const anchorPath = selectionAnchor.value || path
     const anchorIndex = visible.findIndex(item => keyFor(item.path) === anchorPath)
     const targetIndex = visible.findIndex(item => keyFor(item.path) === path)
@@ -138,22 +157,81 @@ function descendantsOf(parent, items) {
   return items.filter((item) => Boolean(item?.path) && item.path.startsWith(prefix) && item.path !== parent)
 }
 
-async function ensureLoaded(path) {
-  const key = keyFor(path)
-  const status = nodes[key]?.status
-  if (status === 'loading' || status === 'ready') return
-  nodes[key] = { status: 'loading', items: [] }
-  try {
-    const items = await props.loadItems(key)
-    nodes[key] = { status: 'ready', items: descendantsOf(key, items) }
-  } catch {
-    nodes[key] = { status: 'error', items: [] }
+function removeBranch(path) {
+  const matches = key => key === path || key.startsWith(`${path}/`)
+  for (const key of Object.keys(nodes)) {
+    if (matches(key)) delete nodes[key]
   }
+  for (const [key, request] of requests) {
+    if (!matches(key)) continue
+    request.controller.abort()
+    requests.delete(key)
+  }
+  if ([...draggingPaths].some(matches)) finishDrag()
+  for (const paths of [expandedPaths, revealedPaths, selectedPaths]) {
+    for (const key of paths) {
+      if (matches(key)) paths.delete(key)
+    }
+  }
+  if (matches(selectionAnchor.value)) selectionAnchor.value = ''
+}
+
+function replaceChildren(path, items) {
+  const nextTypes = new Map(items.map(item => [item.path, item.type]))
+  for (const child of childrenOf(path)) {
+    if (!nextTypes.has(child.path) || (child.type !== 'file' && nextTypes.get(child.path) === 'file')) {
+      removeBranch(child.path)
+    }
+  }
+  nodes[path] = { status: 'ready', items }
+  if (path) {
+    const parent = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
+    const parentState = stateOf(parent)
+    if (parentState) {
+      parentState.items = parentState.items.map(child => (
+        child.path === path ? { ...child, count: items.length } : child
+      ))
+    }
+  }
+}
+
+function ensureLoaded(path, { force = false } = {}) {
+  const key = keyFor(path)
+  const pending = requests.get(key)
+  if (pending) {
+    pending.refresh ||= force
+    return pending.promise
+  }
+  if (!force && stateOf(key)?.status === 'ready') return
+  const request = { controller: new AbortController(), refresh: false, promise: null }
+  requests.set(key, request)
+  const isCurrent = () => requests.get(key) === request
+  request.promise = (async () => {
+    do {
+      request.refresh = false
+      const previous = stateOf(key)
+      if (!previous || previous.status !== 'ready') nodes[key] = { status: 'loading', items: [] }
+      try {
+        const items = await props.loadItems(key, { force, signal: request.controller.signal })
+        if (!isCurrent()) return
+        replaceChildren(key, descendantsOf(key, items))
+      } catch (error) {
+        if (!isCurrent()) return
+        if (!previous || previous.status !== 'ready' || [400, 401, 403, 404, 409, 410].includes(error?.response?.status)) {
+          replaceChildren(key, [])
+          nodes[key].status = 'error'
+        }
+      }
+      force = request.refresh
+    } while (force && isCurrent())
+  })().finally(() => {
+    if (isCurrent()) requests.delete(key)
+  })
+  return request.promise
 }
 
 function expand(path) {
   expandedPaths.add(keyFor(path))
-  void ensureLoaded(path)
 }
 
 function toggle(path) {
@@ -168,12 +246,11 @@ function open(path) {
 }
 
 function select(node, event) {
-  if (canDrag(node)) {
-    updateSelection(node, event)
-    if (event?.shiftKey || event?.metaKey || event?.ctrlKey) return
-  } else {
-    clearSelection()
-  }
+  if (props.selectionMode) updateSelection(node, event)
+  else openNode(node)
+}
+
+function openNode(node) {
   if (node?.type === 'file') {
     emit('open-file', node.item || node)
     return
@@ -187,7 +264,7 @@ function startDrag(node, event) {
     return
   }
   if (!selectedPaths.has(keyFor(node.path))) updateSelection(node)
-  const selectedNodes = visibleDraggableNodes().filter(item => selectedPaths.has(keyFor(item.path)))
+  const selectedNodes = visibleNodes().filter(item => canDrag(item) && selectedPaths.has(keyFor(item.path)))
   const dragNodes = selectedNodes.length ? selectedNodes : [node]
   const payload = writeProjectItemDrag(event.dataTransfer, {
     projectId: props.dragScope.projectId,
@@ -224,23 +301,79 @@ function chainTo(path) {
   return chain
 }
 
-watch(
-  () => [props.rootPath, props.activePath],
-  () => {
-    expand(props.rootPath)
-    if (props.activePath === null) return
-    for (const path of chainTo(props.activePath)) expand(path)
-  },
-  { immediate: true },
-)
+function revealActivePath() {
+  expand(props.rootPath)
+  if (props.activePath === null) return
+  for (const path of chainTo(props.activePath)) expand(path)
+}
+
+function cancelLoads() {
+  for (const request of requests.values()) request.controller.abort()
+  requests.clear()
+}
 
 watch(
-  () => props.dragScope?.projectId || '',
-  clearSelection,
+  [
+    () => props.rootPath,
+    () => props.watchScope?.userId,
+    () => props.watchScope?.projectId,
+    () => props.watchScope?.shareId,
+    () => props.watchScope?.shareToken,
+  ],
+  () => {
+    cancelLoads()
+    for (const path of Object.keys(nodes)) delete nodes[path]
+    expandedPaths.clear()
+    revealedPaths.clear()
+    clearSelection()
+    if (draggingPaths.size) finishDrag()
+    revealActivePath()
+  },
+  { immediate: true, flush: 'sync' },
 )
+
+watch(() => props.activePath, revealActivePath)
+
+const visibleExpandedPaths = computed(() => {
+  const paths = []
+  if (!props.active) return paths
+  function visit(path) {
+    if (!isExpanded(path)) return
+    paths.push(keyFor(path))
+    for (const child of visibleChildrenOf(path)) {
+      if (child.type !== 'file') visit(child.path)
+    }
+  }
+  visit(props.rootPath)
+  return paths
+})
+
+watch(visibleExpandedPaths, (paths, previous = []) => {
+  const previousPaths = new Set(previous)
+  for (const path of paths) {
+    if (!previousPaths.has(path) || !stateOf(path)) void ensureLoaded(path, { force: true })
+  }
+}, { immediate: true })
+
+useFolderChanges(
+  () => props.watchScope && visibleExpandedPaths.value.length
+    ? { ...props.watchScope, paths: visibleExpandedPaths.value }
+    : null,
+  async (paths) => {
+    const visible = new Set(visibleExpandedPaths.value)
+    await Promise.all(paths.filter(path => visible.has(path)).map(path => ensureLoaded(path, { force: true })))
+  },
+)
+
+onBeforeUnmount(() => {
+  cancelLoads()
+  if (draggingPaths.size) finishDrag()
+})
 
 provide(navigatorTreeKey, {
   childrenOf,
+  visibleChildrenOf,
+  revealAll,
   emptyLabel: props.emptyLabel,
   hasError,
   hasLoaded,
@@ -252,6 +385,9 @@ provide(navigatorTreeKey, {
   isLoading,
   isSelected,
   open,
+  openNode,
+  selectionMode: computed(() => props.selectionMode),
+  thumbnailFor: (node) => props.active ? props.thumbnailFor?.(node.item) || '' : '',
   select,
   startDrag,
   finishDrag,

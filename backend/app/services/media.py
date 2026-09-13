@@ -339,8 +339,9 @@ def generate_thumbnail(media_path: Path, output_path: Path, *, width: int = THUM
     from app.services.media_processing import render_thumbnail
     temporary = output_path.with_name(f'{output_path.stem}.{uuid4().hex}.part{output_path.suffix}')
     try:
-        info = get_video_info(media_path)
-        seek_time = 0 if not info or not info.get('valid', False) or info.get('duration', 0) <= 0 else max(1, info['duration'] * 0.1)
+        info = {} if is_image(media_path) else get_video_info(media_path)
+        duration = float(info.get('duration') or 0)
+        seek_time = min(max(1, duration * 0.1), duration / 2) if info.get('valid') and duration > 0 else 0
         for seek in dict.fromkeys((seek_time, 0)):
             if render_thumbnail(media_path, temporary, width=max(320, int(width)), seek=seek) and temporary.is_file() and temporary.stat().st_size > 0:
                 temporary.replace(output_path)

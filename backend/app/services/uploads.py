@@ -14,7 +14,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.models import UploadItem, UploadSession
+from app.models import HorizonProject, ShareLink, UploadItem, UploadSession
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.storage_capacity import ensure_path_capacity
 
@@ -497,6 +497,21 @@ def create_or_resume_upload_session(
     client_key: str | None = None,
 ) -> tuple[UploadSession, list[UploadItem]]:
     cleanup_expired_upload_sessions(db)
+    # Serialize new uploads with project-folder changes. Shared uploads retain
+    # their existing session scope; their owning project is only used for locking.
+    folder_project_id = project_id
+    if not folder_project_id and share_id:
+        share = db.get(ShareLink, share_id)
+        if share is not None and share.share_type in {'project-folder', 'page'}:
+            folder_project_id = share.project_id
+    if folder_project_id:
+        from app.services.projects import lock_project_storage, resolve_project_root
+
+        project = db.get(HorizonProject, folder_project_id)
+        if project is not None:
+            lock_project_storage(db, project)
+        if project is None or resolve_project_root(project).resolve() != root_dir.resolve():
+            raise HTTPException(status_code=409, detail='The project folder changed. Refresh the project before uploading.')
     normalized_base_path = normalize_upload_rel_path(base_path, allow_empty=True)
     normalized_uploader = validate_uploader_name(uploader_name)
     batch_id = str(client_batch_id or '').strip()
