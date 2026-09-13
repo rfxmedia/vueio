@@ -5,9 +5,11 @@ LABEL org.opencontainers.image.title="Vue.io Engine" \
       org.opencontainers.image.url="https://polyformproject.org/licenses/perimeter/1.0.1"
 
 # Install only the runtime media stack.
+# FFmpeg uses cJSON core. Its optional JSON-patch utilities are not needed.
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends ffmpeg mesa-va-drivers pciutils && \
+    rm -f /usr/lib/*-linux-gnu/libcjson_utils.so.* && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
