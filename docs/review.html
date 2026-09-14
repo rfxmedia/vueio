@@ -1,48 +1,177 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Review &amp; versions · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
 <body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
-<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" aria-current="page">Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" aria-current="page">Review &amp; versions</a><a href="workspace.html" >Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Guide version<br>v0.1.0-alpha.13<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
 <main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="review-and-version-history">Review and version history</h1>
-<p>Keep the shot, its versions, and the conversation in the same place.
-Vue.io combines media review with the surrounding production workflow.</p>
-<p><img src="assets/tracker.png" alt="The Vue.io tracker: versions, status, assignments, briefs, and review notes"></p>
-<p><em>LOW TIDE is a fictional demo project with synthetic media and team profiles.</em></p>
-<h2 id="organize-a-project">Organize a project</h2>
-<p>A project brings together trackers, files, and project pages. Use a tracker
-for a sequence, episode, or delivery group. Use project pages for briefs and
-reference information that the team needs alongside the media.</p>
-<p>Trackers organize shots with a status, assignee, tags, and a brief. The file
-navigator keeps available files close to the review workflow. Access depends
-on each user's project and workspace permissions.</p>
-<h2 id="keep-revisions-on-the-same-shot">Keep revisions on the same shot</h2>
-<p>Import the initial media, then add subsequent revisions as versions of the
-same shot. Use the version selector to return to an earlier revision instead
-of creating a separate shot for every export.</p>
-<p>This is <strong>media version history</strong>, not Git-style source control. It does not
-merge edits or replace versioning in your creative application.</p>
-<h2 id="leave-feedback-in-context">Leave feedback in context</h2>
-<p>Open a shot version or supported file in the viewer. For video, move to the
-relevant moment before writing a note. Use visual annotations when a specific
-area needs attention, and reply to the existing conversation when following up.</p>
-<p>Comments can include attachments and voice notes. English voice-note
-transcription runs inside the media engine with the bundled model rather
-than sending the audio to a transcription service.</p>
-<p>Keep the <strong>brief</strong> for the intended work and the <strong>latest notes</strong> for the
-current revision. Changing a shot's status is not the same as adding a version.</p>
-<h2 id="compare-revisions">Compare revisions</h2>
-<p>Use the viewer's version comparison controls to inspect two available versions.
-Check the selected versions before making a judgment. Availability depends on
-the media and its previews; read current release notes for fixes and limitations.</p>
-<h2 id="preview-a-look-without-changing-the-source">Preview a look without changing the source</h2>
-<p>Use <strong>Color preview</strong> to apply a saved workspace LUT or a temporary <code>.cube</code>
-file. Administrators manage the shared library in <strong>Settings → Preview LUTs</strong>.</p>
-<p>LUTs affect the preview, not original media or ordinary downloads. Select a
-LUT appropriate for the source encoding. Browser preview is not a substitute
-for a calibrated color-finishing pipeline.</p>
-<p><a href="self-hosting.html#workspace-preview-luts">LUT formats and limits →</a></p>
-<h2 id="finish-with-a-handoff">Finish with a handoff</h2>
-<p>Confirm the intended version and files, then use the appropriate share or
-delivery action. Check the result as a recipient, including available downloads.</p>
-<p><a href="sharing.html">Sharing and delivery →</a></p>
-<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/REVIEW_WORKFLOW.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#organize-a-project">Organize a project</a><a href="#keep-revisions-on-the-same-shot">Keep revisions on the same shot</a><a href="#leave-feedback-in-context">Leave feedback in context</a><a href="#compare-revisions">Compare revisions</a><a href="#preview-a-look-without-changing-the-source">Preview a look without changing the source</a><a href="#finish-with-a-handoff">Finish with a handoff</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<p>Use a tracker to organize shots. Keep each shot's revisions in its version list.
+Use comments for review feedback. Use the brief to describe the required work.</p>
+<p><img src="assets/tracker.png" alt="Vue.io tracker with versions, status, assignments, briefs, and notes"></p>
+<p><em>LOW TIDE is a fictional project with synthetic media and team profiles.</em></p>
+<h2 id="create-a-project-and-tracker">Create a project and tracker</h2>
+<p>Use an administrator account for this first workflow.
+Project owners can also create trackers if their account permits project management.</p>
+<ol>
+<li>Open <strong>Projects</strong>.</li>
+<li>Select <strong>New project</strong>.</li>
+<li>Enter a title.</li>
+<li>Select an existing <strong>Working project folder</strong>, or create a new folder in the picker.</li>
+<li>Select <strong>Create</strong>.</li>
+<li>In the project, select <strong>New → Vue Tracker</strong>.</li>
+<li>Enter a tracker name.</li>
+<li>Select <strong>Create</strong>.</li>
+</ol>
+<p>The tracker opens inside the project. It does not move or copy existing media by itself.
+For team permissions and project dashboards, see <a href="workspace.html">Workspace and team</a>.</p>
+<h2 id="add-the-first-shots">Add the first shots</h2>
+<p>The tracker imports files that the host can access. It cannot read a disk attached only to your reviewing computer.</p>
+<ol>
+<li>If the files are on your reviewing computer, select <strong>New → Upload Files</strong> in the project.</li>
+<li>Select <strong>Choose files</strong> or <strong>Choose folder</strong>.</li>
+<li>Wait until the upload list shows <strong>Done</strong>.</li>
+<li>Open the tracker.</li>
+<li>Select <strong>Import → Add Shots</strong>.</li>
+<li>Browse <strong>Project Files</strong>. Users with file-browser access can also browse <strong>Storage</strong>.</li>
+<li>Select the media files.</li>
+<li>Use the import button at the bottom of the picker.</li>
+</ol>
+<p><strong>Import all</strong> beside a folder imports its compatible files. Start with selected files if the folder contains unrelated material.
+Confirm the resulting shot names and media before continuing.
+An imported shot can appear before its preview is ready.</p>
+<h2 id="add-a-version-to-an-existing-shot">Add a version to an existing shot</h2>
+<ol>
+<li>Upload the revision to the project, or place it in an authorized media location.</li>
+<li>Open the shot's version menu.</li>
+<li>Select <strong>Add version</strong>.</li>
+<li>Confirm the <strong>Current shot</strong> shown in the picker.</li>
+<li>Select the revision file.</li>
+<li>Add version notes if needed.</li>
+<li>Select <strong>Add Version</strong>.</li>
+</ol>
+<p>The file becomes another version of that shot. Select an earlier version to review it again.
+For several shots, use <strong>Import → Bulk Update</strong>.
+Select a file for the current shot, then select <strong>Add &amp; Next</strong>.
+Check the target shot at each step; this is not automatic filename matching.</p>
+<p>This is media version history, not source-code version control.
+Vue.io does not merge edits or replace versioning in your creative application.
+Keep a separate source file for each revision. Overwriting that file does not preserve its old contents.</p>
+<h2 id="organize-shots">Organize shots</h2>
+<p>Use the tracker controls to change status, tags, and assignees when your permissions allow it.
+A shot can have more than one assignee.
+Use <strong>List</strong> or <strong>Grid</strong>, then sort, group, or filter the shots.
+Filters include status, tag, and assignee. Publication filters appear for users who can manage publication.</p>
+<p>Select several shots to change their status, tag, or assignments together.
+The selection bar also provides download and archive actions when permitted.
+Check the selection count before a bulk action.</p>
+<p><strong>Archive</strong> removes a shot from the active view. The archived view provides <strong>Restore</strong>.
+<strong>Delete permanently</strong> removes the archived shot's versions, comments, and comment attachments.
+Source media files stay in the project. This action is different from deleting a file.</p>
+<h2 id="write-comments-and-annotations">Write comments and annotations</h2>
+<ol>
+<li>Open the required shot version or file.</li>
+<li>For video, pause at the relevant time. For a PDF, select the relevant page.</li>
+<li>Enter the review comment.</li>
+<li>To mark an area, select <strong>Add Drawing</strong> and complete the drawing.</li>
+<li>Submit the comment.</li>
+<li>Confirm that the comment appears against the intended media and time or page.</li>
+</ol>
+<p>Reply to a comment to keep its discussion together.
+Comments can include uploaded attachments and references to existing project content.
+Type <code>@</code> and select a search result to insert an available person or content reference.
+Typing plain text alone does not create a linked reference.
+Recipients still need permission to open referenced content.</p>
+<p>Use <strong>Record voice note</strong> to record audio if the browser supports recording.
+Allow microphone access when the browser asks.
+Stop the recording, then submit the comment. Voice notes have a five-minute limit.
+Vue.io processes English transcription locally with its bundled model.
+Review the transcript for errors; it is not a verified record of the spoken words.</p>
+<h2 id="control-which-versions-appear-in-shares">Control which versions appear in shares</h2>
+<p>Open the tracker <strong>Settings</strong>. Enable <strong>Approve versions before sharing</strong> before adding revisions that need internal approval.
+This changes the initial visibility of new versions. It does not publish or hide existing versions.</p>
+<table>
+<thead>
+<tr>
+<th>Version state</th>
+<th>Effect</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Awaiting publication</strong></td>
+<td>A new version awaits a publication decision. Share visitors cannot see it.</td>
+</tr>
+<tr>
+<td><strong>Internal</strong></td>
+<td>The version is not published to shares. Authorized team users can still review it.</td>
+</tr>
+<tr>
+<td><strong>Published</strong></td>
+<td>The version is available through an applicable share, subject to that share's access rules.</td>
+</tr>
+</tbody>
+</table>
+<p>A project owner or administrator uses the version menu to publish or unpublish a version.
+<strong>Publish to Review</strong> publishes the latest version.
+For active shots in <strong>Not Started</strong>, <strong>In Progress</strong>, or <strong>Edits Requested</strong>, this also changes the status to <strong>Review</strong>.
+Publishing an older version does not make that status change.
+Other statuses and archived shots are not automatically changed.</p>
+<p>Publishing a newer version makes older awaiting versions internal. It does not remove older published versions.
+Republishing an older version can make it the current version shown to share visitors.
+Check the link as a signed-out visitor after changing publication.</p>
+<p>When approval is off, new versions normally publish when added.
+Unavailable media cannot be published. A status change alone does not publish a held version.
+Publication is not a separate copy of the file or an immutable delivery package.</p>
+<h2 id="media-preview-support">Media preview support</h2>
+<p>The viewer has video, image, and PDF views.
+Video controls include playback, seeking, volume, looping, quality selection, and fullscreen.
+Available quality choices depend on the media and its previews. Other files can still be stored and downloaded when permitted.
+Recognized filename extensions do not guarantee a working preview.
+Playback depends on the actual codec, generated previews, browser support, and available storage.
+For camera formats such as R3D or BRAW, test a representative file before relying on preview support.</p>
+<h2 id="compare-two-revisions">Compare two revisions</h2>
+<ol>
+<li>Open a shot with at least two available versions.</li>
+<li>Open <strong>Compare</strong> in the viewer.</li>
+<li>Select the versions in <strong>A</strong> and <strong>B</strong>.</li>
+<li>Select <strong>Side by side</strong> or <strong>Wipe</strong>.</li>
+<li>In <strong>Wipe</strong>, drag the divider to compare the images.</li>
+<li>Select <strong>Done</strong> to return to the normal viewer.</li>
+</ol>
+<p>Choose two videos or two images from the same shot.
+Mixed media pairs and PDFs are not supported by this comparison view.
+Playback depends on available source files and previews.
+Do not assume frame-accurate synchronization for different frame rates or durations.</p>
+<p>If the control is missing, check <strong>Settings → Comparison</strong> for that tracker.
+The owner can disable it or limit it to administrators, team members, or team members and share visitors.</p>
+<h2 id="use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</h2>
+<p>Open <strong>Color preview</strong> in the image or video viewer.
+Select a saved lookup table (LUT), or select <strong>Load temporary LUT</strong> for a local <code>.cube</code> file.
+Select <strong>Source</strong> to remove the preview look.
+Administrators manage saved LUTs in <strong>Settings → Preview LUTs</strong>.</p>
+<p>LUTs change the viewer and captured video frames. They do not change source files or source-file downloads.
+The frame menu provides <strong>Copy frame</strong>, <strong>Download frame</strong>, and thumbnail controls when available.
+Check its annotation option before capture.
+Browser clipboard permissions can prevent copying. Thumbnail changes require a permitted signed-in user.
+The source-download setting does not disable frame capture in this release.</p>
+<p>A temporary LUT stays in browser memory until the page closes or refreshes.
+For animated images, LUT mode shows one frame. Select <strong>Source</strong> to see the animation.
+Choose a LUT that matches the source encoding. Browser preview is not calibrated color finishing.</p>
+<p><a href="self-hosting.html#workspace-preview-luts">Supported LUT files and library limits</a></p>
+<h2 id="inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</h2>
+<p>Open the tracker's <strong>Details</strong> panel to inspect progress and activity.
+Select <strong>History</strong> to inspect recorded changes.
+The tracker settings control who can see Details.</p>
+<p>A project owner or administrator with project-management access can select <strong>Restore</strong> beside an available saved point.
+The project must be writable and Details must be enabled.
+Read the preview before confirming: it returns the whole tracker to the state after that event.
+It can change shots, versions, assignments, and comments, including changes made after that point.
+It is not a single-field undo and does not restore the entire workspace.</p>
+<p>Not every event has a usable saved point. Older, oversized, or unavailable records can lack one.
+History does not recover missing source-media bytes. Keep database and file backups independently.
+Do not restore History during another person's active edits without coordinating the change.</p>
+<h2 id="deliver-the-selected-work">Deliver the selected work</h2>
+<p>Confirm version publication and filenames before sending a link.
+Tracker downloads use the latest available version for each included shot, not every revision.
+Filters and selection can change which shots an internal tracker download includes.</p>
+<p><a href="sharing.html">Sharing and delivery</a></p>
+<footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/REVIEW_WORKFLOW.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#create-a-project-and-tracker">Create a project and tracker</a><a href="#add-the-first-shots">Add the first shots</a><a href="#add-a-version-to-an-existing-shot">Add a version to an existing shot</a><a href="#organize-shots">Organize shots</a><a href="#write-comments-and-annotations">Write comments and annotations</a><a href="#control-which-versions-appear-in-shares">Control which versions appear in shares</a><a href="#media-preview-support">Media preview support</a><a href="#compare-two-revisions">Compare two revisions</a><a href="#use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</a><a href="#inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</a><a href="#deliver-the-selected-work">Deliver the selected work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

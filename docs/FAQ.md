@@ -21,7 +21,7 @@ tracking, project pages, files, and selected local storage into the workspace.
 
 It is not Frame.io, is not affiliated with Adobe, and does not promise identical
 features, native integrations, enterprise support, or automatic migration.
-Check the workflow you need before switching a production.
+Check the workflow you need before moving an active project.
 
 ## Does version history mean Git?
 
@@ -72,8 +72,7 @@ backups before putting important work on it.
 
 ## Was it built with AI?
 
-Vue.io uses human-directed, AI-assisted engineering. The useful question is
-whether the released version reliably handles your workflow. Release notes
+Vue.io uses human-directed, AI-assisted engineering. Release notes
 describe changes and limitations; reproducible reports help improve it.
 AI-assisted development is not itself a reliability or security guarantee.
 

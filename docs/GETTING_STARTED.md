@@ -73,14 +73,22 @@ The output contains a private setup code. Do not post it in an issue or screensh
 
 ## 4. Complete a first review
 
-1. Confirm the selected media location in **Settings → Storage**.
-2. Create a small project with non-sensitive sample media.
-3. Create a tracker and import a shot or file using the available import options.
-4. Open the media and leave a review note.
-5. Add a new version to the same shot, then check its version history.
+Use the owner account for these steps.
 
-Follow [Review workflow](REVIEW_WORKFLOW.md) for the project-to-delivery process.
-Test with a second permitted user or share visitor before relying on the setup.
+1. Confirm the selected media location in **Settings → Storage**.
+2. Open **Projects → New project**.
+3. Enter a title and select a **Working project folder**.
+4. Select **Create**.
+5. In the project, select **New → Upload Files** and upload non-sensitive sample media.
+6. Wait until the upload shows **Done**.
+7. Select **New → Vue Tracker** and create a tracker.
+8. Select **Import → Add Shots**, then choose the uploaded media in **Project Files**.
+9. Complete the import and open the resulting shot.
+10. Post a review comment and confirm that it appears.
+
+Use [Review and version history](REVIEW_WORKFLOW.md) to add a revision, compare versions, and control publication.
+Use [Workspace and team](WORKSPACE.md) to add a restricted member.
+Check a share in a signed-out browser before inviting a client.
 
 ## 5. Set up remote access
 

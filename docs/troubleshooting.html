@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Troubleshooting · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
 <body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
-<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" aria-current="page">Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="workspace.html" >Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" aria-current="page">Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Guide version<br>v0.1.0-alpha.13<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
 <main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="troubleshooting">Troubleshooting</h1>
 <p>Start with the installed release, host platform, and first failing step.
 Avoid changing storage or reinstalling until you understand the failure.</p>
@@ -36,7 +36,7 @@ marker, fabricate a replacement, or initialize a new database to silence the err
 the host has free disk space. Large files need time and CPU resources to
 create previews. A file extension alone does not guarantee codec support.</p>
 <p>CPU processing is the default. If you enabled GPU processing, review its
-hardware check and CPU fallback status in <strong>Settings → Storage &amp; previews</strong>.
+hardware check and CPU fallback status in <strong>Settings → Storage → Preview processing</strong>.
 A detected GPU is not the same as a verified working encoder.</p>
 <p><a href="self-hosting.html#preview-processing">Preview processing →</a></p>
 <h2 id="a-share-or-upload-works-locally-but-fails-remotely">A share or upload works locally but fails remotely</h2>
@@ -45,6 +45,34 @@ storage is connected, the HTTPS origin matches Vue.io's exposure configuration,
 and the share permits the intended action.</p>
 <p>Check proxy or tunnel upload limits and timeouts. A working small file does
 not prove a large delivery fits the intermediary's limits.</p>
+<h2 id="a-version-is-missing-from-a-share">A version is missing from a share</h2>
+<p>Check the version menu as a project owner or administrator.
+<strong>Awaiting publication</strong> and <strong>Internal</strong> versions are not share-visible.
+Publish the intended version, then reload the share in a signed-out browser.
+A status change or disabling approval does not publish an existing held version.
+See <a href="review.html#control-which-versions-appear-in-shares">Version publication</a>.</p>
+<h2 id="a-team-member-cannot-see-a-project-or-shot">A team member cannot see a project or shot</h2>
+<p>Check both the account's workspace access and the project's team settings.
+For a member without <strong>Manage project content</strong>, check shot assignments and the member's workspace folder.
+Read-only storage can prevent changes even when the member has project edit permission.
+Do not grant administrator access just to hide a missing-permission problem.
+See <a href="workspace.html#set-project-access">Project access</a>.</p>
+<h2 id="compare-is-missing-or-rejects-the-pair">Compare is missing or rejects the pair</h2>
+<p>Enable <strong>Comparison</strong> in the tracker's <strong>Settings</strong> for the intended audience.
+Select two videos or two images from the same shot.
+Mixed pairs and PDFs are not supported. Both source files must be available.</p>
+<h2 id="an-upload-reports-a-limit-or-low-space-error">An upload reports a limit or low-space error</h2>
+<p>Check the file size, total upload size, file count, and free space on the destination.
+Defaults include 100 GiB per file, 500 GiB per session, and a 20 GiB free-space reserve.
+Public requests also have per-link limits.
+A proxy or tunnel can reject a transfer before Vue.io receives it.
+See <a href="self-hosting.html#upload-safety-limits">Upload safety limits</a>.</p>
+<h2 id="a-voice-note-has-no-transcript">A voice note has no transcript</h2>
+<p>Check that the recording was submitted and can play.
+Transcription processes one English recording at a time and can wait behind other recordings.
+It can fail if the model, media, or processor is unavailable.
+An administrator can disable transcription in host configuration.
+Do not delete a valid recording merely because its transcript is missing.</p>
 <h2 id="settings-cannot-install-an-update">Settings cannot install an update</h2>
 <p>Confirm you are an administrator on an installer-managed installation. Older
 hosts need <a href="self-hosting.html#enable-updates-on-an-existing-installation">one-time updater setup</a>.
@@ -62,5 +90,5 @@ second maintenance operation while one is active.</p>
 <p>Review logs before sharing. Remove credentials, setup codes, private paths,
 personal information, and client media. Never post database backups.
 Report vulnerabilities privately using the <a href="https://github.com/rfxmedia/vueio/blob/stable/SECURITY.md">security policy</a>.</p>
-<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/TROUBLESHOOTING.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#the-installer-says-docker-is-missing">The installer says Docker is missing</a><a href="#the-page-will-not-open-from-another-computer">The page will not open from another computer</a><a href="#i-lost-the-setup-code">I lost the setup code</a><a href="#a-drive-or-folder-is-missing">A drive or folder is missing</a><a href="#media-will-not-play-or-is-still-processing">Media will not play or is still processing</a><a href="#a-share-or-upload-works-locally-but-fails-remotely">A share or upload works locally but fails remotely</a><a href="#settings-cannot-install-an-update">Settings cannot install an update</a><a href="#report-a-reproducible-problem">Report a reproducible problem</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/TROUBLESHOOTING.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#the-installer-says-docker-is-missing">The installer says Docker is missing</a><a href="#the-page-will-not-open-from-another-computer">The page will not open from another computer</a><a href="#i-lost-the-setup-code">I lost the setup code</a><a href="#a-drive-or-folder-is-missing">A drive or folder is missing</a><a href="#media-will-not-play-or-is-still-processing">Media will not play or is still processing</a><a href="#a-share-or-upload-works-locally-but-fails-remotely">A share or upload works locally but fails remotely</a><a href="#a-version-is-missing-from-a-share">A version is missing from a share</a><a href="#a-team-member-cannot-see-a-project-or-shot">A team member cannot see a project or shot</a><a href="#compare-is-missing-or-rejects-the-pair">Compare is missing or rejects the pair</a><a href="#an-upload-reports-a-limit-or-low-space-error">An upload reports a limit or low-space error</a><a href="#a-voice-note-has-no-transcript">A voice note has no transcript</a><a href="#settings-cannot-install-an-update">Settings cannot install an update</a><a href="#report-a-reproducible-problem">Report a reproducible problem</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

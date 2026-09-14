@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Workspace &amp; team · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
+<body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="workspace.html" aria-current="page">Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Guide version<br>v0.1.0-alpha.13<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="workspace-and-team">Workspace and team</h1>
+<p>Use projects for related work. Use trackers for shots and revisions.
+Use Vue Dashboards for project information and resources.</p>
+<h2 id="find-work-and-change-project-status">Find work and change project status</h2>
+<p><strong>Home → Your work</strong> lists assigned shots that need work.
+Open a shot to return to its tracker and review context.
+The project list provides sorting, filtering, and status grouping.
+Users with project-settings access can change status from the project card's status control.
+Changing project status does not publish shot versions.</p>
+<p>Administrators can use <strong>Search workspace</strong> to find projects, trackers, and files.
+Enter at least two characters and select a result.
+This global search control is not available to members or share visitors in alpha.13.
+Use project navigation and tracker filters for those accounts.</p>
+<h2 id="add-team-members">Add team members</h2>
+<p>Administrators manage accounts in <strong>Settings → Team</strong>.
+A member with <strong>Manage members</strong> access can manage accounts only within their permitted access level.</p>
+<ol>
+<li>Select <strong>Add member</strong>.</li>
+<li>Enter a <strong>Username</strong>, <strong>Display name</strong>, and <strong>Password</strong>.</li>
+<li>Choose <strong>Account type</strong>.</li>
+<li>For a member, select the required workspace access.</li>
+<li>Save the account.</li>
+<li>Give the person their sign-in details through a private channel.</li>
+</ol>
+<p>Usernames cannot be changed later. Users can change their password in <strong>Settings → Account</strong>.
+Creating an account is not an email invitation or a grant to every project.</p>
+<h2 id="set-project-access">Set project access</h2>
+<p>Workspace access and project access are separate controls.
+An administrator has full workspace access. A member receives the workspace capabilities selected for their account.
+These include <strong>Projects</strong>, <strong>Files</strong>, <strong>Manage project content</strong>, <strong>Create projects</strong>, <strong>Delete projects</strong>, and <strong>Manage members</strong>.</p>
+<p>The project owner or administrator manages the project's team in project <strong>Settings</strong>.
+Add an existing account and choose <strong>Can view</strong> or <strong>Can edit</strong>.
+The creator retains owner access. Project access does not override account restrictions or read-only storage.</p>
+<p>Members without <strong>Manage project content</strong> have restricted project access.
+Assignments determine which shots they can see.
+Their project file changes are limited to their own workspace folder.
+Assigning a shot can create project membership for the assignee; review access after assigning work.</p>
+<p>Use a member account to verify the intended view.
+Do not use an administrator account to assess what a restricted user can access.
+Share visitors use the separate <a href="sharing.html">share-link rules</a>.</p>
+<h2 id="create-a-vue-dashboard">Create a Vue Dashboard</h2>
+<ol>
+<li>Open the project.</li>
+<li>Select <strong>New → Vue Dashboard</strong>.</li>
+<li>Enter a title.</li>
+<li>Select <strong>Create Vue Dashboard</strong>.</li>
+<li>Select <strong>Add block</strong>.</li>
+<li>Choose a block type and enter its content.</li>
+</ol>
+<table>
+<thead>
+<tr>
+<th>Block</th>
+<th>Use</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Text</strong></td>
+<td>Write a brief, notes, or project information.</td>
+</tr>
+<tr>
+<td><strong>Vue Trackers</strong></td>
+<td>Include selected project trackers.</td>
+</tr>
+<tr>
+<td><strong>Resources</strong></td>
+<td>Add links, authorized storage files, or uploaded files.</td>
+</tr>
+<tr>
+<td><strong>Client uploads</strong></td>
+<td>Collect files in the configured project target.</td>
+</tr>
+</tbody>
+</table>
+<p>Dashboard edits save automatically. Wait for <strong>Saved</strong>; investigate <strong>Could not save</strong> before leaving the page.
+Dashboard edits require project edit access.
+Check a shared dashboard as a visitor; team access does not prove share access.
+For incoming files, confirm the block's target and upload permissions with a small sample.</p>
+<h2 id="work-with-project-files">Work with project files</h2>
+<p>Use <strong>New → Folder</strong> to create a folder in the current project location.
+Use <strong>New → Upload Files</strong> to copy files from your browser's computer.
+Use <strong>New → Link from storage</strong> to reference available files on authorized host storage.
+A link depends on the original storage remaining connected.</p>
+<p>A single click selects a sidebar file. Double-click opens it.
+Open folders refresh when visible files change.
+Large folders, network storage, or files still being written can take longer to update.
+See <a href="self-hosting.html#automatic-folder-updates">Automatic folder updates</a>.</p>
+<p>File deletion is not the same as removing a version from a tracker.
+Read the confirmation for the selected operation before deleting content.
+For moved project folders, use <a href="storage.html#change-a-project-folder">Change a project folder</a>.</p>
+<h2 id="read-notifications">Read notifications</h2>
+<p>The notification tray shows activity that your account can access.
+Open a notification to return to the related content.
+Use <strong>Settings → Notifications</strong> to select activity categories and delivery channels.
+Categories include comments, status, assignments, versions, downloads, and general updates.</p>
+<p>Discord delivery needs an administrator-configured bot and channel mapping.
+Selecting Discord in personal preferences does not create that connection.
+To configure it, an administrator opens <strong>Settings → Notifications</strong>:</p>
+<ol>
+<li>Enter the bot's <strong>Application ID</strong>, <strong>Public base URL</strong>, and <strong>Bot token</strong>.</li>
+<li>Save the provider settings.</li>
+<li>Use <strong>Open invite</strong> to add the bot to the intended Discord server.</li>
+<li>Give the bot access to the intended channel in Discord.</li>
+<li>Use <strong>Connect Discord channel</strong>.</li>
+<li>Select the Vue.io <strong>Recipient</strong>, channel ID, scope, and activity filters.</li>
+<li>Save the mapping.</li>
+<li>Select <strong>Test</strong>, then inspect <strong>Delivery history</strong>.</li>
+</ol>
+<p>Vue.io evaluates activity using the selected recipient's visibility and preferences.
+Discord messages leave your host. Use a channel whose members may receive that project information.
+Keep the bot token private. Leave <strong>Mention @everyone</strong> off unless that notification is intentional.</p>
+<h2 id="connect-an-agent">Connect an agent</h2>
+<p>An agent uses a key bound to a Vue.io user. It inherits that user's current permissions.
+It does not receive unrestricted workspace access merely because it is an agent.</p>
+<ol>
+<li>Open <strong>Settings → Agent keys</strong>.</li>
+<li>Select <strong>New key</strong>, or <strong>New personal key</strong> for an administrator's own key.</li>
+<li>Save the displayed key in the agent's private configuration.</li>
+<li>Select <strong>Copy skill</strong> for the app-provided API instructions.</li>
+<li>Configure the agent to send the key in the <code>X-Vueio-Agent-Key</code> header.</li>
+</ol>
+<p><strong>New managed key</strong> in this UI creates a key for the current administrator.
+For a restricted agent, create a personal key while signed in as the intended member.
+The full key is shown once. <strong>Reissue</strong> replaces its value; update the agent after reissuing.
+<strong>Reissue and copy skill</strong> also replaces the key. It is not a read-only copy action.
+Revoke keys that are no longer needed.</p>
+<p>Agents use the application's authenticated API routes.
+They remain subject to account access, project roles, assignments, and content visibility.
+Host storage registration and browser-only administration do not become available through an agent key.
+Do not put a key in a URL, shared document, or public issue.</p>
+<h2 id="change-workspace-appearance">Change workspace appearance</h2>
+<p>Administrators set the team name and logo in <strong>Settings → Team</strong>.
+Trackers can override the greeting and logo for their delivery page.
+Administrators change workspace colors in <strong>Settings → Theme</strong>.
+Check text contrast in the preview before saving changes.
+These controls change presentation, not project permissions or storage.</p>
+<footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/WORKSPACE.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#find-work-and-change-project-status">Find work and change project status</a><a href="#add-team-members">Add team members</a><a href="#set-project-access">Set project access</a><a href="#create-a-vue-dashboard">Create a Vue Dashboard</a><a href="#work-with-project-files">Work with project files</a><a href="#read-notifications">Read notifications</a><a href="#connect-an-agent">Connect an agent</a><a href="#change-workspace-appearance">Change workspace appearance</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

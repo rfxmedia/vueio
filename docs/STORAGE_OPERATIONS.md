@@ -21,7 +21,8 @@ database into a newly selected folder.
 ## Connect storage
 
 Open **Settings → Storage**. The initial media location is already connected.
-For another supported drive, mount it on the Vue.io host, then use **Add storage**.
+For another eligible local drive, mount it on the Vue.io host, then use **Add storage**.
+The picker does not register arbitrary network paths. Use the host command for mounted network shares.
 A disk attached only to the reviewing computer is not host storage.
 
 The application must be authorized to access the intended folder. Vue.io uses
@@ -33,6 +34,27 @@ FAT/exFAT can hold media but are not supported database locations.
 
 [Storage registration and permissions →](SELF_HOSTING.md#storage)
 
+## Change a project folder
+
+An administrator can open a project card's menu and select **Project folder**.
+Use this when files have moved or when an internal project needs a working folder.
+
+1. Select the folder that contains the project's files.
+2. If offered, enable **Copy Vue's internal files into this folder** only when a copy is needed.
+3. Continue to the preview.
+4. Review matched files, missing files, and conflicts.
+5. Confirm only when the destination and matches are correct.
+6. Check shot playback, comments, and an existing share link.
+
+Without the copy option, Vue.io changes file locations in its records. It does not move the source files.
+The copy option copies internal files without overwriting existing destination files. It retains the original copy.
+Keep original files until you verify the result.
+Read-only destinations support relinking, playback, and downloads, but not uploads or file changes.
+
+If only some media is missing, use **Find media** in the project's offline-media notice.
+This searches the selected folder and its subfolders for exact matches.
+It does not change the working project folder. Uncertain matches need review.
+
 ## Backups
 
 On Linux:
@@ -41,6 +63,8 @@ On Linux:
 sudo vueioctl backup
 sudo vueioctl backups
 ```
+
+The engine stops while the controller makes a consistent backup. Plan for this interruption.
 
 **These archives contain the database only.** They do not include media,
 uploads, attachments, app files, or private host configuration. Back up those
