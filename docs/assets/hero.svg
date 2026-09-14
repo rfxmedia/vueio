@@ -10,8 +10,8 @@
 <rect width="1600" height="590" rx="22" fill="url(#grid)"/>
 <path d="M1050 0 740 590M1380 0 1070 590" stroke="#a3f0ce" stroke-opacity=".05" stroke-width="100"/>
 <g font-family="Arial, Helvetica, sans-serif">
- <path d="M72 58h14l13 35 13-35h14l-21 54H93Z" fill="#8ce3b9"/>
- <text x="141" y="100" font-size="38" font-weight="700" letter-spacing="-2" fill="#f0f5f1">vue.io</text>
+ <path d="M72 65h11l11 29 11-29h11l-16 42H88Z" fill="#8ce3b9"/>
+ <text x="132" y="100" font-size="38" font-weight="700" letter-spacing="-2" fill="#f0f5f1">vue.io</text>
  <rect x="1345" y="61" width="180" height="34" rx="17" fill="#22372d" stroke="#406450"/>
  <circle cx="1365" cy="78" r="4" fill="#93ebbd"/>
  <text x="1380" y="84" fill="#b9daca" font-size="13" letter-spacing="2">PUBLIC ALPHA</text>
@@ -25,19 +25,33 @@
  <text x="236" y="539" font-size="15" letter-spacing="1" fill="#a9bcb0">YOUR STORAGE</text>
  <circle cx="410" cy="534" r="2" fill="#6fd5a7"/>
  <text x="433" y="539" font-size="15" letter-spacing="1" fill="#a9bcb0">YOUR WORKFLOW</text>
- <path d="M1020 186v260h100" fill="none" stroke="#628c73" stroke-width="2"/>
- <rect x="948" y="164" width="420" height="76" rx="12" fill="#1b2420" stroke="#385243"/>
- <text x="974" y="197" font-size="13" fill="#8ca698" letter-spacing="2">VERSION 01</text>
- <text x="974" y="224" font-size="21" fill="#d4ded7">The first pass</text>
- <text x="1294" y="211" font-size="14" fill="#9cab9f">Review</text>
- <rect x="1000" y="268" width="420" height="76" rx="12" fill="#233329" stroke="#50725b"/>
- <text x="1026" y="301" font-size="13" fill="#9dbea9" letter-spacing="2">VERSION 02</text>
- <text x="1026" y="328" font-size="21" fill="#e1e9e3">Feedback, in context</text>
- <circle cx="1385" cy="306" r="6" fill="#e3c778"/>
- <rect x="1052" y="372" width="420" height="99" rx="12" fill="#294533" stroke="#88cda2"/>
- <text x="1078" y="406" font-size="13" fill="#b0dcbc" letter-spacing="2">VERSION 03</text>
- <text x="1078" y="442" font-size="27" font-weight="700" fill="#edfff1">Ready to deliver.</text>
- <circle cx="1435" cy="423" r="15" fill="#8ce3b9"/>
- <path d="m1428 423 5 5 9-10" stroke="#173c29" stroke-width="2.5" fill="none"/>
- <text x="1135" y="515" font-size="14" fill="#8eab99" letter-spacing="1">ONE CONTINUOUS WORKFLOW</text>
+ <!-- Equal cards share one grid; the timeline stays outside their bounds. -->
+ <path d="M928 208V432M928 208h32M928 320h32M928 432h32" fill="none" stroke="#628c73" stroke-width="2"/>
+ <g fill="#8ce3b9" stroke="#14201a" stroke-width="4">
+  <circle cx="928" cy="208" r="7"/>
+  <circle cx="928" cy="320" r="7"/>
+  <circle cx="928" cy="432" r="7"/>
+ </g>
+ <g transform="translate(960 164)">
+  <rect width="568" height="88" rx="12" fill="#1b2420" stroke="#385243"/>
+  <text x="24" y="30" font-size="15" fill="#9dbea9" letter-spacing="2">VERSION 01</text>
+  <text x="24" y="64" font-size="25" font-weight="700" fill="#e1e9e3">The first pass</text>
+  <circle cx="524" cy="44" r="18" fill="#293c31" stroke="#50725b"/>
+  <circle cx="524" cy="44" r="5" fill="#a9c9b4"/>
+ </g>
+ <g transform="translate(960 276)">
+  <rect width="568" height="88" rx="12" fill="#233329" stroke="#50725b"/>
+  <text x="24" y="30" font-size="15" fill="#9dbea9" letter-spacing="2">VERSION 02</text>
+  <text x="24" y="64" font-size="25" font-weight="700" fill="#e1e9e3">Feedback, in context</text>
+  <circle cx="524" cy="44" r="18" fill="#3d3b2a" stroke="#81764b"/>
+  <circle cx="524" cy="44" r="5" fill="#e3c778"/>
+ </g>
+ <g transform="translate(960 388)">
+  <rect width="568" height="88" rx="12" fill="#294533" stroke="#88cda2"/>
+  <text x="24" y="30" font-size="15" fill="#b0dcbc" letter-spacing="2">VERSION 03</text>
+  <text x="24" y="64" font-size="25" font-weight="700" fill="#edfff1">Ready to deliver.</text>
+  <circle cx="524" cy="44" r="18" fill="#8ce3b9"/>
+  <path d="m516 44 6 6 10-12" stroke="#173c29" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+ </g>
+ <text x="1244" y="539" text-anchor="middle" font-size="15" fill="#8eab99" letter-spacing="1">ONE CONTINUOUS WORKFLOW</text>
 </g></svg>

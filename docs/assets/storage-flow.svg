@@ -3,25 +3,36 @@
 <desc id="desc">Selected local disks, external drives, or mounted network storage connect to Vue.io. The host provides review, tracking, and delivery to teammates and clients. Remote access requires configured HTTPS.</desc>
 <rect width="1400" height="370" rx="18" fill="#121917"/>
 <g font-family="Arial, Helvetica, sans-serif">
- <text x="45" y="46" font-size="14" fill="#89b89b" letter-spacing="2">A WORKSPACE THAT STARTS WITH WHAT YOU OWN</text>
- <path d="M384 185h123m379 0h123" stroke="#648a73" stroke-width="2"/>
- <path d="m498 179 9 6-9 6m502-6 9 6-9 6" fill="none" stroke="#8ce3b9" stroke-width="2"/>
- <rect x="44" y="82" width="340" height="205" rx="14" fill="#1b2520" stroke="#354b3e"/>
- <rect x="508" y="82" width="378" height="205" rx="14" fill="#223b2c" stroke="#78b48e"/>
- <rect x="1010" y="82" width="345" height="205" rx="14" fill="#1b2520" stroke="#354b3e"/>
- <g fill="none" stroke="#96dfb3" stroke-width="2">
-  <rect x="72" y="107" width="45" height="33" rx="5"/><path d="M80 131h5m6 0h5"/>
-  <rect x="1039" y="107" width="45" height="33" rx="5"/><path d="M1039 116h45"/>
+ <text x="44" y="46" font-size="14" fill="#89b89b" letter-spacing="2">A WORKSPACE THAT STARTS WITH WHAT YOU OWN</text>
+ <!-- Three equal cards, equal gaps, and centered inset connectors. -->
+ <g fill="none" stroke="#8ce3b9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M424 184H500M490 176l10 8-10 8"/>
+  <path d="M900 184H976M966 176l10 8-10 8"/>
  </g>
- <path d="M537 107h9l9 23 9-23h9l-14 35h-8Z" fill="#8ce3b9"/>
- <text x="72" y="186" font-size="28" font-weight="700" fill="#e7f0e9">Your storage</text>
- <text x="72" y="222" font-size="18" fill="#a6b9ac">Local disk · external drive</text>
- <text x="72" y="249" font-size="18" fill="#a6b9ac">or mounted network storage</text>
- <text x="537" y="186" font-size="28" font-weight="700" fill="#effcf1">Your Vue.io host</text>
- <text x="537" y="222" font-size="18" fill="#b7d1be">Review · track · deliver</text>
- <text x="537" y="249" font-size="18" fill="#b7d1be">Runs on your infrastructure</text>
- <text x="1039" y="186" font-size="28" font-weight="700" fill="#e7f0e9">Their browser</text>
- <text x="1039" y="222" font-size="18" fill="#a6b9ac">Your team and clients</text>
- <text x="1039" y="249" font-size="18" fill="#a6b9ac">No server install to review</text>
+ <g transform="translate(44 82)">
+  <rect width="360" height="205" rx="14" fill="#1b2520" stroke="#354b3e"/>
+  <g transform="translate(28 24)" fill="none" stroke="#96dfb3" stroke-width="2" stroke-linecap="round">
+   <rect y="4" width="44" height="32" rx="5"/><path d="M8 27h5m7 0h5"/>
+  </g>
+  <text x="28" y="104" font-size="28" font-weight="700" fill="#e7f0e9">Your storage</text>
+  <text x="28" y="140" font-size="18" fill="#a6b9ac">Local disk · external drive</text>
+  <text x="28" y="167" font-size="18" fill="#a6b9ac">or mounted network storage</text>
+ </g>
+ <g transform="translate(520 82)">
+  <rect width="360" height="205" rx="14" fill="#223b2c" stroke="#78b48e"/>
+  <path transform="translate(28 24)" d="M0 4h10l12 25L34 4h10L27 40H17Z" fill="#8ce3b9"/>
+  <text x="28" y="104" font-size="28" font-weight="700" fill="#effcf1">Your Vue.io host</text>
+  <text x="28" y="140" font-size="18" fill="#b7d1be">Review · track · deliver</text>
+  <text x="28" y="167" font-size="18" fill="#b7d1be">Runs on your infrastructure</text>
+ </g>
+ <g transform="translate(996 82)">
+  <rect width="360" height="205" rx="14" fill="#1b2520" stroke="#354b3e"/>
+  <g transform="translate(28 24)" fill="none" stroke="#96dfb3" stroke-width="2">
+   <rect y="4" width="44" height="32" rx="5"/><path d="M0 13h44"/>
+  </g>
+  <text x="28" y="104" font-size="28" font-weight="700" fill="#e7f0e9">Their browser</text>
+  <text x="28" y="140" font-size="18" fill="#a6b9ac">Your team and clients</text>
+  <text x="28" y="167" font-size="18" fill="#a6b9ac">No server install to review</text>
+ </g>
  <text x="700" y="332" text-anchor="middle" font-size="16" fill="#a6b9ac">Remote access needs your configured HTTPS connection. Keep the host and storage online.</text>
 </g></svg>
