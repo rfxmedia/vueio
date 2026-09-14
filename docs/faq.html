@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Common questions · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
+<body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" aria-current="page">Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="frequently-asked-questions">Frequently asked questions</h1>
+<h2 id="is-this-really-free">Is this really free?</h2>
+<p>The self-hosted software is free under the <a href="https://github.com/rfxmedia/vueio/blob/stable/LICENSE.md">PolyForm Perimeter License 1.0.1</a>.
+Vue.io does not charge per seat or sell you a cloud-storage allowance for
+this edition. You supply hardware, storage, electricity, networking, and backups.</p>
+<h2 id="is-vueio-open-source">Is Vue.io open source?</h2>
+<p>It is <strong>source-available</strong>, not open source under the OSI definition. You can
+inspect the source. The license permits use, modification, and distribution
+for purposes that do not compete with the software. Read the license for
+its terms; free self-hosting does not mean unrestricted commercial reuse.</p>
+<h2 id="how-should-i-think-about-the-frameio-comparison">How should I think about the Frame.io comparison?</h2>
+<p>Vue.io is an independent, self-hosted alternative for familiar media review,
+version history, feedback, and delivery workflows. It also brings shot
+tracking, project pages, files, and selected local storage into the workspace.</p>
+<p>It is not Frame.io, is not affiliated with Adobe, and does not promise identical
+features, native integrations, enterprise support, or automatic migration.
+Check the workflow you need before switching a production.</p>
+<h2 id="does-version-history-mean-git">Does version history mean Git?</h2>
+<p>No. It means revisions of a shot or media item in the review workspace. It
+does not merge creative application files or replace source-code version control.</p>
+<h2 id="can-i-install-it-on-mac-or-windows">Can I install it on Mac or Windows?</h2>
+<p>Linux x86-64 and ARM64 are the primary alpha host platforms. Apple Silicon
+has an experimental installer; full sleep/wake, login startup, and upgrade
+validation remain incomplete. Intel Mac and native Windows installers are
+not supported yet. This is separate from viewing Vue.io in a browser.</p>
+<p><a href="self-hosting.html#mac-installer-preview">Mac preview requirements →</a></p>
+<h2 id="can-i-use-a-nas-or-an-external-ssd">Can I use a NAS or an external SSD?</h2>
+<p>Yes, for media mounted and explicitly available to the supported host. A NAS
+brand or attached USB drive does not automatically mean that device can run
+Vue.io. The database has stricter filesystem requirements than media.</p>
+<p><a href="storage.html">Storage guide →</a></p>
+<h2 id="is-my-media-copied-into-someone-elses-cloud">Is my media copied into someone else's cloud?</h2>
+<p>The self-hosted engine reads authorized storage and generates local working
+files and previews. A review link serves media from your host; it does not
+create an independent cloud backup. Remote recipients receive the media
+needed for playback or permitted downloads.</p>
+<h2 id="will-a-link-work-when-my-computer-is-asleep">Will a link work when my computer is asleep?</h2>
+<p>Not if that computer is the host. The host, storage, and network must stay
+available. Remote access also needs your HTTPS proxy, VPN, or tunnel.</p>
+<h2 id="is-there-a-hosted-service-or-one-click-public-tunnel">Is there a hosted service or one-click public tunnel?</h2>
+<p>This repository distributes the self-hosted alpha. Managed hosting and a
+built-in public tunnel are not included. Setup does not create DNS, HTTPS
+certificates, or an external connection for you.</p>
+<h2 id="is-it-production-ready">Is it production-ready?</h2>
+<p>It is a public alpha, developed through real production use but not verified
+for every environment. Begin with trusted users and non-sensitive sample media.
+Read current release notes, including security findings, and keep independent
+backups before putting important work on it.</p>
+<h2 id="was-it-built-with-ai">Was it built with AI?</h2>
+<p>Vue.io uses human-directed, AI-assisted engineering. The useful question is
+whether the released version reliably handles your workflow. Release notes
+describe changes and limitations; reproducible reports help improve it.
+AI-assisted development is not itself a reliability or security guarantee.</p>
+<h2 id="does-the-backup-include-my-videos">Does the backup include my videos?</h2>
+<p>No. <code>vueioctl backup</code> archives the database only. Back up media, uploads,
+attachments, app files, and private configuration separately.</p>
+<h2 id="where-do-i-ask-for-help">Where do I ask for help?</h2>
+<p>Start with <a href="troubleshooting.html">troubleshooting</a>, then open a
+<a href="https://github.com/rfxmedia/vueio/issues">GitHub issue</a> with a redacted,
+reproducible description. The alpha does not promise a support SLA or private
+installation service. Use the <a href="https://github.com/rfxmedia/vueio/blob/stable/SECURITY.md">security policy</a> for vulnerabilities.</p>
+<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/FAQ.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#is-this-really-free">Is this really free?</a><a href="#is-vueio-open-source">Is Vue.io open source?</a><a href="#how-should-i-think-about-the-frameio-comparison">How should I think about the Frame.io comparison?</a><a href="#does-version-history-mean-git">Does version history mean Git?</a><a href="#can-i-install-it-on-mac-or-windows">Can I install it on Mac or Windows?</a><a href="#can-i-use-a-nas-or-an-external-ssd">Can I use a NAS or an external SSD?</a><a href="#is-my-media-copied-into-someone-elses-cloud">Is my media copied into someone else&#39;s cloud?</a><a href="#will-a-link-work-when-my-computer-is-asleep">Will a link work when my computer is asleep?</a><a href="#is-there-a-hosted-service-or-one-click-public-tunnel">Is there a hosted service or one-click public tunnel?</a><a href="#is-it-production-ready">Is it production-ready?</a><a href="#was-it-built-with-ai">Was it built with AI?</a><a href="#does-the-backup-include-my-videos">Does the backup include my videos?</a><a href="#where-do-i-ask-for-help">Where do I ask for help?</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

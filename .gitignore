@@ -10,6 +10,7 @@ backend/.venv/
 
 # Node / build
 frontend/node_modules/
+docs/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/vite.config.js.timestamp-*.mjs

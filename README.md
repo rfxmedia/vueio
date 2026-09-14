@@ -1,131 +1,120 @@
-# Vue.io
+<p align="center">
+  <img src="docs/assets/hero.svg" alt="Vue.io — A free, self-hosted alternative to Frame.io. Review. Track. Deliver." width="100%">
+</p>
+<p align="center">
+  <strong>Frame.io-style review. Your own storage. No per-seat fees.</strong><br>
+  Version history, visual feedback, shot tracking, and file delivery in one workspace.
+</p>
+<p align="center">
+  <a href="https://rfxmedia.github.io/vueio/">Documentation</a> ·
+  <a href="docs/GETTING_STARTED.md">Install Vue.io</a> ·
+  <a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release</a> ·
+  <a href="https://github.com/rfxmedia/vueio/issues">Feedback &amp; bugs</a>
+</p>
 
-Vue.io is a self-hosted review and collaboration workspace for media teams. It
-keeps project files on storage you control while providing trackers, version
-review, comments, share links, file requests, and browser playback.
+---
 
-> **Public alpha:** use backups, test upgrades on a copy first, and do not
-> expose Vue.io directly to the internet without HTTPS.
+## Your media already has a home. Review it there.
 
-> **Source available:** Vue.io is licensed under the
-> [PolyForm Perimeter License 1.0.1](LICENSE.md), which permits use,
-> modification, and distribution for purposes that do not compete with the
-> software. Vue.io is not open-source software under the OSI definition. The
-> project name and brand are covered by the [trademark policy](TRADEMARKS.md).
+Vue.io is a **free, self-hosted alternative to Frame.io** for post-production
+teams. Give clients a familiar browser review experience while keeping media
+on storage you control. Keep versions, feedback, shot status, project files,
+and delivery together instead of managing them across separate tools.
 
-## AI-forward by design
+Built inside a working VFX studio and used on real productions. Made for the
+work between the first upload and the final delivery.
 
-Vueio is designed for agentic workflows and media-pipeline automation. It uses
-human-directed, AI-assisted engineering, with repeated adversarial review from
-frontier systems such as Fable 5 and GPT-5.6 Sol. Every release also passes
-build checks, security scans, manual release and recovery validation, and human
-approval.
+<a href="docs/assets/tracker.png">
+  <img src="docs/assets/tracker.png" alt="Vue.io's LOW TIDE demo tracker: thumbnails, version selectors, status, artist assignments, briefs, and latest review notes alongside project files." width="100%">
+</a>
 
-## Install on Linux
+*Actual Vue.io interface. LOW TIDE is a fictional demonstration project with synthetic media and team profiles.*
 
-Before installing, prepare a 64-bit Linux server with Docker Engine and Docker
-Compose v2. The practical starting point is 4 CPU cores, 8 GiB of memory, and
-40 GiB of free local space. The installer checks the server before changing
-anything and explains how to fix a missing or stopped Docker installation.
+## Review is only the beginning
 
-During installation, Vueio creates and records a unique storage identity marker
-in the folder you explicitly select. Normal startup never creates or silently
-adopts storage. See the [self-hosting storage guide](docs/SELF_HOSTING.md#storage).
+| Review every version | Keep production together | Deliver from your storage |
+| --- | --- | --- |
+| Browser playback and version history | Shot trackers with statuses and assignments | Selected local, USB, or mounted network storage |
+| Timestamped comments and visual annotations | Briefs and latest notes alongside each shot | Review links and file downloads |
+| Version comparison and preview LUTs | Project pages and a shared file navigator | File requests for incoming media |
+| Voice notes and comment attachments | Project and role-based access | No Vue.io per-seat or cloud-storage subscription |
 
-Source media needs its own storage capacity and is not included in the 40 GiB
-guideline.
+**Not just a player with a comment box.** Follow a shot from its brief to the
+latest version, review it in context, and hand over the files without losing
+the conversation.
 
-Open Terminal on the Linux computer that will run Vueio. Paste this command
-and press Enter. If `sudo` asks for a password, enter your computer's password;
-the terminal does not show characters while you type.
+[Explore the review workflow →](docs/REVIEW_WORKFLOW.md)
+
+## Self-hosted means you stay in control
+
+<img src="docs/assets/storage-flow.svg" alt="Your selected storage connects to a Vue.io host. Your team and clients access the host through a browser. Remote access needs your own HTTPS setup." width="100%">
+
+The software is free to self-host under the [PolyForm Perimeter license](LICENSE.md).
+Bring your own hardware and storage; you manage uptime, connectivity, and backups.
+Your storage and upload connection set the practical capacity—not a Vue.io cloud plan.
+
+Vue.io is **source-available, not OSI open source**. It is an independent product,
+not affiliated with or endorsed by Frame.io or Adobe, and does not claim complete
+Frame.io feature parity or automatic project migration.
+
+## Start with one project
+
+**Server:** 64-bit Linux, Docker Engine + Compose v2, and Python 3.9+.
+Start with 4 CPU cores, 8 GiB RAM, and 40 GiB free space, plus room for media.
+
+Run this on the computer that will host Vue.io:
 
 ```bash
 curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh | sh
 ```
 
-The installer:
+Choose separate locations for Vue data and media. The installer prints your
+local address and one-time setup code. Open that address, create the owner
+account, and start your first project.
 
-1. checks Linux, Docker, disk space, and the local web port;
-2. asks for a Vue data folder and a separate media location;
-3. downloads and verifies the release;
-4. creates private database and session secrets;
-5. starts Vueio and runs its safety checks;
-6. enables updates and drive management on hosts running systemd; and
-7. prints the web address, one-time setup code, and next steps.
+**Viewing a review link does not require installing the server.** Installation
+requirements apply to the host, not every teammate's computer.
 
-Press Enter to accept storage on this computer, then confirm the installation.
-The update channel follows the release you downloaded; you can change it later
-in Settings. Keep the terminal open until it says **Continue in your browser**.
+| Host platform | Current status |
+| --- | --- |
+| Linux x86-64 / ARM64 | Primary alpha installation |
+| Apple Silicon Mac | Experimental; read the [Mac limitations](docs/SELF_HOSTING.md#mac-installer-preview) |
+| Intel Mac / native Windows | No supported installer yet |
 
-Vueio receives access only to the project folder selected during setup. By
-default it uses `/var/lib/vueio/projects`, binds the web app to
-`127.0.0.1:9000`, and installs the small `vueioctl` management command.
+> **Public alpha.** Start with trusted users and non-sensitive test media.
+> Keep independent backups. Internet access needs an HTTPS proxy, VPN, or tunnel
+> that you configure; Vue.io does not provide a built-in public tunnel.
+> Read the [latest release notes](https://github.com/rfxmedia/vueio/releases/latest)
+> for known issues and security findings before installing.
 
-Open `http://127.0.0.1:9000` on the server, or use the SSH-tunnel example in
-the [self-hosting guide](docs/SELF_HOSTING.md). The browser wizard creates the
-first owner account and workspace. Then it shows your connected storage and
-an **Open workspace** button. Extra drives are optional; you can add them later
-in **Settings → Storage**.
+[Step-by-step setup →](docs/GETTING_STARTED.md) · [Administrator guide →](docs/SELF_HOSTING.md)
 
-Your chosen Vue data folder holds the database, app files and previews. The
-database contains accounts, projects, comments, members and history. Keep
-database backups on a separate drive, and protect app files and private
-configuration too. Existing installations keep their current database location.
-Run `sudo vueioctl` for the guided terminal menu, or `sudo vueioctl data` to
-show these locations. See [data storage](docs/SELF_HOSTING.md#your-data-folder).
+## A guide for every step
 
-A [Mac installer preview](docs/SELF_HOSTING.md#mac-installer-preview) for Apple
-Silicon uses the same command, code and releases. It guides you through any
-missing prerequisites. Intel Macs are not supported. Mac verification is still
-required before production use.
-Windows installation is not available yet.
+- **[Documentation home](https://rfxmedia.github.io/vueio/)** — the browsable guide to Vue.io.
+- **[First installation](docs/GETTING_STARTED.md)** — prepare a host and open your workspace.
+- **[Review and version history](docs/REVIEW_WORKFLOW.md)** — track shots, review changes, and keep feedback in context.
+- **[Sharing and delivery](docs/SHARING.md)** — review links, downloads, and incoming files.
+- **[Storage, updates, and backups](docs/STORAGE_OPERATIONS.md)** — keep your workspace running.
+- **[Troubleshooting](docs/TROUBLESHOOTING.md)** — resolve common installation and media problems.
+- **[FAQ](docs/FAQ.md)** — cost, licensing, compatibility, and hosting.
 
-Vue.io does not configure DNS, TLS certificates, VPNs, reverse proxies, or
-Cloudflare Tunnels. The guide explains how to prepare Vue.io after you configure
-one of those yourself.
+## Help make the next review better
 
-## Protecting existing installations
+Try a small project. Tell us where you got stuck, what worked, or what would
+make your next delivery easier.
 
-Administrators can install the latest release in their selected Nightly or
-Stable channel from **Settings → Updates → Update now**. A progress bar shows
-each stage, and the page reconnects after the restart. Existing installations
-need a one-time [update-service setup](docs/SELF_HOSTING.md#enable-updates-on-an-existing-installation).
-Older host controllers must be replaced with the checksum-verified release
-controller before their first database-only update; the setup guide explains
-this transition.
+[Open an issue](https://github.com/rfxmedia/vueio/issues) with your release,
+host platform, expected result, and steps to reproduce. Remove private media,
+share links, credentials, and personal information before posting.
 
-Application updates use database migrations and are designed to preserve
-projects, trackers, accounts, comments, shares, and settings. Update backups
-contain the database only. Application files, uploads, attachments, and media
-stay in place and are not copied into the backup. Before upgrading a production
-installation:
+If Vue.io looks useful, **star the repository** to help others discover it.
+Follow [releases](https://github.com/rfxmedia/vueio/releases) for updates.
 
-```bash
-sudo vueioctl backup
-sudo vueioctl doctor
-sudo vueioctl update <release-tag>
-```
+### Engineering and security
 
-Back up application files and authorized project folders separately on independent storage. See
-[Backups and restores](docs/SELF_HOSTING.md#backups-and-restores) for the exact
-boundary. Once an update may have run a database migration, Vue.io does not
-automatically start older application code. Follow that release's recovery
-notes and prefer fixing forward or restoring a tested backup.
-
-Check the installed release and installation health at any time:
-
-```bash
-sudo vueioctl version
-sudo vueioctl doctor
-```
-
-## Release channels
-
-The public `stable` branch contains the latest reviewed Stable source. The
-public `nightly` branch contains the latest Nightly source. Stable promotion
-brings both branches to the same reviewed commit. Immutable GitHub Releases
-provide each version, its downloads, and its release notes.
-
-## Documentation
-
-- [Self-hosting, storage, exposure, backups, and updates](docs/SELF_HOSTING.md)
+Vue.io uses human-directed, AI-assisted engineering and supports agent-assisted
+media workflows. Public use is still alpha testing, not a guarantee that every
+environment has been verified. See the [security policy](SECURITY.md)
+to report vulnerabilities privately and the [release notes](https://github.com/rfxmedia/vueio/releases)
+for each version's checks, limitations, and known findings.

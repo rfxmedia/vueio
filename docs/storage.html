@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Storage &amp; operations · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
+<body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" aria-current="page">Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="storage-and-operations">Storage and operations</h1>
+<p>Vue.io organizes your media without requiring a Vue.io cloud-storage plan.
+You operate the host, storage, network connection, and backups.</p>
+<p><img src="assets/storage-flow.svg" alt="Selected storage connects to your Vue.io host and browser-based reviewers"></p>
+<h2 id="know-what-lives-where">Know what lives where</h2>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Contents</th>
+<th>Backup approach</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Database</td>
+<td>Accounts, projects, comments, membership, and history</td>
+<td>Consistent <code>vueioctl backup</code> archive</td>
+</tr>
+<tr>
+<td>Application files</td>
+<td>Uploads, attachments, and generated previews</td>
+<td>Separate file backup; previews can be rebuilt</td>
+</tr>
+<tr>
+<td>Project media</td>
+<td>Source files in selected media locations</td>
+<td>Independent storage backup</td>
+</tr>
+<tr>
+<td>Host configuration</td>
+<td>Private settings, credentials, and storage mappings</td>
+<td>Protected configuration backup</td>
+</tr>
+</tbody>
+</table>
+<p>The installer keeps Vue data separate from source media. Use <code>vueioctl data</code>
+to inspect the installation's locations. An update does not move an existing
+database into a newly selected folder.</p>
+<h2 id="connect-storage">Connect storage</h2>
+<p>Open <strong>Settings → Storage</strong>. The initial media location is already connected.
+For another supported drive, mount it on the Vue.io host, then use <strong>Add storage</strong>.
+A disk attached only to the reviewing computer is not host storage.</p>
+<p>The application must be authorized to access the intended folder. Vue.io uses
+storage identity checks so a missing or replaced drive is not silently treated
+as the original. Reconnect the correct drive instead of deleting identity markers.</p>
+<p>Network storage must already be mounted on the host. Network shares and
+FAT/exFAT can hold media but are not supported database locations.</p>
+<p><a href="self-hosting.html#storage">Storage registration and permissions →</a></p>
+<h2 id="backups">Backups</h2>
+<p>On Linux:</p>
+<pre><code class="language-bash">sudo vueioctl backup
+sudo vueioctl backups
+</code></pre>
+<p><strong>These archives contain the database only.</strong> They do not include media,
+uploads, attachments, app files, or private host configuration. Back up those
+separately and store copies on an independent device or service.</p>
+<p>Rehearse recovery on a disposable installation. Restoring database records
+cannot recover a missing source file.</p>
+<p><a href="self-hosting.html#backups-and-restores">Backup contents, retention, and restore →</a></p>
+<h2 id="updates">Updates</h2>
+<p>Read the <a href="https://github.com/rfxmedia/vueio/releases">release notes</a> first.
+Back up before updating. On managed installations, an administrator can use
+<strong>Settings → Updates → Update now</strong>. The page shows progress and reconnects
+after the application restarts.</p>
+<p>Older installations may need one-time controller and updater setup. Do not
+use the fresh installer as an upgrade command. Stable is still an alpha channel;
+Nightly contains test releases. Switching channels does not downgrade a database.</p>
+<p><a href="self-hosting.html#updates">Full update and channel guide →</a></p>
+<h2 id="if-an-update-fails">If an update fails</h2>
+<p>Inspect the update log and run <code>sudo vueioctl doctor</code>. Do not repeatedly force
+an update or run an older image against a newer database. Follow that release's
+recovery instructions.</p>
+<p><code>vueioctl rollback</code> restores a pre-update database backup. <strong>Database changes
+made after that backup are lost.</strong> Application and media files are not restored
+or reverted by that operation.</p>
+<h2 id="routine-health-check">Routine health check</h2>
+<pre><code class="language-bash">sudo vueioctl status
+sudo vueioctl version
+sudo vueioctl doctor
+</code></pre>
+<p>These Linux examples use <code>sudo</code>. On an experimental Mac installation, use
+the Mac management commands described in the administrator reference.</p>
+<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/STORAGE_OPERATIONS.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#know-what-lives-where">Know what lives where</a><a href="#connect-storage">Connect storage</a><a href="#backups">Backups</a><a href="#updates">Updates</a><a href="#if-an-update-fails">If an update fails</a><a href="#routine-health-check">Routine health check</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

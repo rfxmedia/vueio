@@ -1,5 +1,7 @@
 # Self-hosting Vueio Alpha
 
+[Documentation home](README.md) · [Quick start](GETTING_STARTED.md) · [Troubleshooting](TROUBLESHOOTING.md)
+
 Vueio Alpha is a single-server Linux application distributed with Docker
 Compose. Docker runs the website, media engine, and PostgreSQL database
 together without installing their language runtimes directly on the host.
@@ -16,11 +18,11 @@ The first public alpha supports:
 - CPU transcoding; and
 - a user-managed HTTPS reverse proxy, VPN, or tunnel for internet access.
 
-An unreleased Mac installer preview is described below. It is not yet a verified
+An experimental Mac installer is described below. It is not yet a verified
 production platform. Windows launchers, Kubernetes, clusters, high availability, Podman, and a built-in
-internet tunnel are not supported by the first alpha. Hardware-accelerator
-device mappings are also outside the supported release Compose file for this
-alpha; advanced private overrides are not portable release configuration.
+internet tunnel are not supported by the first alpha. Hardware acceleration
+is optional and must be checked on the host; CPU processing remains the default.
+See [Preview processing](#preview-processing) for current requirements.
 Source project media remains the server owner's responsibility to back up.
 
 ## Voice note transcription
@@ -69,7 +71,7 @@ curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh
 
 The installer asks for administrator approval on Linux. On Mac, run it without
 `sudo`; it runs as your Mac account and guides you through missing prerequisites.
-The Mac path is still an unreleased preview; see its verification limits below.
+The Mac path is experimental; see its verification limits below.
 
 The installer:
 

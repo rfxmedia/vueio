@@ -1,0 +1,7 @@
+{
+  "name": "vueio-docs",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": { "markdown-it": "14.3.2" }
+}

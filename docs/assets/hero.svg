@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="590" viewBox="0 0 1600 590" role="img" aria-labelledby="title desc">
+<title id="title">Vue.io — a free, self-hosted alternative to Frame.io</title>
+<desc id="desc">Review. Track. Deliver. Your media, your storage, your workflow. A version history illustration runs from first pass to final.</desc>
+<defs>
+ <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#101c19"/><stop offset=".6" stop-color="#101414"/><stop offset="1" stop-color="#1d2c25"/></linearGradient>
+ <linearGradient id="mint" x2="1" y2="1"><stop stop-color="#a3f0ce"/><stop offset="1" stop-color="#6fd5a7"/></linearGradient>
+ <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#9de8c1" stroke-opacity=".035"/></pattern>
+</defs>
+<rect width="1600" height="590" rx="22" fill="url(#bg)"/>
+<rect width="1600" height="590" rx="22" fill="url(#grid)"/>
+<path d="M1050 0 740 590M1380 0 1070 590" stroke="#a3f0ce" stroke-opacity=".05" stroke-width="100"/>
+<g font-family="Arial, Helvetica, sans-serif">
+ <path d="M72 58h14l13 35 13-35h14l-21 54H93Z" fill="#8ce3b9"/>
+ <text x="141" y="100" font-size="38" font-weight="700" letter-spacing="-2" fill="#f0f5f1">vue.io</text>
+ <rect x="1345" y="61" width="180" height="34" rx="17" fill="#22372d" stroke="#406450"/>
+ <circle cx="1365" cy="78" r="4" fill="#93ebbd"/>
+ <text x="1380" y="84" fill="#b9daca" font-size="13" letter-spacing="2">PUBLIC ALPHA</text>
+ <text x="72" y="209" font-size="19" letter-spacing="3" fill="#91bba5">REVIEW. TRACK. DELIVER.</text>
+ <text x="68" y="295" font-size="77" font-weight="700" letter-spacing="-3" fill="#f0f5f1">Your next review.</text>
+ <text x="68" y="383" font-size="77" font-weight="700" letter-spacing="-3" fill="url(#mint)">On your own terms.</text>
+ <text x="72" y="438" font-size="25" fill="#b1c1b8">A free, self-hosted alternative to Frame.io.</text>
+ <path d="M72 500h690" stroke="#33463c"/>
+ <text x="72" y="539" font-size="15" letter-spacing="1" fill="#a9bcb0">YOUR MEDIA</text>
+ <circle cx="213" cy="534" r="2" fill="#6fd5a7"/>
+ <text x="236" y="539" font-size="15" letter-spacing="1" fill="#a9bcb0">YOUR STORAGE</text>
+ <circle cx="410" cy="534" r="2" fill="#6fd5a7"/>
+ <text x="433" y="539" font-size="15" letter-spacing="1" fill="#a9bcb0">YOUR WORKFLOW</text>
+ <path d="M1020 186v260h100" fill="none" stroke="#628c73" stroke-width="2"/>
+ <rect x="948" y="164" width="420" height="76" rx="12" fill="#1b2420" stroke="#385243"/>
+ <text x="974" y="197" font-size="13" fill="#8ca698" letter-spacing="2">VERSION 01</text>
+ <text x="974" y="224" font-size="21" fill="#d4ded7">The first pass</text>
+ <text x="1294" y="211" font-size="14" fill="#9cab9f">Review</text>
+ <rect x="1000" y="268" width="420" height="76" rx="12" fill="#233329" stroke="#50725b"/>
+ <text x="1026" y="301" font-size="13" fill="#9dbea9" letter-spacing="2">VERSION 02</text>
+ <text x="1026" y="328" font-size="21" fill="#e1e9e3">Feedback, in context</text>
+ <circle cx="1385" cy="306" r="6" fill="#e3c778"/>
+ <rect x="1052" y="372" width="420" height="99" rx="12" fill="#294533" stroke="#88cda2"/>
+ <text x="1078" y="406" font-size="13" fill="#b0dcbc" letter-spacing="2">VERSION 03</text>
+ <text x="1078" y="442" font-size="27" font-weight="700" fill="#edfff1">Ready to deliver.</text>
+ <circle cx="1435" cy="423" r="15" fill="#8ce3b9"/>
+ <path d="m1428 423 5 5 9-10" stroke="#173c29" stroke-width="2.5" fill="none"/>
+ <text x="1135" y="515" font-size="14" fill="#8eab99" letter-spacing="1">ONE CONTINUOUS WORKFLOW</text>
+</g></svg>

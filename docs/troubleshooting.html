@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Troubleshooting · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
+<body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" aria-current="page">Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="troubleshooting">Troubleshooting</h1>
+<p>Start with the installed release, host platform, and first failing step.
+Avoid changing storage or reinstalling until you understand the failure.</p>
+<h2 id="the-installer-says-docker-is-missing">The installer says Docker is missing</h2>
+<p>Install Docker Engine and Compose v2 on the Linux host, then confirm:</p>
+<pre><code class="language-bash">docker --version
+docker compose version
+</code></pre>
+<p>Make sure Docker is running. Retry only after the missing prerequisite is
+resolved. If an earlier attempt created installation state, read its recovery
+output rather than removing the directory.</p>
+<h2 id="the-page-will-not-open-from-another-computer">The page will not open from another computer</h2>
+<p>Vue.io listens on the server's loopback address by default. Your computer's
+<code>127.0.0.1</code> is not that server. Use the <a href="get-started.html#3-open-the-workspace">SSH tunnel</a>
+for setup or configure an <a href="self-hosting.html#internet-exposure">HTTPS endpoint</a>.</p>
+<p>On the Linux host, check:</p>
+<pre><code class="language-bash">sudo vueioctl status
+sudo vueioctl doctor
+</code></pre>
+<p>Do not expose the raw HTTP port to the internet to solve a connection problem.</p>
+<h2 id="i-lost-the-setup-code">I lost the setup code</h2>
+<p>Run <code>sudo vueioctl setup-info</code> on the Linux host. It shows the browser address
+and private setup code. Do not post the output publicly.</p>
+<h2 id="a-drive-or-folder-is-missing">A drive or folder is missing</h2>
+<p>Confirm the drive is attached and mounted on the host, not only the computer
+viewing Vue.io. In <strong>Settings → Storage</strong>, use <strong>Check again</strong> where available.
+Confirm the directory and access permissions.</p>
+<p>If identity checks fail, reconnect the original drive. Do not remove the
+marker, fabricate a replacement, or initialize a new database to silence the error.</p>
+<h2 id="media-will-not-play-or-is-still-processing">Media will not play or is still processing</h2>
+<p>Check that the source file is present and nonempty, storage is online, and
+the host has free disk space. Large files need time and CPU resources to
+create previews. A file extension alone does not guarantee codec support.</p>
+<p>CPU processing is the default. If you enabled GPU processing, review its
+hardware check and CPU fallback status in <strong>Settings → Storage &amp; previews</strong>.
+A detected GPU is not the same as a verified working encoder.</p>
+<p><a href="self-hosting.html#preview-processing">Preview processing →</a></p>
+<h2 id="a-share-or-upload-works-locally-but-fails-remotely">A share or upload works locally but fails remotely</h2>
+<p>Open the exact link in a signed-out browser. Check that the host is awake,
+storage is connected, the HTTPS origin matches Vue.io's exposure configuration,
+and the share permits the intended action.</p>
+<p>Check proxy or tunnel upload limits and timeouts. A working small file does
+not prove a large delivery fits the intermediary's limits.</p>
+<h2 id="settings-cannot-install-an-update">Settings cannot install an update</h2>
+<p>Confirm you are an administrator on an installer-managed installation. Older
+hosts need <a href="self-hosting.html#enable-updates-on-an-existing-installation">one-time updater setup</a>.
+Read the displayed stage and private log before retrying. Do not start a
+second maintenance operation while one is active.</p>
+<h2 id="report-a-reproducible-problem">Report a reproducible problem</h2>
+<p><a href="https://github.com/rfxmedia/vueio/issues">Open an issue</a> with:</p>
+<ul>
+<li>the release shown by <code>vueioctl version</code>;</li>
+<li>host OS and architecture;</li>
+<li>the action, expected result, and actual result;</li>
+<li>short reproduction steps; and</li>
+<li>a redacted error or synthetic screenshot, if useful.</li>
+</ul>
+<p>Review logs before sharing. Remove credentials, setup codes, private paths,
+personal information, and client media. Never post database backups.
+Report vulnerabilities privately using the <a href="https://github.com/rfxmedia/vueio/blob/stable/SECURITY.md">security policy</a>.</p>
+<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/TROUBLESHOOTING.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#the-installer-says-docker-is-missing">The installer says Docker is missing</a><a href="#the-page-will-not-open-from-another-computer">The page will not open from another computer</a><a href="#i-lost-the-setup-code">I lost the setup code</a><a href="#a-drive-or-folder-is-missing">A drive or folder is missing</a><a href="#media-will-not-play-or-is-still-processing">Media will not play or is still processing</a><a href="#a-share-or-upload-works-locally-but-fails-remotely">A share or upload works locally but fails remotely</a><a href="#settings-cannot-install-an-update">Settings cannot install an update</a><a href="#report-a-reproducible-problem">Report a reproducible problem</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

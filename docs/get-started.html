@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Get started · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
+<body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" aria-current="page">Get started</a><a href="review.html" >Review &amp; versions</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Your media. Your storage.<br>Your workflow.<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="get-started">Get started</h1>
+<p>Install Vue.io on the computer that will host your workspace. Your team and
+clients use their browsers; they do not each need a server installation.</p>
+<h2 id="1-prepare-your-host">1. Prepare your host</h2>
+<p>The primary alpha supports x86-64 and ARM64 Linux with:</p>
+<ul>
+<li>Docker Engine and Docker Compose v2;</li>
+<li>Python 3.9 or newer;</li>
+<li>4 CPU cores and 8 GiB RAM as a practical starting point;</li>
+<li>40 GiB free local space for the app and working data; and</li>
+<li>separate capacity for media and independent backups.</li>
+</ul>
+<p>Large libraries and high-resolution previews need more resources. Check Docker:</p>
+<pre><code class="language-bash">docker --version
+docker compose version
+</code></pre>
+<p>For Apple Silicon, read the <a href="self-hosting.html#mac-installer-preview">experimental Mac instructions</a>
+first. There is no supported Intel Mac or native Windows installer yet.</p>
+<h2 id="2-install-vueio">2. Install Vue.io</h2>
+<p>Run this on the host:</p>
+<pre><code class="language-bash">curl -fsSL https://github.com/rfxmedia/vueio/releases/latest/download/install.sh | sh
+</code></pre>
+<p>You can also download and inspect <code>install.sh</code> from the
+<a href="https://github.com/rfxmedia/vueio/releases/latest">latest release</a>, then run
+<code>sh ./install.sh</code>.</p>
+<p>The installer checks prerequisites, asks for storage locations, downloads the
+release, and starts Vue.io. Keep the terminal open until it prints the browser
+address and one-time setup code.</p>
+<p>Choose <strong>two separate locations</strong>:</p>
+<ul>
+<li><strong>Vue data:</strong> database, app files, previews, and database backups. Use a
+suitable local filesystem, not a network share or FAT/exFAT database drive.</li>
+<li><strong>Media:</strong> a selected project folder or mounted storage. Media can live
+on local disks, USB storage, or a network share mounted on the host.</li>
+</ul>
+<p>The installer does not format drives. Do not run a fresh installation over an
+existing workspace; follow the <a href="storage.html#updates">update guide</a>.</p>
+<h2 id="3-open-the-workspace">3. Open the workspace</h2>
+<p>On the host, open the printed address, normally <code>http://127.0.0.1:9000</code>.
+Enter the setup code and create the first owner account.</p>
+<p>For a headless server, open an SSH tunnel from your own computer:</p>
+<pre><code class="language-bash">ssh -L 9000:127.0.0.1:9000 user@vueio-server
+</code></pre>
+<p>Leave the tunnel open and visit <code>http://127.0.0.1:9000</code> in your browser.
+Replace <code>user@vueio-server</code> with your server's SSH destination.</p>
+<p>Lost the setup instructions? On Linux, run:</p>
+<pre><code class="language-bash">sudo vueioctl setup-info
+</code></pre>
+<p>The output contains a private setup code. Do not post it in an issue or screenshot.</p>
+<h2 id="4-complete-a-first-review">4. Complete a first review</h2>
+<ol>
+<li>Confirm the selected media location in <strong>Settings → Storage</strong>.</li>
+<li>Create a small project with non-sensitive sample media.</li>
+<li>Create a tracker and import a shot or file using the available import options.</li>
+<li>Open the media and leave a review note.</li>
+<li>Add a new version to the same shot, then check its version history.</li>
+</ol>
+<p>Follow <a href="review.html">Review workflow</a> for the project-to-delivery process.
+Test with a second permitted user or share visitor before relying on the setup.</p>
+<h2 id="5-set-up-remote-access">5. Set up remote access</h2>
+<p>The default loopback address is local to the host. It is not an internet link.
+Configure an HTTPS reverse proxy, VPN hostname, or tunnel before inviting
+remote collaborators. Vue.io does not create that connection for you.</p>
+<p>After your HTTPS endpoint is working, configure Vue.io on Linux:</p>
+<pre><code class="language-bash">sudo vueioctl exposure set https://vue.example.com
+</code></pre>
+<p>Replace the example with your HTTPS origin. Do not forward the plain HTTP
+port directly to the public internet.</p>
+<p><a href="self-hosting.html#internet-exposure">HTTPS, Caddy, and Cloudflare examples →</a></p>
+<h2 id="before-real-production-work">Before real production work</h2>
+<p>Read the release's known issues. Verify login, playback, a review link, and
+downloads from the intended network. Make a database backup and separately
+back up application files, media, and configuration. The alpha is intended
+for trusted users and media; a successful install is not a security audit.</p>
+<footer class="page-footer"><span>Vue.io · Free, self-hosted, source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/GETTING_STARTED.md">View this guide on GitHub ↗</a></footer></main>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#1-prepare-your-host">1. Prepare your host</a><a href="#2-install-vueio">2. Install Vue.io</a><a href="#3-open-the-workspace">3. Open the workspace</a><a href="#4-complete-a-first-review">4. Complete a first review</a><a href="#5-set-up-remote-access">5. Set up remote access</a><a href="#before-real-production-work">Before real production work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
