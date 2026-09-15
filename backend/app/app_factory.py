@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -95,6 +96,16 @@ def create_app() -> FastAPI:
     run_migrations()
     _warn_insecure_runtime_defaults()
 
+    async def maintain_preview_cache():
+        while True:
+            try:
+                result = await asyncio.to_thread(enforce_transcode_cache_budget, expire_unused=True)
+                if result['evicted_jobs']:
+                    logger.info('Cleared %s unused preview(s), reclaiming %s bytes', result['evicted_jobs'], result['evicted_bytes'])
+            except Exception:
+                logger.exception('Preview cache cleanup failed')
+            await asyncio.sleep(60 * 60)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         with SessionLocal() as db:
@@ -114,24 +125,18 @@ def create_app() -> FastAPI:
                 logger.info('Repaired %s pending file operation(s)', repaired)
         except Exception:
             logger.exception('Pending file operation repair failed')
-        try:
-            cache_result = enforce_transcode_cache_budget()
-            if cache_result['evicted_jobs']:
-                logger.info(
-                    'Evicted %s completed transcode artifact(s), reclaiming %s bytes',
-                    cache_result['evicted_jobs'],
-                    cache_result['evicted_bytes'],
-                )
-        except Exception:
-            logger.exception('Transcode cache budget enforcement failed')
         if is_discord_provider_configured():
             start_notification_dispatcher()
         else:
             logger.info('Discord bot token not configured; notification dispatcher is idle')
         start_voice_transcription_worker()
+        preview_cleanup = asyncio.create_task(maintain_preview_cache())
         try:
             yield
         finally:
+            preview_cleanup.cancel()
+            with suppress(asyncio.CancelledError):
+                await preview_cleanup
             folder_events.close()
 
     app = FastAPI(title='vue.io', version=settings.VUEIO_VERSION, lifespan=lifespan)

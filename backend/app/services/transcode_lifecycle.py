@@ -25,6 +25,7 @@ TRANSCODE_LEASE_SECONDS = 2 * 60
 TRANSCODE_HEARTBEAT_SECONDS = 30
 TRANSCODE_ACCESS_TOUCH_INTERVAL_SECONDS = 60
 TRANSCODE_SERVE_GRACE_SECONDS = 60
+TRANSCODE_UNUSED_RETENTION_SECONDS = 30 * 24 * 60 * 60
 _transcode_access_touches: dict[str, float] = {}
 _transcode_access_touches_lock = threading.Lock()
 
@@ -284,8 +285,22 @@ def transcode_artifact_job_keys(source_identity: str) -> list[str]:
     return [mp4_job_key(source_identity), hls_job_key(source_identity)]
 
 
-def all_transcode_identities_for_source(source_identity: str) -> list[str]:
-    return [source_identity, *transcode_artifact_job_keys(source_identity)]
+def all_transcode_identities_for_source(source_identity: str, *, db: Session | None = None) -> list[str]:
+    identities = [source_identity, *transcode_artifact_job_keys(source_identity)]
+    # Comparisons reference both inputs in their identity, so asset purges also
+    # cancel/remove derived pairs without a second cache or dependency table.
+    source_hash = get_file_hash(source_identity)
+    session = db if db is not None else SessionLocal()
+    try:
+        from sqlalchemy import or_
+        identities.extend(row.file_path for row in session.query(TranscodeJob).filter(or_(
+            TranscodeJob.file_path.like(f'artifact:comparison:%:{source_hash}:%:%'),
+            TranscodeJob.file_path.like(f'artifact:comparison:%:%:{source_hash}:%'),
+        )).all())
+    finally:
+        if db is None:
+            session.close()
+    return identities
 
 
 def _remove_transcode_artifact_files(job_key: str) -> None:
@@ -370,7 +385,7 @@ def touch_transcode_access(job_key: str) -> None:
             return
         _transcode_access_touches[job_key] = now
     try:
-        with SessionLocal() as session:
+        with transcode_publish_guard(job_key, allow_cancelled=True), SessionLocal() as session:
             job = session.query(TranscodeJob).filter(TranscodeJob.file_path == job_key).first()
             if job is None or job.status != 'complete':
                 with _transcode_access_touches_lock:
@@ -391,8 +406,22 @@ def _contained_transcode_output(job: TranscodeJob) -> Path | None:
         return None
     try:
         root = settings.transcode_dir.resolve()
-        output = Path(job.output_path).resolve()
-        output.relative_to(root)
+        declared = Path(job.output_path)
+        output = declared.resolve()
+        relative = output.relative_to(root)
+        key_hash = get_file_hash(job.file_path)
+        # Only exact cache-owned names qualify. A malformed database path must
+        # never turn automatic cleanup into deletion/accounting of other data.
+        if declared.is_symlink():
+            return None
+        if output.suffix.lower() == '.m3u8':
+            if len(relative.parts) != 2 or declared.parent.is_symlink():
+                return None
+            folder = relative.parts[0]
+            if folder != key_hash and not (folder.startswith(f'{key_hash}.') and folder.endswith('.pkg')):
+                return None
+        elif relative.parts != (f'{key_hash}.mp4',):
+            return None
     except (OSError, RuntimeError, ValueError):
         return None
     return output.parent if output.suffix.lower() == '.m3u8' else output
@@ -470,9 +499,12 @@ def _tracked_transcode_cache_bytes(jobs: list[TranscodeJob]) -> int:
     return total
 
 
-def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
+def enforce_transcode_cache_budget(db: Session | None = None, *, expire_unused: bool = False) -> dict:
     """Evict only completed, reproducible artifacts in true access order."""
+    from app.services.media_processing import preferences
+
     budget = int(settings.TRANSCODE_CACHE_MAX_BYTES)
+    max_idle = TRANSCODE_UNUSED_RETENTION_SECONDS if expire_unused and preferences()['auto_cleanup_previews'] else None
     owns_session = db is None
     session = db
     if session is None:
@@ -487,15 +519,13 @@ def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
             'evicted_jobs': 0,
             'evicted_bytes': 0,
         }
-        if budget <= 0 or current_bytes <= budget:
+        if (budget <= 0 or current_bytes <= budget) and max_idle is None:
             return result
 
         jobs = [job for job in all_jobs if job.status == 'complete']
         jobs.sort(key=lambda job: (float(job.last_accessed or job.created_at or 0), int(job.id or 0)))
         now = time.time()
         for job in jobs:
-            if current_bytes <= budget:
-                break
             job_key = job.file_path
             if transcode_claim_is_active(job_key):
                 continue
@@ -504,7 +534,10 @@ def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
             last_accessed = max(float(job.last_accessed or job.created_at or 0), recent_process_access)
             if now - last_accessed < TRANSCODE_SERVE_GRACE_SECONDS:
                 continue
-            with transcode_publish_guard(job_key):
+            over_budget = budget > 0 and current_bytes > budget
+            if not over_budget and (max_idle is None or now - last_accessed < max_idle):
+                continue
+            with transcode_publish_guard(job_key, allow_cancelled=True):
                 # A serve or another evictor may have updated/deleted this row
                 # while we waited for the artifact lock. Re-read both the
                 # durable access time and this process's coalesced touch before
@@ -517,7 +550,7 @@ def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
                 )
                 if fresh_job is None or fresh_job.status != 'complete':
                     continue
-                if transcode_claim_is_active(job_key):
+                if transcode_claim_is_active(job_key) or transcode_identity_is_cancelled(job_key):
                     continue
                 with _transcode_access_touches_lock:
                     recent_process_access = _transcode_access_touches.get(job_key, 0)
@@ -527,13 +560,19 @@ def enforce_transcode_cache_budget(db: Session | None = None) -> dict:
                 )
                 if time.time() - last_accessed < TRANSCODE_SERVE_GRACE_SECONDS:
                     continue
+                if not over_budget and (max_idle is None or time.time() - last_accessed < max_idle):
+                    continue
                 artifact_paths = _transcode_artifact_paths(fresh_job)
                 if not artifact_paths:
                     continue
                 artifact_bytes = sum(_regular_file_bytes(path) for path in artifact_paths)
                 _remove_transcode_artifact_files(job_key)
+                if any(path.exists() or path.is_symlink() for path in artifact_paths):
+                    # Keep ownership when a filesystem error prevents removal.
+                    continue
                 session.delete(fresh_job)
                 session.commit()
+                transcode_progress.pop(job_key, None)
             with _transcode_access_touches_lock:
                 _transcode_access_touches.pop(job_key, None)
             current_bytes = max(0, current_bytes - artifact_bytes)

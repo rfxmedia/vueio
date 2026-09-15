@@ -46,6 +46,19 @@
         <span>New jobs only. Existing previews and running jobs stay unchanged.</span>
       </footer>
 
+      <section v-if="typeof status.auto_cleanup_previews === 'boolean'" class="processing-cleanup" aria-label="Preview storage">
+        <VSwitch
+          :model-value="cleanupEnabled"
+          :disabled="busy"
+          label="Clear unused previews"
+          hint="Remove video previews after 30 days without a view. They rebuild when opened."
+          @update:modelValue="saveCleanup"
+        />
+        <p class="processing-note">Original files and thumbnails stay unchanged. Rebuilding needs the original media. The cache size limit still applies.</p>
+        <p v-if="cleanupSaving || cleanupMessage" role="status">{{ cleanupSaving ? 'Saving…' : cleanupMessage }}</p>
+        <p v-if="cleanupError" class="processing-error" role="alert">{{ cleanupError }}</p>
+      </section>
+
       <div v-if="status.activity.length" class="processing-activity">
         <h4>Recent processing <span>This session</span></h4>
         <div v-for="job in status.activity.slice(0, 3)" :key="job.id" class="processing-job">
@@ -64,6 +77,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import api, { getApiErrorMessage } from '../../lib/api'
 import VField from '../primitives/VField.vue'
+import VSwitch from '../primitives/VSwitch.vue'
 
 const status = ref(null)
 const mode = ref('cpu')
@@ -71,13 +85,18 @@ const device = ref('')
 const loading = ref(true)
 const checking = ref(false)
 const saving = ref(false)
+const cleanupSaving = ref(false)
+const cleanupEnabled = ref(true)
+const cleanupMessage = ref('')
+const cleanupError = ref('')
 const error = ref('')
 const message = ref('')
-const busy = computed(() => checking.value || saving.value)
+const busy = computed(() => checking.value || saving.value || cleanupSaving.value)
 const workingDevices = computed(() => (status.value?.devices || []).filter(item => item.encoding))
 const changed = computed(() => status.value && (mode.value !== status.value.mode || (mode.value === 'gpu' && device.value !== status.value.device)))
 let timer
 let disposed = false
+let requestGeneration = 0
 
 function scheduleRefresh() {
   timer = setTimeout(() => {
@@ -89,14 +108,16 @@ function scheduleRefresh() {
 
 function accept(data, reset = false) {
   status.value = data
+  if (!cleanupSaving.value) cleanupEnabled.value = data.auto_cleanup_previews === true
   if (reset) { mode.value = data.mode; device.value = data.device }
   if (!device.value && workingDevices.value.length) device.value = workingDevices.value[0].id
 }
 
 async function load() {
+  const generation = requestGeneration
   try {
     const { data } = await api.get('/api/admin/media-processing')
-    if (!disposed) accept(data, loading.value)
+    if (!disposed && generation === requestGeneration) accept(data, loading.value)
   } catch (cause) {
     if (!disposed) error.value = getApiErrorMessage(cause, 'Processing settings could not be loaded.')
   } finally {
@@ -106,6 +127,7 @@ async function load() {
 }
 
 async function checkHardware() {
+  requestGeneration++
   checking.value = true; error.value = ''; message.value = ''
   try {
     const { data } = await api.post('/api/admin/media-processing/check', {}, { timeout: 60000 })
@@ -116,6 +138,7 @@ async function checkHardware() {
 }
 
 async function save() {
+  requestGeneration++
   saving.value = true; error.value = ''; message.value = ''
   try {
     const { data } = await api.put('/api/admin/media-processing', { mode: mode.value, device: device.value })
@@ -123,6 +146,24 @@ async function save() {
   } catch (cause) {
     error.value = getApiErrorMessage(cause, 'Processing preference could not be saved.')
   } finally { saving.value = false }
+}
+
+async function saveCleanup(enabled) {
+  requestGeneration++
+  cleanupEnabled.value = enabled
+  cleanupSaving.value = true; cleanupError.value = ''; cleanupMessage.value = ''
+  try {
+    const { data } = await api.put('/api/admin/media-processing', { auto_cleanup_previews: enabled })
+    if (!disposed) {
+      accept(data)
+      cleanupMessage.value = enabled ? 'Automatic cleanup is on.' : 'Automatic cleanup is off.'
+    }
+  } catch (cause) {
+    cleanupError.value = getApiErrorMessage(cause, 'Cleanup preference could not be saved. Try again.')
+  } finally {
+    cleanupSaving.value = false
+    if (!disposed) cleanupEnabled.value = status.value.auto_cleanup_previews
+  }
 }
 
 onMounted(load)
@@ -153,6 +194,8 @@ onBeforeUnmount(() => { disposed = true; clearTimeout(timer) })
 .processing-note { font-size: var(--v-text-sm); }
 .processing-actions { display: flex; align-items: center; gap: var(--v-space-3); }
 .processing-actions span { color: var(--v-text-secondary); font-size: var(--v-text-sm); }
+.processing-cleanup { border-top: 1px solid var(--v-border); padding-top: var(--v-space-4); }
+.processing-cleanup .v-switch { min-height: var(--v-btn-height-lg); width: 100%; }
 .processing-activity { border-top: 1px solid var(--v-border); padding-top: var(--v-space-4); }
 .processing-activity h4 span { color: var(--v-text-secondary); font-size: var(--v-text-sm); font-weight: 400; margin-left: var(--v-space-2); }
 .processing-job { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--v-space-3); padding-top: var(--v-space-3); font-size: var(--v-text-sm); }

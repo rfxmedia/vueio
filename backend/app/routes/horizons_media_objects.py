@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Cookie, Depends, File, Header, Request, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, Header, Request, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.db import get_db
@@ -20,8 +20,30 @@ from app.services.media_serving import (
     stream_object_file,
 )
 from app.services.project_content_gateway import object_payload_tuple, resolve_horizons_object_auth
+from app.services.comparison import comparison_file, comparison_status, resolve_comparison
 
 router = APIRouter(tags=['horizons-media-objects'])
+
+
+def _authorized_comparison(project_id, version_id, other_id, vueio_session, x_vueio_agent_key, db):
+    user, role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
+    sources = [resolve_horizons_object_auth(db, project_id, version_id=identity,
+               detail='Shot version not found', user=user, access_role=role) for identity in (version_id, other_id)]
+    return resolve_comparison(db, *sources, user=user, access_role=role)
+
+
+@router.api_route('/api/horizons/projects/{project_id}/shot-versions/{version_id}/comparison/{other_id}/status', methods=['GET', 'POST'])
+def horizons_comparison_status(project_id: str, version_id: str, other_id: str, request: Request, response: Response,
+                              vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    pair = _authorized_comparison(project_id, version_id, other_id, vueio_session, x_vueio_agent_key, db)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return comparison_status(db, pair, retry=request.method == 'POST')
+
+
+@router.api_route('/api/horizons/projects/{project_id}/shot-versions/{version_id}/comparison/{other_id}/file', methods=['GET', 'HEAD'])
+def horizons_comparison_file(project_id: str, version_id: str, other_id: str,
+                            vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    return comparison_file(_authorized_comparison(project_id, version_id, other_id, vueio_session, x_vueio_agent_key, db))
 
 
 def _auth_ctx(vueio_session: str | None, x_vueio_agent_key: str | None):

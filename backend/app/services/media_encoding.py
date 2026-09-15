@@ -28,7 +28,8 @@ def validate_recipe(recipe):
         raise ValueError('Invalid media recipe.')
     kind = recipe.get('kind')
     fields = {'thumbnail': {'kind', 'width', 'seek'}, 'mp4': {'kind', 'height'},
-              'hls': {'kind', 'variants', 'has_audio', 'gop', 'segment_seconds'}}
+              'hls': {'kind', 'variants', 'has_audio', 'gop', 'segment_seconds'},
+              'comparison': {'kind', 'rate_n', 'rate_d', 'frames'}}
     if kind not in fields or set(recipe) != fields[kind]:
         raise ValueError('Unknown media recipe.')
     if kind == 'thumbnail':
@@ -36,6 +37,12 @@ def validate_recipe(recipe):
         number(recipe['seek'], 0, 7 * 86400)
     elif kind == 'mp4':
         number(recipe['height'], 0, 4320)
+    elif kind == 'comparison':
+        for key, maximum in [('rate_n', 240000), ('rate_d', 10000), ('frames', 240 * 86400)]:
+            if type(recipe[key]) is not int:
+                raise ValueError('Invalid comparison recipe.')
+            number(recipe[key], 1, maximum)
+        number(recipe['rate_n'] / recipe['rate_d'], 1, 120)
     else:
         number(recipe['gop'], 1, 1000)
         number(recipe['segment_seconds'], .1, 10)
@@ -133,6 +140,32 @@ def build_command(input_path, output_path, recipe, device=None):
     prefix, encoder = device_options(device)
     cmd = ['ffmpeg', '-hide_banner', '-nostdin', '-nostats', '-loglevel', 'error', '-y', *prefix]
     kind = recipe['kind']
+    if kind == 'comparison':
+        if not isinstance(input_path, (list, tuple)) or len(input_path) != 2:
+            raise ValueError('A comparison needs two inputs.')
+        rate = f"{recipe['rate_n']}/{recipe['rate_d']}"
+        duration = recipe['frames'] * recipe['rate_d'] / recipe['rate_n']
+        for source in input_path:
+            cmd += ['-threads', '2', '-protocol_whitelist', 'file,pipe', '-format_whitelist',
+                    'mov,matroska,webm,avi,mxf,mpegvideo,mpegts', '-i', str(source)]
+        graph = []
+        for index in range(2):
+            graph.append(
+                f'[{index}:v:0]setpts=PTS-STARTPTS,scale=ceil(iw*sar/2)*2:ih,setsar=1,'
+                f'scale=1920:1080:force_original_aspect_ratio=decrease:force_divisible_by=2,'
+                f'pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps={rate}:start_time=0:round=near,'
+                f'tpad=stop_mode=clone:stop_duration={duration:.9f},trim=end_frame={recipe["frames"]}[v{index}]'
+            )
+        upload = ',format=nv12,hwupload' if encoder == 'h264_vaapi' else ''
+        graph.append(f'[v0][v1]hstack=inputs=2{upload}[out]')
+        return cmd + ['-filter_complex_threads', '2', '-filter_complex', ';'.join(graph),
+                      '-map', '[out]', '-map', '0:a:0?', *encoder_options(device, quality=18),
+                      '-threads', '2', '-maxrate', '12M', '-bufsize', '12M',
+                      '-g', str(round(recipe['rate_n'] / recipe['rate_d'])), '-bf', '2',
+                      *([] if encoder == 'h264_vaapi' else ['-pix_fmt', 'yuv420p']),
+                      '-frames:v', str(recipe['frames']), '-t', str(duration),
+                      '-c:a', 'aac', '-b:a', '128k', '-af', 'asetpts=PTS-STARTPTS',
+                      '-movflags', '+faststart', '-progress', 'pipe:1', '-f', 'mp4', str(output_path)]
     if kind == 'thumbnail':
         decode, download = thumbnail_decode_options(device)
         width = int(recipe['width'])
@@ -310,7 +343,7 @@ class NativeMedia:
             output_fd = open_beneath(state_fd, 'app/' + parent, directory=True)
         finally:
             os.close(state_fd)
-        input_fd = None
+        input_fds = []
         work = None
         lock = None
         try:
@@ -320,20 +353,25 @@ class NativeMedia:
                 raise ValueError('Not enough free space for native processing.')
             lock = self.host.lock_file.open('a')
             fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            input_fd = self.input_descriptor(payload['input'], config)
+            sources = payload['input'] if recipe['kind'] == 'comparison' else [payload['input']]
+            if not isinstance(sources, list) or len(sources) != (2 if recipe['kind'] == 'comparison' else 1):
+                raise ValueError('Invalid media inputs.')
+            for source in sources:
+                input_fds.append(self.input_descriptor(source, config))
             work = tempfile.TemporaryDirectory(prefix='.native-media-', dir=self.host.home)
             target = Path(work.name) / ('output.jpg' if recipe['kind'] == 'thumbnail' else 'output.mp4')
             if recipe['kind'] == 'hls':
                 target = Path(work.name) / 'hls'
                 target.mkdir()
-            cmd = build_command(f'/dev/fd/{input_fd}', target, recipe, self.devices[0])
+            inputs = [f'/dev/fd/{fd}' for fd in input_fds]
+            cmd = build_command(inputs if recipe['kind'] == 'comparison' else inputs[0], target, recipe, self.devices[0])
             cmd[0] = '/opt/homebrew/bin/ffmpeg'
-            input_index = cmd.index('-i')
             # Never let a playlist or concat document read unrelated host files.
-            cmd[input_index:input_index] = ['-protocol_whitelist', 'file,pipe', '-format_whitelist',
-                                           'mov,matroska,webm,avi,mxf,mpegvideo,mpegts,image2,jpeg_pipe,png_pipe,tiff_pipe,exr_pipe,dpx_pipe']
+            for input_index in reversed([i for i, item in enumerate(cmd) if item == '-i']):
+                cmd[input_index:input_index] = ['-protocol_whitelist', 'file,pipe', '-format_whitelist',
+                                               'mov,matroska,webm,avi,mxf,mpegvideo,mpegts,image2,jpeg_pipe,png_pipe,tiff_pipe,exr_pipe,dpx_pipe']
             log = tempfile.TemporaryFile(dir=work.name)
-            process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=log, pass_fds=(input_fd,))
+            process = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=log, stderr=log, pass_fds=tuple(input_fds))
             self.jobs[identity] = dict(process=process, work=work, target=target, log=log, output_fd=output_fd,
                                        name=relative.rsplit('/', 1)[-1], lock=lock, heartbeat=time.monotonic(),
                                        reserve=reserve, finished=None, returncode=None, time_us=0)
@@ -344,7 +382,7 @@ class NativeMedia:
             if work: work.cleanup()
             raise
         finally:
-            if input_fd is not None: os.close(input_fd)
+            for fd in input_fds: os.close(fd)
 
     def poll(self, identity):
         job = self.jobs.get(identity)

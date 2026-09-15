@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import List, Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -44,9 +44,29 @@ from app.services.project_content_gateway import (
 )
 from app.services.share_access import normalize_virtual_path, require_path_within_shared_root, resolve_shared_media_target, validate_share
 from app.services.zip_utils import ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget
+from app.services.comparison import comparison_file, comparison_status, resolve_comparison
 
 router = APIRouter(tags=['share-media'])
 settings = get_settings()
+
+
+def _shared_comparison(share_id, version_id, other_id, share_token, db):
+    share = _validate_shared_horizons_object_share(share_id, share_token, db)
+    sources = [resolve_horizons_object_share(share, db, version_id=identity) for identity in (version_id, other_id)]
+    return resolve_comparison(db, *sources, share=True)
+
+
+@router.api_route('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/status', methods=['GET', 'POST'])
+def shared_comparison_status(share_id: str, version_id: str, other_id: str, request: Request, response: Response,
+                             share_token: str | None = None, db: Session = Depends(get_db)):
+    pair = _shared_comparison(share_id, version_id, other_id, share_token, db)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return comparison_status(db, pair, retry=request.method == 'POST')
+
+
+@router.api_route('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/file', methods=['GET', 'HEAD'])
+def shared_comparison_file(share_id: str, version_id: str, other_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
+    return comparison_file(_shared_comparison(share_id, version_id, other_id, share_token, db))
 
 
 

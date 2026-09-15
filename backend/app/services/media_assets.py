@@ -292,7 +292,7 @@ def _purge_asset_cache(db: Session, asset: MediaAsset) -> None:
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
-    transcode_identities = {identity for cache_identity in cache_identities for identity in all_transcode_identities_for_source(cache_identity)}
+    transcode_identities = {identity for cache_identity in cache_identities for identity in all_transcode_identities_for_source(cache_identity, db=db)}
     for identity in transcode_identities:
         purge_transcode_identity(identity, db=db)
     db.query(MediaMetadata).filter(MediaMetadata.cache_identity.in_(cache_identities)).delete(synchronize_session=False)

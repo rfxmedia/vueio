@@ -5,7 +5,7 @@ Use comments for review feedback. Use the brief to describe the required work.
 
 ![Vue.io tracker with versions, status, assignments, briefs, and notes](assets/tracker.png)
 
-*LOW TIDE is a fictional project with synthetic media and team profiles.*
+*The example project uses synthetic media and fictional team profiles.*
 
 ## Create a project and tracker
 

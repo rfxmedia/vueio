@@ -3,227 +3,126 @@
     <header class="media-compare-header">
       <div class="media-compare-rail">
         <span class="media-compare-kicker">Compare</span>
-
-        <div v-if="canSelectPair" class="media-compare-pair" aria-label="Compare pair">
-          <label class="media-compare-slot is-primary">
-            <span class="media-compare-slot-pill">
-              <span class="media-compare-slot-key">A</span>
-              <select
-                class="media-compare-slot-select"
-                :value="primaryVersionKey"
-                aria-label="Primary version"
-                @change="$emit('update-primary-version', $event.target.value)"
-              >
-                <option
-                  v-for="option in versionOptions"
-                  :key="`primary-${option.value}`"
-                  :value="option.value"
-                  :disabled="option.value === secondaryVersionKey"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-              <svg class="icon media-compare-slot-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
-            </span>
-          </label>
-
-          <span class="media-compare-divider" aria-hidden="true">vs</span>
-
-          <label class="media-compare-slot is-secondary">
-            <span class="media-compare-slot-pill">
-              <span class="media-compare-slot-key">B</span>
-              <select
-                class="media-compare-slot-select"
-                :value="secondaryVersionKey"
-                aria-label="Secondary version"
-                @change="$emit('update-secondary-version', $event.target.value)"
-              >
-                <option
-                  v-for="option in versionOptions"
-                  :key="`secondary-${option.value}`"
-                  :value="option.value"
-                  :disabled="option.value === primaryVersionKey"
-                >
-                  {{ option.label }}
-                </option>
-              </select>
-              <svg class="icon media-compare-slot-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
-            </span>
-          </label>
+        <div v-if="versionOptions.length > 1" class="media-compare-pair" aria-label="Compare pair">
+          <template v-for="(key, index) in [primaryVersionKey, secondaryVersionKey]" :key="index">
+            <span v-if="index" class="media-compare-divider" aria-hidden="true">vs</span>
+            <label class="media-compare-slot" :class="index ? 'is-secondary' : 'is-primary'">
+              <span class="media-compare-slot-pill">
+                <span class="media-compare-slot-key">{{ index ? 'B' : 'A' }}</span>
+                <select
+class="media-compare-slot-select" :value="key" :aria-label="index ? 'Secondary version' : 'Primary version'"
+                  @change="$emit(index ? 'update-secondary-version' : 'update-primary-version', $event.target.value)">
+                  <option
+v-for="option in versionOptions" :key="option.value" :value="option.value"
+                    :disabled="option.value === (index ? primaryVersionKey : secondaryVersionKey)">{{ option.label }}</option>
+                </select>
+                <svg class="icon media-compare-slot-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+              </span>
+            </label>
+          </template>
         </div>
-
-        <p v-else class="media-compare-headline">
-          <strong>{{ primaryLabel }}</strong>
-          <span>vs</span>
-          <strong>{{ secondaryLabel }}</strong>
-        </p>
-
-        <span class="media-compare-rail-divider" aria-hidden="true"></span>
-
+        <p v-else class="media-compare-headline"><strong>{{ primaryLabel }}</strong><span>vs</span><strong>{{ secondaryLabel }}</strong></p>
+        <span class="media-compare-rail-divider" aria-hidden="true" />
         <div class="v-view-toggle media-compare-layout" role="group" aria-label="Compare layout">
           <button
-            type="button"
-            class="v-view-toggle-btn"
-            :class="{ active: mode === 'side-by-side' }"
-            :aria-pressed="mode === 'side-by-side'"
-            @click="$emit('update:mode', 'side-by-side')"
-          >
-            Side by side
-          </button>
-          <button
-            type="button"
-            class="v-view-toggle-btn"
-            :class="{ active: mode === 'wipe' }"
-            :aria-pressed="mode === 'wipe'"
-            @click="$emit('update:mode', 'wipe')"
-          >
-            Wipe
-          </button>
+v-for="layout in [{ value: 'side-by-side', label: 'Side by side' }, { value: 'wipe', label: 'Wipe' }]"
+            :key="layout.value" type="button" class="v-view-toggle-btn" :class="{ active: mode === layout.value }"
+            :aria-pressed="mode === layout.value" @click="$emit('update:mode', layout.value)">{{ layout.label }}</button>
         </div>
-
-        <button type="button" class="v-btn v-btn-ghost v-btn-sm media-compare-done" @click="$emit('exit')">
-          <svg class="icon"><use href="#icon-close" /></svg>
-          <span>Done</span>
+        <button type="button" class="v-btn v-btn-ghost v-btn-sm media-compare-done" aria-label="Exit comparison" @click="$emit('exit')">
+          <svg class="icon" aria-hidden="true"><use href="#icon-close" /></svg><span>Done</span>
         </button>
       </div>
     </header>
 
-    <div v-if="isUnsupportedPair" class="media-compare-empty">
-      <strong>Compare is not available for this pair.</strong>
-      <span>Choose two videos or two images from the same shot.</span>
-    </div>
-
     <div
-      v-else-if="mode === 'wipe'"
-      ref="wipeStageRef"
-      class="media-compare-stage media-compare-wipe"
-      @pointerdown="startWipeDrag"
-    >
-      <div class="media-compare-wipe-layer is-secondary">
-        <ComparePane
-          side="secondary"
-          :family="mediaFamily"
-          :media-url="secondaryState.mediaUrl"
-          :ready="secondaryState.ready"
-          :loading="secondaryState.loading"
-          :error="secondaryState.error"
-          :progress="secondaryState.progress"
-          :label="secondaryLabel"
-          :video-ref="setSecondaryVideoRef"
-          muted
-          @loadedmetadata="handleSecondaryLoadedMetadata"
-          @timeupdate="handlePlaybackTimeUpdate"
-          @waiting="handlePlaybackWaiting"
-        />
-      </div>
-      <div class="media-compare-wipe-layer is-primary" :style="{ clipPath: `inset(0 ${100 - wipePercent}% 0 0)` }">
-        <ComparePane
-          side="primary"
-          :family="mediaFamily"
-          :media-url="primaryState.mediaUrl"
-          :ready="primaryState.ready"
-          :loading="primaryState.loading"
-          :error="primaryState.error"
-          :progress="primaryState.progress"
-          :label="primaryLabel"
-          :video-ref="setPrimaryVideoRef"
-          @loadedmetadata="handlePrimaryLoadedMetadata"
-          @timeupdate="handlePlaybackTimeUpdate"
-          @waiting="handlePlaybackWaiting"
-        />
-      </div>
-      <div class="media-compare-wipe-divider" :style="{ left: `${wipePercent}%` }" aria-hidden="true">
-        <span></span>
-      </div>
-    </div>
-
-    <div v-else class="media-compare-stage media-compare-split">
-      <ComparePane
-        side="primary"
-        :family="mediaFamily"
-        :media-url="primaryState.mediaUrl"
-        :ready="primaryState.ready"
-        :loading="primaryState.loading"
-        :error="primaryState.error"
-        :progress="primaryState.progress"
-        :label="primaryLabel"
-        :video-ref="setPrimaryVideoRef"
-        @loadedmetadata="handlePrimaryLoadedMetadata"
-        @timeupdate="handlePlaybackTimeUpdate"
-        @waiting="handlePlaybackWaiting"
-      />
-      <ComparePane
-        side="secondary"
-        :family="mediaFamily"
-        :media-url="secondaryState.mediaUrl"
-        :ready="secondaryState.ready"
-        :loading="secondaryState.loading"
-        :error="secondaryState.error"
-        :progress="secondaryState.progress"
-        :label="secondaryLabel"
-        :video-ref="setSecondaryVideoRef"
-        muted
-        @loadedmetadata="handleSecondaryLoadedMetadata"
-        @timeupdate="handlePlaybackTimeUpdate"
-        @waiting="handlePlaybackWaiting"
-      />
-    </div>
-
-    <footer v-if="mediaFamily === 'video' && !isUnsupportedPair" class="media-viewer-toolbar media-compare-controls">
-      <div class="timeline-row">
+ref="stage" class="media-compare-stage" :class="[
+      mode === 'wipe' ? 'media-compare-wipe' : 'media-compare-split',
+      { 'is-packed': family === 'video', 'is-stacked': stacked },
+    ]" @pointerdown="startWipe">
+      <template v-if="family === 'video'">
+        <video
+ref="video" class="media-compare-decoder" playsinline preload="auto" :loop="loopEnabled" :muted="muted"
+          aria-hidden="true" @loadeddata="loaded" @seeked="seeked" @play="playing = true; observeFrames()"
+          @pause="playing = false" @ended="playing = false" @waiting="buffering = true" @playing="buffering = false"
+          @error="mediaError" />
+        <canvas ref="canvas" class="media-compare-media" role="img" :aria-label="`${primaryLabel} compared with ${secondaryLabel}`" />
+        <div v-if="ready" class="media-compare-labels" aria-hidden="true">
+          <span v-for="(label, index) in labels" :key="index" class="media-compare-pane-label">{{ label }}</span>
+        </div>
+        <div v-if="ready" class="media-compare-end-markers">
+          <div v-for="(end, index) in info.end_frames" :key="index" class="media-compare-end-slot">
+            <span v-if="frame >= end" class="media-compare-ended">{{ labels[index] }} ends here</span>
+          </div>
+        </div>
+      </template>
+      <template v-else-if="family === 'image'">
         <div
-          ref="timelineRef"
-          class="timeline media-compare-timeline"
-          :class="{ 'is-scrubbing': timelineDragging }"
-          role="slider"
-          tabindex="0"
-          :aria-valuemin="0"
-          :aria-valuemax="Math.round(clampedDuration)"
-          :aria-valuenow="Math.round(currentTime)"
-          aria-label="Compare timeline"
-          @mousedown.stop.prevent="startTimelineDrag"
-          @touchstart.stop.prevent="startTimelineTouch"
-          @keydown.left.prevent="nudgeTimeline($event.shiftKey ? -1 : -frameStepSeconds)"
-          @keydown.right.prevent="nudgeTimeline($event.shiftKey ? 1 : frameStepSeconds)"
-        >
+v-for="(url, index) in imageUrls" :key="index" class="media-compare-pane" :class="index ? 'is-secondary' : 'is-primary'"
+          :style="mode === 'wipe' && !index ? { clipPath: `inset(0 ${100 - wipePercent}% 0 0)` } : undefined">
+          <img :src="url" :alt="labels[index]" class="media-compare-media" @error="error = 'This image could not load.'" />
+          <div class="media-compare-pane-label">{{ labels[index] }}</div>
+        </div>
+      </template>
+      <div v-else class="media-compare-empty"><strong>Choose two videos or two images from the same shot.</strong></div>
+
+      <template v-if="family && mode === 'wipe' && !error && (family === 'image' || ready)">
+        <input
+v-model.number="wipePercent" type="range" min="0" max="100" class="media-compare-wipe-input"
+          aria-label="Wipe position" @pointerdown.stop />
+        <div class="media-compare-wipe-divider" :style="{ transform: `translateX(${wipeLeft}px)` }" aria-hidden="true"><span /></div>
+      </template>
+      <div v-if="error || (family === 'video' && !ready)" class="media-compare-preparing" :class="{ 'is-error': error }" role="status">
+        <template v-if="error">
+          <strong>{{ error }}</strong>
+          <button type="button" class="v-btn v-btn-secondary v-btn-sm" @pointerdown.stop @click="loadPair(true)">Try again</button>
+        </template>
+        <template v-else>
+          <strong>{{ state === 'queued' ? 'Waiting to prepare comparison' : state === 'processing' ? 'Preparing comparison' : 'Loading comparison' }}</strong>
+          <progress v-if="state === 'processing'" :value="progress" max="100" aria-label="Comparison preparation" />
+          <span v-if="state === 'processing'">{{ Math.round(progress) }}%</span>
+        </template>
+      </div>
+      <div v-else-if="buffering && playing" class="media-compare-status" role="status">Buffering…</div>
+    </div>
+
+    <footer v-if="family === 'video'" class="media-viewer-toolbar media-compare-controls">
+      <div class="timeline-row">
+        <div class="timeline media-compare-timeline" :class="{ 'is-scrubbing': scrubbing }">
           <div class="timeline-bg" />
-          <div class="timeline-progress" :style="{ transform: `translateY(-50%) scaleX(${timelinePercent / 100})` }" />
-          <div class="timeline-handle" :style="{ left: `${timelinePercent}%` }" />
+          <div class="timeline-progress" :style="{ transform: `translateY(-50%) scaleX(${timelineFraction})` }" />
+          <div class="timeline-handle" :style="{ left: `${timelineFraction * 100}%` }" />
+          <input
+type="range" min="0" :max="Math.max(0, info.frame_count - 1)" step="1" :value="requestedFrame" :disabled="!ready"
+            class="media-compare-seek" aria-label="Compare timeline" :aria-valuetext="`Frame ${requestedFrame + 1} of ${info.frame_count}`"
+            @pointerdown="beginScrub" @input="seek(Number($event.target.value))" @change="endScrub" @keydown="keydown" />
         </div>
       </div>
-
       <div class="controls-row">
         <div class="controls-bar" role="group" aria-label="Compare playback controls">
           <div class="controls-zone controls-zone--left">
             <button
-              type="button"
-              class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--play"
-              :disabled="!canPlayVideoPair"
-              :aria-label="isPlaying ? 'Pause comparison' : 'Play comparison'"
-              @click="togglePlayback"
-            >
-              <span class="play-pause-morph" :class="{ 'is-playing': isPlaying }" aria-hidden="true">
-                <svg class="icon play-pause-morph__glyph play-pause-morph__glyph--play"><use href="#icon-play" /></svg>
-                <svg class="icon play-pause-morph__glyph play-pause-morph__glyph--pause"><use href="#icon-pause" /></svg>
-              </span>
+type="button" class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--play" :disabled="!ready"
+              :aria-label="playing ? 'Pause comparison' : 'Play comparison'" @click="toggle">
+              <svg class="icon" aria-hidden="true"><use :href="playing ? '#icon-pause' : '#icon-play'" /></svg>
             </button>
             <button
-              type="button"
-              class="v-btn v-btn-quiet v-btn-icon control-btn control-btn--icon loop-btn"
-              :class="{ active: loopEnabled }"
-              :aria-label="loopEnabled ? 'Disable loop' : 'Enable loop'"
-              @click="loopEnabled = !loopEnabled"
-            >
-              <svg class="icon"><use href="#icon-refresh" /></svg>
+type="button" class="v-btn v-btn-quiet v-btn-icon control-btn loop-btn" :class="{ active: loopEnabled }"
+              :aria-pressed="loopEnabled" aria-label="Loop comparison" @click="loopEnabled = !loopEnabled">
+              <svg class="icon" aria-hidden="true"><use href="#icon-refresh" /></svg>
+            </button>
+            <button
+type="button" class="v-btn v-btn-quiet v-btn-sm" :aria-pressed="!muted" :disabled="!ready"
+              :title="`Audio from ${info.primary_is_left ? primaryLabel : secondaryLabel}`" @click="muted = !muted">
+              {{ muted ? 'Sound off' : `Sound: ${info.primary_is_left ? primaryLabel : secondaryLabel}` }}
             </button>
           </div>
-
           <div class="controls-zone controls-zone--center">
-            <div class="controls-timecode">
-              <span class="time-current">{{ formatSeconds(currentTime) }}</span>
-              <span class="time-sep">/</span>
-              <span class="time-duration">{{ formatSeconds(clampedDuration) }}</span>
-            </div>
+            <div class="controls-timecode"><span class="time-current">{{ formatSeconds(frame / info.fps) }}</span>
+              <span class="time-sep">/</span><span class="time-duration">{{ formatSeconds(info.frame_count / info.fps) }}</span></div>
+          </div>
+          <div class="controls-zone controls-zone--right media-compare-rate-note">
+            <span v-if="info.different_frame_rates">Aligned by time · </span>Frame {{ ready ? frame + 1 : '—' }} / {{ info.frame_count || '—' }}
           </div>
         </div>
       </div>
@@ -232,741 +131,231 @@
 </template>
 
 <script setup>
-import { computed, defineComponent, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useDocumentVisible } from '../../composables/useDocumentVisible'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import api from '../../lib/api'
-import { clamp } from '../../utils/math'
-
-const PREFERRED_START_QUALITY_HEIGHT = 1080
-const HAVE_FUTURE_DATA = 3
-const PLAYBACK_READY_TIMEOUT_MS = 8000
-const STREAM_POLL_DELAYS_MS = [1000, 2000, 5000]
+import { getCanonicalMediaRefs, getMediaKind } from '../../lib/mediaEntity'
+import { formatTimecodeWithFrames } from '../../utils/formatters'
 
 const props = defineProps({
-  primaryMedia: { type: Object, required: true },
-  secondaryMedia: { type: Object, required: true },
-  primaryLabel: { type: String, default: 'A' },
-  secondaryLabel: { type: String, default: 'B' },
-  versionOptions: { type: Array, default: () => [] },
-  primaryVersionKey: { type: String, default: '' },
-  secondaryVersionKey: { type: String, default: '' },
-  mode: { type: String, default: 'side-by-side' },
-  resolveMediaRoutes: { type: Function, required: true },
-  formatTimecode: { type: Function, default: null },
+  primaryMedia: { type: Object, required: true }, secondaryMedia: { type: Object, required: true },
+  primaryLabel: { type: String, default: 'A' }, secondaryLabel: { type: String, default: 'B' },
+  versionOptions: { type: Array, default: () => [] }, primaryVersionKey: { type: String, default: '' },
+  secondaryVersionKey: { type: String, default: '' }, mode: { type: String, default: 'side-by-side' },
+  resolveMediaRoutes: { type: Function, required: true }, formatTimecode: { type: Function, default: null },
   frameRate: { type: Number, default: 24 },
 })
-
 defineEmits(['exit', 'update:mode', 'update-primary-version', 'update-secondary-version'])
 
-const ComparePane = defineComponent({
-  name: 'ComparePane',
-  props: {
-    side: { type: String, required: true },
-    family: { type: String, required: true },
-    mediaUrl: { type: String, default: '' },
-    ready: { type: Boolean, default: false },
-    loading: { type: Boolean, default: false },
-    error: { type: String, default: '' },
-    progress: { type: Number, default: 0 },
-    label: { type: String, default: '' },
-    muted: { type: Boolean, default: false },
-    videoRef: { type: Function, default: null },
-  },
-  emits: ['loadedmetadata', 'timeupdate', 'waiting'],
-  setup(paneProps, { emit }) {
-    return () => h('div', { class: ['media-compare-pane', `is-${paneProps.side}`] }, [
-      h('div', { class: 'media-compare-pane-label' }, paneProps.label),
-      paneProps.family === 'image'
-        ? h('img', {
-          src: paneProps.mediaUrl,
-          alt: paneProps.label,
-          class: 'media-compare-media',
-        })
-        : h('video', {
-          ref: paneProps.videoRef,
-          class: 'media-compare-media',
-          playsinline: true,
-          webkitplaysinline: '',
-          preload: 'auto',
-          muted: paneProps.muted,
-          onLoadedmetadata: event => emit('loadedmetadata', event),
-          onTimeupdate: event => emit('timeupdate', event),
-          onWaiting: event => emit('waiting', event),
-        }),
-      paneProps.family === 'video' && paneProps.error
-        ? h('div', { class: 'media-compare-preparing is-error', role: 'alert' }, [
-          h('span', 'Stream unavailable'),
-          h('strong', paneProps.error),
-        ])
-        : paneProps.family === 'video' && !paneProps.ready
-        ? h('div', { class: 'media-compare-preparing' }, [
-          h('span', paneProps.loading ? 'Preparing stream' : 'Loading stream'),
-          h('strong', `${Math.round(paneProps.progress || 0)}%`),
-        ])
-        : null,
-    ])
-  },
+const video = ref(null), canvas = ref(null), stage = ref(null)
+const ready = ref(false), playing = ref(false), buffering = ref(false), error = ref('')
+const state = ref('loading'), progress = ref(0), info = ref({ fps: 24, frame_count: 0, end_frames: [] })
+const frame = ref(0), requestedFrame = ref(0), wipePercent = ref(50), loopEnabled = ref(true), muted = ref(true)
+const scrubbing = ref(false), compact = ref(false), stageWidth = ref(0), stageHeight = ref(0)
+const labels = computed(() => [props.primaryLabel, props.secondaryLabel])
+const family = computed(() => {
+  const first = getMediaKind(props.primaryMedia), second = getMediaKind(props.secondaryMedia)
+  return first === second && ['video', 'image'].includes(first) ? first : ''
 })
-
-const primaryVideoRef = ref(null)
-const secondaryVideoRef = ref(null)
-const wipeStageRef = ref(null)
-const timelineRef = ref(null)
-const wipePercent = ref(50)
-const isPlaying = ref(false)
-const currentTime = ref(0)
-const loopEnabled = ref(true)
-const timelineDragging = ref(false)
-
-const primaryState = reactive(createPaneState())
-const secondaryState = reactive(createPaneState())
-const documentVisible = useDocumentVisible()
-
-let primaryHls = null
-let secondaryHls = null
-let primaryAttachRequestId = 0
-let secondaryAttachRequestId = 0
-let primaryPoll = null
-let secondaryPoll = null
-const pollAttempts = { primary: 0, secondary: 0 }
-let setupToken = 0
-let draggingWipe = false
-let playbackRequestToken = 0
-let stallRecoveryQueued = false
-let resumeAfterTimelineDrag = false
-let timelineDragRect = null
-let pendingTimelineClientX = null
-let timelineSeekFrame = 0
-let timelineSeekTimer = 0
-let lastTimelineSeekAt = 0
-let wipeDragRect = null
-let pendingWipeClientX = null
-let wipeMoveFrame = 0
-const COMPARE_TIMELINE_SEEK_INTERVAL_MS = 80
-
-const primaryFamily = computed(() => getMediaFamily(props.primaryMedia))
-const secondaryFamily = computed(() => getMediaFamily(props.secondaryMedia))
-const mediaFamily = computed(() => (primaryFamily.value === secondaryFamily.value ? primaryFamily.value : 'unsupported'))
-const isUnsupportedPair = computed(() => mediaFamily.value === 'unsupported')
-const canSelectPair = computed(() => props.versionOptions.length > 2)
-const canPlayVideoPair = computed(() => mediaFamily.value === 'video' && primaryState.ready && secondaryState.ready)
-const clampedDuration = computed(() => {
-  if (mediaFamily.value !== 'video') return 0
-  const primaryDuration = Number(primaryState.duration || 0)
-  const secondaryDuration = Number(secondaryState.duration || 0)
-  if (!primaryDuration) return secondaryDuration || 0
-  if (!secondaryDuration) return primaryDuration || 0
-  return Math.max(primaryDuration, secondaryDuration)
+const routes = computed(() => [props.resolveMediaRoutes(props.primaryMedia), props.resolveMediaRoutes(props.secondaryMedia)])
+const imageUrls = computed(() => routes.value.map(route => route.fileUrl))
+const pairUrl = computed(() => {
+  const otherId = getCanonicalMediaRefs(props.secondaryMedia).shotVersionId
+  const base = routes.value[0]?.comparisonBaseUrl
+  return base && otherId ? `${base}/${encodeURIComponent(otherId)}` : ''
 })
-const timelineValue = computed(() => {
-  if (!clampedDuration.value) return 0
-  return Math.round((currentTime.value / clampedDuration.value) * 1000)
-})
-const timelinePercent = computed(() => clamp(timelineValue.value / 10, 0, 100))
-const frameStepSeconds = computed(() => 1 / (Number(props.frameRate) || 24))
+const stacked = computed(() => compact.value && props.mode === 'side-by-side')
+const timelineFraction = computed(() => requestedFrame.value / Math.max(1, info.value.frame_count - 1))
+const wipeWidth = computed(() => family.value === 'video' ? Math.min(stageWidth.value, stageHeight.value * 16 / 9) : stageWidth.value)
+const wipeLeft = computed(() => (stageWidth.value - wipeWidth.value) / 2 + wipeWidth.value * wipePercent.value / 100)
+let generation = 0, controller, pollTimer, frameCallback = 0, paintRaf = 0, seekRaf = 0, observer, resume = false
 
-watch(
-  () => [props.primaryMedia, props.secondaryMedia],
-  () => setupComparison(),
-  { immediate: true },
-)
-
-watch(() => props.mode, () => {
-  nextTick(() => {
-    attachReadyVideo('primary')
-    attachReadyVideo('secondary')
-  })
-})
-
-watch(documentVisible, (visible) => {
-  if (!visible) {
-    clearPanePoll('primary', { resetBackoff: false })
-    clearPanePoll('secondary', { resetBackoff: false })
-    return
-  }
-
-  const token = setupToken
-  if (primaryState.loading) void setupPane('primary', props.primaryMedia, primaryState, token)
-  if (secondaryState.loading) void setupPane('secondary', props.secondaryMedia, secondaryState, token)
-})
-
-onMounted(() => {
-  window.addEventListener('keydown', handleCompareKeydown)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleCompareKeydown)
-  playbackRequestToken += 1
-  cleanupPane('primary')
-  cleanupPane('secondary')
-  removeWipeListeners()
-  removeTimelineListeners()
-})
-
-function createPaneState() {
-  return {
-    mediaUrl: '',
-    loading: false,
-    ready: false,
-    error: '',
-    progress: 0,
-    duration: 0,
-    attachedUrl: '',
-    attachedVideo: null,
-  }
+function stopFrames() {
+  if (frameCallback && video.value?.cancelVideoFrameCallback) video.value.cancelVideoFrameCallback(frameCallback)
+  else cancelAnimationFrame(frameCallback)
+  frameCallback = 0
+  cancelAnimationFrame(paintRaf)
+  cancelAnimationFrame(seekRaf)
+  paintRaf = seekRaf = 0
 }
 
-function getMediaFamily(media) {
-  if (!media) return 'unsupported'
-  if (media.is_image) return 'image'
-  if (media.is_pdf) return 'unsupported'
-  return 'video'
+function requestPaint() {
+  if (!paintRaf && !document.hidden) paintRaf = requestAnimationFrame(paint)
 }
 
-function resetPaneState(state) {
-  state.mediaUrl = ''
-  state.loading = false
-  state.ready = false
-  state.error = ''
-  state.progress = 0
-  state.duration = 0
-  state.attachedUrl = ''
-  state.attachedVideo = null
-}
-
-function setupComparison() {
-  setupToken += 1
-  const token = setupToken
-  playbackRequestToken += 1
-  stallRecoveryQueued = false
-  resumeAfterTimelineDrag = false
-  cleanupPane('primary')
-  cleanupPane('secondary')
-  resetPaneState(primaryState)
-  resetPaneState(secondaryState)
-  currentTime.value = 0
-  isPlaying.value = false
-
-  if (isUnsupportedPair.value) return
-  setupPane('primary', props.primaryMedia, primaryState, token)
-  setupPane('secondary', props.secondaryMedia, secondaryState, token)
-}
-
-async function setupPane(side, media, state, token) {
-  const routes = props.resolveMediaRoutes(media)
-  if (!routes?.fileUrl) return
-
-  if (mediaFamily.value === 'image') {
-    state.mediaUrl = routes.fileUrl
-    state.ready = true
-    return
-  }
-
-  state.loading = true
-  state.error = ''
-  state.mediaUrl = routes.manifestUrl
-
-  try {
-    const { data } = await api.get(routes.statusUrl)
-    if (token !== setupToken) return
-    handleStatus(side, media, state, routes, data, token, { resetBackoff: true })
-  } catch (error) {
-    if (token === setupToken) {
-      state.loading = false
-      state.progress = 0
-      state.error = 'Could not load'
-    }
-  }
-}
-
-function handleStatus(side, media, state, routes, data, token, { schedulePoll = true, resetBackoff = false } = {}) {
-  const status = String(data?.status || '').toLowerCase()
-  if (status === 'complete') {
-    clearPanePoll(side)
-    state.loading = false
-    state.ready = true
-    state.progress = data?.progress || 100
-    nextTick(() => attachReadyVideo(side))
-    return
-  }
-
-  if (status === 'error') {
-    clearPanePoll(side)
-    state.loading = false
-    state.progress = 0
-    state.error = 'Encoding failed'
-    return
-  }
-
-  state.loading = true
-  state.progress = data?.progress || 0
-  if (schedulePoll) startPolling(side, media, state, routes, token, { resetBackoff })
-}
-
-function startPolling(side, media, state, routes, token, { resetBackoff = false } = {}) {
-  clearPanePoll(side, { resetBackoff })
-  if (!documentVisible.value) return
-
-  const delay = STREAM_POLL_DELAYS_MS[pollAttempts[side]]
-  const poll = setTimeout(async () => {
-    try {
-      const { data } = await api.get(routes.statusUrl)
-      if (token !== setupToken) return
-      const status = String(data?.status || '').toLowerCase()
-      handleStatus(side, media, state, routes, data, token, { schedulePoll: false })
-      if (status !== 'complete' && status !== 'error') {
-        pollAttempts[side] = Math.min(pollAttempts[side] + 1, STREAM_POLL_DELAYS_MS.length - 1)
-        startPolling(side, media, state, routes, token)
-      }
-    } catch {
-      if (token === setupToken) {
-        state.progress = 0
-        pollAttempts[side] = Math.min(pollAttempts[side] + 1, STREAM_POLL_DELAYS_MS.length - 1)
-        startPolling(side, media, state, routes, token)
-      }
-    }
-  }, delay)
-
-  if (side === 'primary') primaryPoll = poll
-  else secondaryPoll = poll
-}
-
-function clearPanePoll(side, { resetBackoff = true } = {}) {
-  if (side === 'primary' && primaryPoll) {
-    clearTimeout(primaryPoll)
-    primaryPoll = null
-  }
-  if (side === 'secondary' && secondaryPoll) {
-    clearTimeout(secondaryPoll)
-    secondaryPoll = null
-  }
-  if (resetBackoff) pollAttempts[side] = 0
-}
-
-function cleanupPane(side) {
-  clearPanePoll(side)
-  if (side === 'primary') primaryAttachRequestId += 1
-  else secondaryAttachRequestId += 1
-  if (side === 'primary' && primaryHls) {
-    primaryHls.destroy()
-    primaryHls = null
-  }
-  if (side === 'secondary' && secondaryHls) {
-    secondaryHls.destroy()
-    secondaryHls = null
-  }
-}
-
-function setPrimaryVideoRef(el) {
-  if (!el) cleanupPane('primary')
-  primaryVideoRef.value = el
-  void attachReadyVideo('primary')
-}
-
-function setSecondaryVideoRef(el) {
-  if (!el) cleanupPane('secondary')
-  secondaryVideoRef.value = el
-  void attachReadyVideo('secondary')
-}
-
-async function attachReadyVideo(side) {
-  const state = side === 'primary' ? primaryState : secondaryState
-  const video = side === 'primary' ? primaryVideoRef.value : secondaryVideoRef.value
-  if (mediaFamily.value !== 'video' || !state.ready || !state.mediaUrl || !video) return
-  if (state.attachedUrl === state.mediaUrl && state.attachedVideo === video) return
-
-  cleanupPane(side)
-  const requestId = side === 'primary' ? primaryAttachRequestId : secondaryAttachRequestId
-  state.attachedUrl = state.mediaUrl
-  state.attachedVideo = video
-
-  let Hls
-  try {
-    const hlsModule = await import('hls.js')
-    Hls = hlsModule.default
-  } catch {
-    Hls = null
-  }
-  const currentRequestId = side === 'primary' ? primaryAttachRequestId : secondaryAttachRequestId
-  if (
-    requestId !== currentRequestId
-    || state.attachedUrl !== state.mediaUrl
-    || state.attachedVideo !== video
-  ) return
-
-  if (Hls?.isSupported()) {
-    const hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: false,
-      // Two panes run side by side, so each gets half the solo player's caps.
-      maxBufferLength: 15,
-      maxMaxBufferLength: 45,
-      maxBufferSize: 10 * 1000 * 1000,
-      backBufferLength: 15,
-      autoStartLoad: false,
-      startFragPrefetch: true,
-    })
-    hls.loadSource(state.mediaUrl)
-    hls.attachMedia(video)
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      const startLevel = chooseStartLevel(hls.levels || [])
-      if (startLevel >= 0) {
-        hls.startLevel = startLevel
-        hls.currentLevel = startLevel
-        hls.nextLevel = startLevel
-      }
-      hls.startLoad(0)
-    })
-    if (side === 'primary') primaryHls = hls
-    else secondaryHls = hls
-    return
-  }
-
-  if (video.canPlayType('application/vnd.apple.mpegurl')) {
-    video.src = state.mediaUrl
-  }
-}
-
-function chooseStartLevel(levels) {
-  if (!Array.isArray(levels) || !levels.length) return -1
-  const candidates = levels
-    .map((level, index) => ({ index, height: Number(level?.height || 0), bitrate: Number(level?.bitrate || 0) }))
-    .sort((a, b) => b.height - a.height || b.bitrate - a.bitrate)
-  return (
-    candidates.find(level => level.height && level.height <= PREFERRED_START_QUALITY_HEIGHT)
-    || candidates[candidates.length - 1]
-  )?.index ?? -1
-}
-
-function handlePrimaryLoadedMetadata(event) {
-  primaryState.duration = Number(event?.target?.duration || 0)
-}
-
-function handleSecondaryLoadedMetadata(event) {
-  secondaryState.duration = Number(event?.target?.duration || 0)
-}
-
-function handlePlaybackTimeUpdate() {
-  const nextTime = Math.max(
-    Number(primaryVideoRef.value?.currentTime || 0),
-    Number(secondaryVideoRef.value?.currentTime || 0),
-  )
-  const maxTime = clampedDuration.value
-  if (maxTime && nextTime >= maxTime) {
-    if (loopEnabled.value) {
-      void playBoth(0)
-    } else {
-      pauseBoth()
-    }
-    return
-  }
-  currentTime.value = nextTime
-}
-
-function handlePlaybackWaiting() {
-  if (!isPlaying.value || stallRecoveryQueued) return
-  const primary = primaryVideoRef.value
-  const secondary = secondaryVideoRef.value
-  if (!primary || !secondary) return
-
-  const activeVideos = [primary, secondary].filter(video => canVideoPlayAt(video, video.currentTime))
-  if (!activeVideos.length) return
-
-  const recoveryTime = Math.min(...activeVideos.map(video => Number(video.currentTime || 0)))
-  stallRecoveryQueued = true
-  playbackRequestToken += 1
-  pauseVideoElements()
-  queueMicrotask(() => {
-    stallRecoveryQueued = false
-    if (isPlaying.value) void playBoth(recoveryTime)
-  })
-}
-
-function setVideoCurrentTime(video, time) {
-  if (!video) return false
-  const nextTime = Number(time || 0)
-  if (Math.abs(Number(video.currentTime || 0) - nextTime) <= frameStepSeconds.value / 2) {
-    return false
-  }
-  try {
-    video.currentTime = nextTime
-    return true
-  } catch {
-    // Seek can fail while the element is still loading.
-    return false
-  }
-}
-
-function waitForPlaybackReady(video) {
-  if (!video.seeking && video.readyState >= HAVE_FUTURE_DATA) return Promise.resolve(true)
-
-  return new Promise(resolve => {
-    const readyEvents = ['loadeddata', 'seeked', 'canplay']
-    const finish = ready => {
-      clearTimeout(timeout)
-      readyEvents.forEach(eventName => video.removeEventListener(eventName, checkReady))
-      video.removeEventListener('error', handleError)
-      resolve(ready)
-    }
-    const checkReady = () => {
-      if (!video.seeking && video.readyState >= HAVE_FUTURE_DATA) finish(true)
-    }
-    const handleError = () => finish(false)
-    const timeout = setTimeout(() => finish(false), PLAYBACK_READY_TIMEOUT_MS)
-
-    readyEvents.forEach(eventName => video.addEventListener(eventName, checkReady))
-    video.addEventListener('error', handleError, { once: true })
-    checkReady()
-  })
-}
-
-function canVideoPlayAt(video, time) {
-  const duration = Number(video?.duration || 0)
-  return Boolean(video) && (!duration || Number(time || 0) < duration - frameStepSeconds.value / 2)
-}
-
-function pauseVideoElements() {
-  if (primaryVideoRef.value && !primaryVideoRef.value.paused) primaryVideoRef.value.pause()
-  if (secondaryVideoRef.value && !secondaryVideoRef.value.paused) secondaryVideoRef.value.pause()
-}
-
-function togglePlayback() {
-  if (!canPlayVideoPair.value) return
-  if (isPlaying.value) {
-    pauseBoth()
+function paint() {
+  // A new video frame can satisfy a pending drag redraw on the same display tick.
+  cancelAnimationFrame(paintRaf)
+  paintRaf = 0
+  const source = video.value, target = canvas.value
+  if (!target || !source || source.readyState < 2 || source.seeking || document.hidden) return
+  const w = source.videoWidth / 2, h = source.videoHeight
+  if (!w || !h) return
+  const width = props.mode === 'side-by-side' && !stacked.value ? w * 2 : w
+  const height = stacked.value ? h * 2 : h
+  if (target.width !== width) target.width = width
+  if (target.height !== height) target.height = height
+  const context = target.getContext('2d', { alpha: false })
+  if (!context) return
+  const a = info.value.primary_is_left ? 0 : w, b = w - a
+  if (props.mode === 'wipe') {
+    const cut = Math.round(w * wipePercent.value / 100)
+    context.drawImage(source, b, 0, w, h, 0, 0, w, h)
+    if (cut) context.drawImage(source, a, 0, cut, h, 0, 0, cut, h)
   } else {
-    void playBoth()
+    context.drawImage(source, a, 0, w, h, 0, 0, w, h)
+    context.drawImage(source, b, 0, w, h, stacked.value ? 0 : w, stacked.value ? h : 0, w, h)
   }
 }
 
-async function playBoth(requestedTime = null) {
-  const primary = primaryVideoRef.value
-  const secondary = secondaryVideoRef.value
-  if (!primary || !secondary || !canPlayVideoPair.value) return
+function showFrame(time) {
+  frame.value = Math.max(0, Math.min(info.value.frame_count - 1, Math.floor(time * info.value.fps + .001)))
+  if (!scrubbing.value) requestedFrame.value = frame.value
+}
 
-  const requestToken = ++playbackRequestToken
-  isPlaying.value = true
-  let time = boundPlaybackTime(requestedTime == null
-    ? Math.max(
-      Number(currentTime.value || 0),
-      Number(primary.currentTime || 0),
-      Number(secondary.currentTime || 0),
-    )
-    : requestedTime)
-  if (clampedDuration.value && time >= clampedDuration.value) time = 0
-
-  pauseVideoElements()
-  setVideoCurrentTime(primary, time)
-  setVideoCurrentTime(secondary, time)
-  currentTime.value = time
-  secondary.playbackRate = primary.playbackRate || 1
-
-  const playableVideos = [primary, secondary].filter(video => canVideoPlayAt(video, time))
-  const ready = await Promise.all(playableVideos.map(waitForPlaybackReady))
-  if (requestToken !== playbackRequestToken || !isPlaying.value) return
-  if (!ready.every(Boolean)) {
-    isPlaying.value = false
-    return
+function observeFrames() {
+  const source = video.value
+  if (!source || frameCallback || document.hidden) return
+  const callback = (_now, metadata) => {
+    frameCallback = 0
+    if (!source.seeking) { paint(); showFrame(metadata?.mediaTime ?? source.currentTime) }
+    if (!source.paused) observeFrames()
   }
-
-  const results = await Promise.allSettled(playableVideos.map(video => video.play()))
-  if (requestToken !== playbackRequestToken) return
-  isPlaying.value = results.some((result, index) => result.status === 'fulfilled' && !playableVideos[index].paused)
+  frameCallback = source.requestVideoFrameCallback ? source.requestVideoFrameCallback(callback) : requestAnimationFrame(callback)
 }
 
-function pauseBoth() {
-  playbackRequestToken += 1
-  stallRecoveryQueued = false
-  pauseVideoElements()
-  isPlaying.value = false
+function loaded() { ready.value = true; buffering.value = false; paint(); showFrame(video.value.currentTime) }
+function mediaError() { if (video.value?.getAttribute('src')) error.value = 'The comparison could not load. Try again.' }
+async function play() {
+  if (!ready.value || !video.value) return
+  const current = generation
+  if (video.value.ended) video.value.currentTime = 0
+  observeFrames()
+  try { await video.value.play() }
+  catch { if (current === generation) error.value = 'Playback could not start. Try again.' }
 }
-
-function seekBoth(time) {
-  const boundedTime = boundPlaybackTime(time)
-  const resumePlayback = isPlaying.value && !timelineDragging.value
-  if (resumePlayback) pauseBoth()
-  setVideoCurrentTime(primaryVideoRef.value, boundedTime)
-  setVideoCurrentTime(secondaryVideoRef.value, boundedTime)
-  currentTime.value = boundedTime
-  if (resumePlayback) void playBoth(boundedTime)
+function pause() { video.value?.pause(); resume = false }
+function toggle() { if (video.value?.paused) void play(); else pause() }
+function seek(value) {
+  if (!ready.value || !video.value) return
+  video.value.pause()
+  requestedFrame.value = Math.max(0, Math.min(info.value.frame_count - 1, Math.round(value)))
+  // Seek inside the frame, not on a floating-point boundary between frames.
+  video.value.currentTime = (requestedFrame.value + .25) / info.value.fps
 }
-
-function boundPlaybackTime(time) {
-  const numericTime = Number(time || 0)
-  if (!clampedDuration.value) return Math.max(0, numericTime)
-  return clamp(numericTime, 0, clampedDuration.value)
+function beginScrub() { resume = playing.value; scrubbing.value = true }
+function endScrub() {
+  scrubbing.value = false
+  if (!video.value?.seeking && resume) { resume = false; void play() }
 }
-
-function startTimelineDrag(event) {
-  if (!canPlayVideoPair.value || !clampedDuration.value) return
-  resumeAfterTimelineDrag = isPlaying.value
-  timelineDragging.value = true
-  timelineDragRect = timelineRef.value?.getBoundingClientRect?.() || null
-  if (resumeAfterTimelineDrag) pauseBoth()
-  seekFromTimelineClientX(event.clientX, timelineDragRect)
-  window.addEventListener('mousemove', handleTimelineMouseMove)
-  window.addEventListener('mouseup', stopTimelineDrag, { once: true })
-}
-
-function handleTimelineMouseMove(event) {
-  if (!timelineDragging.value) return
-  scheduleTimelineSeek(event.clientX)
-}
-
-function startTimelineTouch(event) {
-  if (!canPlayVideoPair.value || !clampedDuration.value) return
-  resumeAfterTimelineDrag = isPlaying.value
-  timelineDragging.value = true
-  timelineDragRect = timelineRef.value?.getBoundingClientRect?.() || null
-  if (resumeAfterTimelineDrag) pauseBoth()
-  seekFromTimelineClientX(event.touches?.[0]?.clientX, timelineDragRect)
-  window.addEventListener('touchmove', handleTimelineTouchMove, { passive: false })
-  window.addEventListener('touchend', stopTimelineDrag, { once: true })
-  window.addEventListener('touchcancel', stopTimelineDrag, { once: true })
-}
-
-function handleTimelineTouchMove(event) {
-  if (!timelineDragging.value) return
-  event.preventDefault()
-  scheduleTimelineSeek(event.touches?.[0]?.clientX)
-}
-
-function stopTimelineDrag() {
-  flushPendingTimelineSeek()
-  timelineDragging.value = false
-  timelineDragRect = null
-  removeTimelineListeners()
-  if (!resumeAfterTimelineDrag) return
-  resumeAfterTimelineDrag = false
-  void playBoth(currentTime.value)
-}
-
-function removeTimelineListeners() {
-  window.removeEventListener('mousemove', handleTimelineMouseMove)
-  window.removeEventListener('mouseup', stopTimelineDrag)
-  window.removeEventListener('touchmove', handleTimelineTouchMove)
-  window.removeEventListener('touchend', stopTimelineDrag)
-  window.removeEventListener('touchcancel', stopTimelineDrag)
-  if (timelineSeekFrame) window.cancelAnimationFrame(timelineSeekFrame)
-  if (timelineSeekTimer) window.clearTimeout(timelineSeekTimer)
-  timelineSeekFrame = 0
-  timelineSeekTimer = 0
-}
-
-function seekFromTimelineClientX(clientX, cachedRect = null) {
-  if (!timelineRef.value || !clampedDuration.value || Number.isNaN(Number(clientX))) return
-  const rect = cachedRect || timelineRef.value.getBoundingClientRect()
-  if (!rect.width) return
-  const ratio = clamp((Number(clientX) - rect.left) / rect.width, 0, 1)
-  seekBoth(clampedDuration.value * ratio)
-  lastTimelineSeekAt = Date.now()
-}
-
-function flushPendingTimelineSeek() {
-  if (pendingTimelineClientX == null) return
-  const clientX = pendingTimelineClientX
-  pendingTimelineClientX = null
-  seekFromTimelineClientX(clientX, timelineDragRect)
-}
-
-function scheduleTimelineSeek(clientX) {
-  if (Number.isNaN(Number(clientX))) return
-  pendingTimelineClientX = clientX
-  if (timelineSeekFrame || timelineSeekTimer) return
-
-  const remaining = Math.max(0, COMPARE_TIMELINE_SEEK_INTERVAL_MS - (Date.now() - lastTimelineSeekAt))
-  const requestFlush = () => {
-    timelineSeekTimer = 0
-    timelineSeekFrame = window.requestAnimationFrame(() => {
-      timelineSeekFrame = 0
-      flushPendingTimelineSeek()
-    })
-  }
-  if (remaining) timelineSeekTimer = window.setTimeout(requestFlush, remaining)
-  else requestFlush()
-}
-
-function nudgeTimeline(deltaSeconds) {
-  if (!canPlayVideoPair.value || !clampedDuration.value) return
-  seekBoth(currentTime.value + Number(deltaSeconds || 0))
-}
-
-function handleCompareKeydown(event) {
-  if (event.defaultPrevented || mediaFamily.value !== 'video') return
-  const target = event.target
-  const tagName = String(target?.tagName || '').toUpperCase()
-  if (tagName === 'INPUT' || tagName === 'TEXTAREA' || tagName === 'SELECT' || target?.isContentEditable) return
-
-  switch (event.code) {
-    case 'Space':
-      event.preventDefault()
-      togglePlayback()
-      break
-    case 'ArrowLeft':
-      event.preventDefault()
-      nudgeTimeline(event.shiftKey ? -1 : -frameStepSeconds.value)
-      break
-    case 'ArrowRight':
-      event.preventDefault()
-      nudgeTimeline(event.shiftKey ? 1 : frameStepSeconds.value)
-      break
-    default:
-      break
-  }
-}
-
-function formatSeconds(seconds) {
-  if (typeof props.formatTimecode === 'function') return props.formatTimecode(Number(seconds || 0))
-  const total = Math.max(0, Math.floor(Number(seconds || 0)))
-  const minutes = Math.floor(total / 60)
-  const remaining = total % 60
-  return `${minutes}:${String(remaining).padStart(2, '0')}`
-}
-
-function startWipeDrag(event) {
-  if (props.mode !== 'wipe' || !wipeStageRef.value) return
-  draggingWipe = true
-  wipeDragRect = wipeStageRef.value.getBoundingClientRect()
-  updateWipeFromClientX(event.clientX)
-  window.addEventListener('pointermove', updateWipeFromEvent)
-  window.addEventListener('pointerup', stopWipeDrag, { once: true })
-}
-
-function updateWipeFromEvent(event) {
-  if (!draggingWipe || !wipeDragRect) return
-  pendingWipeClientX = event.clientX
-  if (wipeMoveFrame) return
-  wipeMoveFrame = window.requestAnimationFrame(() => {
-    wipeMoveFrame = 0
-    if (pendingWipeClientX == null) return
-    const clientX = pendingWipeClientX
-    pendingWipeClientX = null
-    updateWipeFromClientX(clientX)
+function seeked() {
+  cancelAnimationFrame(seekRaf)
+  // Safari makes the newly decoded picture drawable on the next render tick.
+  seekRaf = requestAnimationFrame(() => {
+    seekRaf = 0
+    if (!video.value || video.value.seeking) return
+    paint(); showFrame(video.value.currentTime)
+    if (!scrubbing.value && resume) { resume = false; void play() }
   })
 }
+function startWipe(event) {
+  if (props.mode !== 'wipe' || error.value || (family.value === 'video' && !ready.value) || event.button !== 0) return
+  if (event.target.closest('button, input, select')) return
+  const element = stage.value
+  const bounds = element.getBoundingClientRect()
+  const scale = bounds.width / element.offsetWidth
+  const width = wipeWidth.value * scale
+  if (!width) return
+  const left = bounds.left + (element.clientLeft + (stageWidth.value - wipeWidth.value) / 2) * scale
+  element.setPointerCapture(event.pointerId)
+  const move = e => {
+    wipePercent.value = Math.max(0, Math.min(100, (e.clientX - left) / width * 100))
+  }
+  element.onpointermove = move
+  element.onlostpointercapture = () => { element.onpointermove = null; element.onlostpointercapture = null }
+  move(event)
+}
+function keydown(event) {
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || !ready.value || family.value !== 'video') return
+  const target = event.target
+  const timeline = target?.classList?.contains('media-compare-seek')
+  if (!timeline && target?.closest?.('input, textarea, select, button, [contenteditable="true"], [role="dialog"]')) return
+  if (event.code === 'Space') { event.preventDefault(); toggle() }
+  else if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+    event.preventDefault(); resume = false
+    seek(event.key === 'Home' ? 0 : event.key === 'End' ? info.value.frame_count - 1
+      : requestedFrame.value + (event.key === 'ArrowRight' ? 1 : -1) * (event.shiftKey ? 10 : 1))
+  }
+}
+function formatSeconds(seconds) { return formatTimecodeWithFrames(seconds + 1e-7, info.value.fps) }
 
-function updateWipeFromClientX(clientX) {
-  const rect = wipeDragRect
-  if (!rect?.width) return
-  const next = ((clientX - rect.left) / rect.width) * 100
-  wipePercent.value = clamp(next, 5, 95)
+async function loadPair(retry = false) {
+  const current = ++generation
+  clearTimeout(pollTimer); controller?.abort(); stopFrames(); pause()
+  ready.value = false; error.value = ''; state.value = 'loading'; buffering.value = false
+  frame.value = requestedFrame.value = 0; progress.value = 0; scrubbing.value = false
+  info.value = { fps: 24, frame_count: 0, end_frames: [] }
+  if (video.value) { video.value.removeAttribute('src'); video.value.load() }
+  await nextTick()
+  if (current !== generation || family.value !== 'video') return
+  if (!pairUrl.value) { error.value = 'Choose two video versions from this tracker.'; return }
+  const url = pairUrl.value
+  controller = new AbortController()
+  const signal = controller.signal
+  let polls = 0
+  const poll = async () => {
+    try {
+      const response = await api.request({ url: `${url}/status`, method: retry && polls === 0 ? 'POST' : 'GET', signal })
+      if (current !== generation) return
+      const data = response.data
+      info.value = data; state.value = data.status; progress.value = data.progress || 0
+      if (data.status === 'error') { error.value = data.error || 'The comparison could not be prepared.'; return }
+      if (data.status === 'complete') {
+        video.value.src = `${url}/file`
+        video.value.load()
+        return
+      }
+      pollTimer = setTimeout(poll, [1000, 2000, 5000][Math.min(polls++, 2)])
+    } catch (exception) {
+      if (current === generation && !signal.aborted) {
+        const status = exception.response?.status
+        const detail = exception.response?.data?.detail
+        error.value = status === 403 || status === 401 ? 'Comparison is not available for these versions.'
+          : status === 404 && detail === 'Not Found' ? 'This server needs the new comparison update.'
+            : status === 404 ? 'One of these versions is unavailable.'
+              : status === 422 ? 'Video timing could not be read. Choose another version.'
+                : 'The comparison could not be prepared. Try again.'
+      }
+    }
+  }
+  void poll()
 }
 
-function stopWipeDrag() {
-  if (wipeMoveFrame) window.cancelAnimationFrame(wipeMoveFrame)
-  wipeMoveFrame = 0
-  if (pendingWipeClientX != null) updateWipeFromClientX(pendingWipeClientX)
-  pendingWipeClientX = null
-  wipeDragRect = null
-  draggingWipe = false
-  removeWipeListeners()
+function visibilityChanged() {
+  if (document.hidden) { pause(); stopFrames() }
+  else paint()
 }
-
-function removeWipeListeners() {
-  window.removeEventListener('pointermove', updateWipeFromEvent)
-  if (wipeMoveFrame) window.cancelAnimationFrame(wipeMoveFrame)
-  wipeMoveFrame = 0
-  pendingWipeClientX = null
-  wipeDragRect = null
-}
+watch([pairUrl, family, imageUrls], () => { void loadPair() })
+watch([() => props.mode, wipePercent, stacked], requestPaint)
+onMounted(() => {
+  observer = new ResizeObserver(entries => {
+    const box = entries[0].contentRect
+    stageWidth.value = box.width; stageHeight.value = box.height
+    compact.value = box.width <= 600
+    paint()
+  })
+  observer.observe(stage.value)
+  window.addEventListener('keydown', keydown)
+  window.addEventListener('pointerup', endScrub)
+  window.addEventListener('pointercancel', endScrub)
+  document.addEventListener('visibilitychange', visibilityChanged)
+  void loadPair()
+})
+onBeforeUnmount(() => {
+  generation++; controller?.abort(); clearTimeout(pollTimer); stopFrames(); pause(); observer?.disconnect()
+  if (video.value) { video.value.removeAttribute('src'); video.value.load() }
+  window.removeEventListener('keydown', keydown)
+  window.removeEventListener('pointerup', endScrub)
+  window.removeEventListener('pointercancel', endScrub)
+  document.removeEventListener('visibilitychange', visibilityChanged)
+})
 </script>

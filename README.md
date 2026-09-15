@@ -25,10 +25,10 @@ Built inside a working VFX studio and used on real productions. Made for the
 work between the first upload and the final delivery.
 
 <a href="docs/assets/tracker.png">
-  <img src="docs/assets/tracker.png" alt="Vue.io's LOW TIDE demo tracker: thumbnails, version selectors, status, artist assignments, briefs, and latest review notes alongside project files." width="100%">
+  <img src="docs/assets/tracker.png" alt="Vue.io demonstration tracker: thumbnails, version selectors, status, member assignments, briefs, and latest review notes alongside project files." width="100%">
 </a>
 
-*Actual Vue.io interface. LOW TIDE is a fictional demonstration project with synthetic media and team profiles.*
+*Actual Vue.io interface. The example project uses synthetic media and fictional team profiles.*
 
 ## Review is only the beginning
 

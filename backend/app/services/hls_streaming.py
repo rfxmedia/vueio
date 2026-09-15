@@ -930,6 +930,7 @@ def build_hls_asset_response(package_dir: Path, asset_path: str, build_asset_url
 
 
 def get_hls_manifest_response(db: Session, *, job_key: str, input_path: Path, build_asset_url):
+    touch_transcode_access(hls_job_key(job_key))
     status = get_hls_status(db, job_key=job_key, input_path=input_path)
     if str(status.get('status') or '').lower() != 'complete':
         raise HTTPException(status_code=409, detail='HLS package is not ready')
@@ -946,12 +947,12 @@ def get_hls_manifest_response(db: Session, *, job_key: str, input_path: Path, bu
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     response = build_hls_asset_response(active_package_dir, 'master.m3u8', build_generation_asset_url)
-    touch_transcode_access(package_job_key)
     return response
 
 
 def get_hls_asset_response(*, job_key: str, asset_path: str, build_asset_url, hls_generation: str | None = None):
     package_job_key = hls_job_key(job_key)
+    touch_transcode_access(package_job_key)
     if hls_generation:
         generation = str(hls_generation or '').strip()
         package_dir = _hls_package_dir_from_generation(package_job_key, generation)
@@ -967,7 +968,6 @@ def get_hls_asset_response(*, job_key: str, asset_path: str, build_asset_url, hl
         return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
 
     response = build_hls_asset_response(package_dir, asset_path, build_generation_asset_url)
-    touch_transcode_access(package_job_key)
     return response
 
 

@@ -316,6 +316,7 @@ def stream_file_response(full_path: Path, transcode_job_key: str, db: Session):
         return FileResponse(full_path, media_type='video/mp4')
 
     preview_job_key = mp4_job_key(transcode_job_key)
+    touch_transcode_access(preview_job_key)
     transcode_path = transcode_cache_path_for_identity(preview_job_key)
     _adopt_legacy_mp4_artifact(db, legacy_job_key=transcode_job_key, artifact_job_key=preview_job_key, artifact_path=transcode_path)
     for legacy_identity in legacy_media_source_identities(db, full_path, transcode_job_key):
@@ -328,6 +329,5 @@ def stream_file_response(full_path: Path, transcode_job_key: str, db: Session):
             artifact_path=transcode_path,
         )
     if ensure_transcode_running(db, job_key=preview_job_key, input_path=full_path, output_path=transcode_path):
-        touch_transcode_access(preview_job_key)
         return FileResponse(transcode_path, media_type='video/mp4')
     return {'status': 'transcoding', 'message': 'Video is being converted...'}

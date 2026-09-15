@@ -24,16 +24,22 @@ _checking = False
 
 
 def preferences():
+    result = {'mode': 'cpu', 'device': '', 'auto_cleanup_previews': True}
     try:
         path = get_settings().DATA_DIR / 'media-processing.json'
         if path.stat().st_size > 4096:
             raise ValueError('Invalid processing settings.')
         data = json.loads(path.read_text())
         if data.get('mode') in {'cpu', 'gpu'} and isinstance(data.get('device'), str):
-            return {'mode': data['mode'], 'device': data['device']}
-    except (OSError, ValueError, AttributeError):
+            result.update(mode=data['mode'], device=data['device'])
+        # Older installations have no cleanup preference. Invalid settings must
+        # not accidentally enable deletion after an administrator disabled it.
+        result['auto_cleanup_previews'] = data.get('auto_cleanup_previews', True) is True
+    except FileNotFoundError:
         pass
-    return {'mode': 'cpu', 'device': ''}
+    except (OSError, ValueError, AttributeError):
+        result['auto_cleanup_previews'] = False
+    return result
 
 
 def processing_status():
@@ -71,16 +77,21 @@ def verify_hardware():
     return processing_status()
 
 
-def save_preferences(mode, device):
+def save_preferences(mode=None, device='', *, auto_cleanup_previews=None):
     with _lock:
         if mode == 'gpu' and not any(item['id'] == device and item['encoding'] for item in (_devices or [])):
             raise HTTPException(409, 'Check the hardware and select a working GPU first.')
+        updated = preferences()
+        if mode is not None:
+            updated.update(mode=mode, device=device if mode == 'gpu' else '')
+        if auto_cleanup_previews is not None:
+            updated['auto_cleanup_previews'] = auto_cleanup_previews
         path = get_settings().DATA_DIR / 'media-processing.json'
         temporary = path.with_name(f'.media-processing.{uuid4().hex}.tmp')
         try:
             with temporary.open('x') as handle:
                 os.chmod(temporary, 0o600)
-                json.dump({'mode': mode, 'device': device if mode == 'gpu' else ''}, handle)
+                json.dump(updated, handle)
                 handle.flush()
                 os.fsync(handle.fileno())
             temporary.replace(path)
@@ -99,7 +110,8 @@ class RemoteProcess:
         self.returncode = None
         self.stdout = self
         try:
-            host_request_json('POST', '/media/jobs', {'id': self.identity, 'input': str(source), 'output': str(self.staging), 'recipe': recipe}, timeout=30)
+            inputs = [str(path) for path in source] if recipe['kind'] == 'comparison' else str(source)
+            host_request_json('POST', '/media/jobs', {'id': self.identity, 'input': inputs, 'output': str(self.staging), 'recipe': recipe}, timeout=30)
         except Exception:
             # An uncertain response must never share an output with the CPU retry.
             try: self.terminate()

@@ -90,8 +90,9 @@ class SwitchChannelRequest(BaseModel):
 
 class MediaProcessingRequest(BaseModel):
     model_config = ConfigDict(extra='forbid')
-    mode: Literal['cpu', 'gpu']
+    mode: Literal['cpu', 'gpu'] | None = None
     device: str = Field(default='', max_length=80)
+    auto_cleanup_previews: bool | None = Field(default=None, strict=True)
 
 
 @router.get('/api/admin/media-processing')
@@ -111,7 +112,7 @@ def check_media_processing(request: Request, vueio_session: str | None = Cookie(
 def set_media_processing(data: MediaProcessingRequest, request: Request, vueio_session: str | None = Cookie(None)):
     require_host_admin(vueio_session)
     require_host_origin(request)
-    return save_preferences(data.mode, data.device)
+    return save_preferences(data.mode, data.device, auto_cleanup_previews=data.auto_cleanup_previews)
 
 
 def _require_admin_session(vueio_session: str | None) -> dict:

@@ -421,8 +421,7 @@ export function useTrackerViewerController({
 
   function canCompareShotVersions(shot, anchorVersion = null) {
     return Boolean(
-      !isMobile.value
-      && trackerToolEnabledForContext(currentTrackerRef.value, 'comparison')
+      trackerToolEnabledForContext(currentTrackerRef.value, 'comparison')
       && getComparableShotVersions(shot, anchorVersion).length >= 2
     )
   }
@@ -590,9 +589,6 @@ export function useTrackerViewerController({
 
   watch([showTrackerViewerVersionSwitcher, isMobile], ([visible, mobile], previousValues = []) => {
     if (!visible || mobile !== previousValues[1]) dismissTrackerViewerVersionSwitcher()
-  })
-  watch(isMobile, (mobile) => {
-    if (mobile && versionCompareActive.value) exitVersionCompare()
   })
   watch(canCompareTrackerViewerVersions, (available) => {
     if (!available && versionCompareActive.value) exitVersionCompare()

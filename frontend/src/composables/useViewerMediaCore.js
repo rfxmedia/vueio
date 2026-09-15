@@ -109,6 +109,7 @@ export function useViewerMediaCore(ctx) {
       if (shotVersionId) {
         const base = `/api/horizons/projects/${media._projectId}/shot-versions/${shotVersionId}`
         return {
+          comparisonBaseUrl: `${base}/comparison`,
           fileUrl: `${base}/file`,
           manifestUrl: `${base}/hls/manifest`,
           statusUrl: `${base}/hls/status`,
@@ -133,6 +134,8 @@ export function useViewerMediaCore(ctx) {
       const sharedFileUrl = getSharedObjectRoute(ctx.pendingShareId.value, sharedMedia, 'file')
       if (sharedFileUrl) {
         return {
+          comparisonBaseUrl: getCanonicalMediaRefs(media).shotVersionId
+            ? getSharedObjectRoute(ctx.pendingShareId.value, sharedMedia, 'comparison') : '',
           fileUrl: sharedFileUrl,
           manifestUrl: getSharedObjectRoute(ctx.pendingShareId.value, sharedMedia, 'hls/manifest'),
           statusUrl: getSharedObjectRoute(ctx.pendingShareId.value, sharedMedia, 'hls/status'),
