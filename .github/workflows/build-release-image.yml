@@ -1,0 +1,96 @@
+name: Build a native release image
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+      context:
+        required: true
+        type: string
+      architecture:
+        required: true
+        type: string
+    outputs:
+      digest:
+        description: The exact image digest that passed both security scans.
+        value: ${{ jobs.build.outputs.digest }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ${{ inputs.architecture == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Require matching native hardware
+        shell: bash
+        env:
+          ARCHITECTURE: ${{ inputs.architecture }}
+        run: |
+          set -Eeuo pipefail
+          case "$ARCHITECTURE:$(uname -m)" in
+            amd64:x86_64|arm64:aarch64) ;;
+            *) echo "The build requires matching native hardware." >&2; exit 1 ;;
+          esac
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: vars
+        name: Set canonical image name
+        shell: bash
+        env:
+          COMPONENT: ${{ inputs.component }}
+        run: |
+          set -Eeuo pipefail
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${owner}/vueio-${COMPONENT}" >>"$GITHUB_OUTPUT"
+      - id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.vars.outputs.image }}
+          flavor: latest=false
+          tags: type=raw,value=${{ github.ref_name }}
+      - id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ inputs.context }}
+          platforms: linux/${{ inputs.architecture }}
+          outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ inputs.component }}-${{ inputs.architecture }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.component }}-${{ inputs.architecture }}
+      - name: Scan the exact untagged image
+        shell: bash
+        env:
+          IMAGE_NAME: ${{ steps.vars.outputs.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          ARCHITECTURE: ${{ inputs.architecture }}
+        run: |
+          set -Eeuo pipefail
+          [[ $IMAGE_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]]
+          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
+          for gate in report fixable; do
+            flags=(--exit-code 0)
+            if [[ $gate == fixable ]]; then flags=(--ignore-unfixed --exit-code 1); fi
+            docker run --rm \
+              -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
+              -v vueio-trivy-cache:/root/.cache/ \
+              "$scanner" image \
+              --image-src remote \
+              --platform "linux/$ARCHITECTURE" \
+              --scanners vuln \
+              --severity HIGH,CRITICAL \
+              "${flags[@]}" \
+              "${IMAGE_NAME}@${IMAGE_DIGEST}"
+          done

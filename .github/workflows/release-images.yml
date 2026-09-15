@@ -105,8 +105,52 @@ jobs:
     permissions:
       contents: read
 
-  images:
+  engine-amd64:
     needs: verify
+    uses: ./.github/workflows/build-release-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      component: engine
+      context: backend
+      architecture: amd64
+
+  engine-arm64:
+    needs: verify
+    uses: ./.github/workflows/build-release-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      component: engine
+      context: backend
+      architecture: arm64
+
+  ui-amd64:
+    needs: verify
+    uses: ./.github/workflows/build-release-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      component: ui
+      context: frontend
+      architecture: amd64
+
+  ui-arm64:
+    needs: verify
+    uses: ./.github/workflows/build-release-image.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      component: ui
+      context: frontend
+      architecture: arm64
+
+  images:
+    needs: [engine-amd64, engine-arm64, ui-amd64, ui-arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -116,95 +160,30 @@ jobs:
       matrix:
         include:
           - component: engine
-            context: backend
+            amd64_digest: ${{ needs.engine-amd64.outputs.digest }}
+            arm64_digest: ${{ needs.engine-arm64.outputs.digest }}
           - component: ui
-            context: frontend
+            amd64_digest: ${{ needs.ui-amd64.outputs.digest }}
+            arm64_digest: ${{ needs.ui-arm64.outputs.digest }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - id: vars
-        name: Set canonical image name
-        shell: bash
-        run: |
-          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          echo "image=ghcr.io/${owner}/vueio-${{ matrix.component }}" >>"$GITHUB_OUTPUT"
-      - id: meta
-        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
-        with:
-          images: ${{ steps.vars.outputs.image }}
-          flavor: latest=false
-          tags: type=raw,value=${{ github.ref_name }}
-      - id: build-amd64
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: ${{ matrix.context }}
-          platforms: linux/amd64
-          outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.component }}-amd64
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-amd64
-      - id: build-arm64
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: ${{ matrix.context }}
-          platforms: linux/arm64
-          outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.component }}-arm64
-          cache-to: type=gha,mode=max,scope=${{ matrix.component }}-arm64
-      - name: Scan exact untagged amd64 and arm64 images
-        shell: bash
-        env:
-          IMAGE_NAME: ${{ steps.vars.outputs.image }}
-          AMD64_DIGEST: ${{ steps.build-amd64.outputs.digest }}
-          ARM64_DIGEST: ${{ steps.build-arm64.outputs.digest }}
-        run: |
-          set -Eeuo pipefail
-          scanner='aquasec/trivy@sha256:7cced7cae583819fc7806d4cbc0dbbc7cad18b99f7d3e235192e6da8c091045c'
-          while read -r platform digest; do
-            docker run --rm \
-              -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
-              -v vueio-trivy-cache:/root/.cache/ \
-              "$scanner" image \
-              --image-src remote \
-              --platform "$platform" \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --exit-code 0 \
-              "${IMAGE_NAME}@${digest}"
-            docker run --rm \
-              -v "$HOME/.docker/config.json:/root/.docker/config.json:ro" \
-              -v vueio-trivy-cache:/root/.cache/ \
-              "$scanner" image \
-              --image-src remote \
-              --platform "$platform" \
-              --scanners vuln \
-              --severity HIGH,CRITICAL \
-              --ignore-unfixed \
-              --exit-code 1 \
-              "${IMAGE_NAME}@${digest}"
-          done <<EOF
-          linux/amd64 $AMD64_DIGEST
-          linux/arm64 $ARM64_DIGEST
-          EOF
       - name: Publish the verified multi-arch tag
         shell: bash
         env:
-          IMAGE_NAME: ${{ steps.vars.outputs.image }}
+          COMPONENT: ${{ matrix.component }}
           RELEASE_TAG: ${{ github.ref_name }}
-          AMD64_DIGEST: ${{ steps.build-amd64.outputs.digest }}
-          ARM64_DIGEST: ${{ steps.build-arm64.outputs.digest }}
+          AMD64_DIGEST: ${{ matrix.amd64_digest }}
+          ARM64_DIGEST: ${{ matrix.arm64_digest }}
         run: |
           set -Eeuo pipefail
+          [[ $AMD64_DIGEST =~ ^sha256:[0-9a-f]{64}$ && $ARM64_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]]
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          IMAGE_NAME="ghcr.io/${owner}/vueio-${COMPONENT}"
           target="${IMAGE_NAME}:${RELEASE_TAG}"
           if output=$(docker manifest inspect "$target" 2>&1); then
             echo "Image tag $target appeared during the build; refusing to overwrite it." >&2
