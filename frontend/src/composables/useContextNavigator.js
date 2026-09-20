@@ -27,11 +27,11 @@ export const NAVIGATOR_MIN_WIDTH = 196
 export const NAVIGATOR_MAX_WIDTH = 420
 
 const PROJECT_STATUS_GROUPS = [
-  { status: 'in_progress', label: 'Active', variant: 'active' },
-  { status: 'waiting_review', label: 'Review', variant: 'review' },
-  { status: 'edits_requested', label: 'Edits requested', variant: 'hold' },
-  { status: 'not_started', label: 'Not started', variant: 'draft' },
-  { status: 'done', label: 'Completed', variant: 'done', defaultOpen: false },
+  { status: 'in_progress', label: 'Active' },
+  { status: 'waiting_review', label: 'Review' },
+  { status: 'edits_requested', label: 'Edits requested' },
+  { status: 'not_started', label: 'Not started' },
+  { status: 'done', label: 'Completed', defaultOpen: false },
 ]
 
 function readStoredOpen() {
@@ -130,8 +130,7 @@ export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor 
       key: `project:${project.id}`,
       label: project.title,
       thumbnail: thumbnailFor(project),
-      meta: project.shot_count ? String(project.shot_count) : '',
-      dot: projectStatusVariant(status),
+      statusVariant: projectStatusVariant(status),
       tone: 'default',
       active: false,
       run: () => openProject(project.id),
@@ -145,7 +144,7 @@ export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor 
       key: `projects:${group.status}`,
       label: group.label,
       tone: 'default',
-      statusVariant: group.variant,
+      statusVariant: projectStatusVariant(group.status),
       defaultOpen: group.defaultOpen !== false,
       items: buckets.get(group.status),
     }))
@@ -158,7 +157,7 @@ export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor 
       key: `projects:${status}`,
       label: statusLabel(status),
       tone: 'default',
-      statusVariant: 'draft',
+      statusVariant: projectStatusVariant(status),
       defaultOpen: true,
       items: buckets.get(status),
     })

@@ -110,7 +110,7 @@ class RemoteProcess:
         self.returncode = None
         self.stdout = self
         try:
-            inputs = [str(path) for path in source] if recipe['kind'] == 'comparison' else str(source)
+            inputs = [str(path) for path in source] if recipe['kind'] in ('comparison', 'comparison_export') else str(source)
             host_request_json('POST', '/media/jobs', {'id': self.identity, 'input': inputs, 'output': str(self.staging), 'recipe': recipe}, timeout=30)
         except Exception:
             # An uncertain response must never share an output with the CPU retry.

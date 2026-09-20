@@ -5,7 +5,7 @@
       :icon="item.icon"
       :meta="item.meta"
       :tone="item.tone"
-      :dot="item.dot"
+      :status-variant="item.statusVariant"
       :active="item.active"
       :expandable="Boolean(item.loadChildren)"
       :expanded="expanded"

@@ -17,7 +17,7 @@
           :aria-label="`Open ${context.title}`"
           @click="activate(context.scope.run)"
         >
-          <span class="navigator-scope-mark" :class="{ 'has-thumb': showThumb }">
+          <span class="navigator-scope-mark">
             <VMediaThumbnail v-if="showThumb" :src="context.thumbnail" class="navigator-scope-thumbnail" />
             <svg v-else class="icon" aria-hidden="true"><use :href="context.icon"/></svg>
           </span>
@@ -50,11 +50,10 @@
             :aria-expanded="groupIsOpen(group) ? 'true' : 'false'"
             @click="toggleGroup(group.key)"
           >
-            <span class="navigator-group-mark" aria-hidden="true">
-              <svg v-if="group.icon" class="icon navigator-group-icon"><use :href="group.icon"/></svg>
-              <span v-else class="navigator-group-dot"></span>
+            <span class="navigator-group-label">
+              <svg v-if="group.icon" class="icon navigator-group-icon" aria-hidden="true"><use :href="group.icon"/></svg>
+              <span class="v-truncate">{{ group.label }}</span>
             </span>
-            <span class="navigator-group-label v-section-label">{{ group.label }}</span>
             <span v-if="group.count" class="navigator-group-count">{{ group.count }}</span>
             <svg class="icon navigator-group-chevron" aria-hidden="true"><use href="#icon-chevron-right"/></svg>
           </button>
@@ -325,7 +324,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   border-right: 1px solid var(--v-divider);
   background: color-mix(in srgb, var(--v-surface-panel) 42%, var(--v-bg-base));
-  box-shadow: inset 1px 0 0 color-mix(in srgb, white 1.5%, transparent);
   transition:
     width var(--v-duration-normal) var(--v-ease-emphasized),
     opacity var(--v-duration-fast) linear;
@@ -401,7 +399,6 @@ onBeforeUnmount(() => {
   padding: 0 9px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--v-divider);
-  background: color-mix(in srgb, var(--v-shell-topbar-bg) 62%, transparent);
 }
 
 .navigator-scope {
@@ -421,7 +418,6 @@ onBeforeUnmount(() => {
   text-align: left;
   cursor: pointer;
   transition:
-    transform var(--v-duration-fast) var(--v-ease-soft),
     border-color var(--v-duration-fast) var(--v-ease-soft),
     background var(--v-duration-fast) var(--v-ease-soft);
 }
@@ -429,10 +425,6 @@ onBeforeUnmount(() => {
 .navigator-scope:hover {
   border-color: color-mix(in srgb, var(--v-surface-border-soft) 72%, transparent);
   background: color-mix(in srgb, var(--v-bg-hover) 78%, transparent);
-}
-
-.navigator-scope:active {
-  transform: scale(0.985);
 }
 
 .navigator-scope:focus-visible {
@@ -449,13 +441,7 @@ onBeforeUnmount(() => {
   height: 32px;
   overflow: hidden;
   border-radius: var(--v-radius-sm);
-  border: 1px solid color-mix(in srgb, var(--v-surface-border-soft) 70%, transparent);
-  background: var(--v-surface-inline);
-  color: var(--v-accent);
-}
-
-.navigator-scope-mark.has-thumb {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, white 6%, transparent);
+  color: var(--v-text-dim);
 }
 
 .navigator-scope-thumbnail {
@@ -507,7 +493,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--v-text-dim);
   font-size: var(--v-text-xs);
-  font-weight: 600;
+  font-weight: 400;
   cursor: pointer;
   transition:
     color var(--v-duration-fast) var(--v-ease-soft),
@@ -529,11 +515,6 @@ onBeforeUnmount(() => {
 .navigator-back .icon {
   width: 12px;
   height: 12px;
-  transition: transform var(--v-duration-fast) var(--v-ease-soft);
-}
-
-.navigator-back:hover .icon {
-  transform: translateX(-2px);
 }
 
 .navigator-section {
@@ -555,22 +536,21 @@ onBeforeUnmount(() => {
   --navigator-section-tone: var(--v-page);
 }
 
-.navigator-section.is-status-active { --navigator-section-tone: var(--v-status-active); }
-.navigator-section.is-status-review { --navigator-section-tone: var(--v-status-review); }
-.navigator-section.is-status-hold { --navigator-section-tone: var(--v-status-hold); }
-.navigator-section.is-status-draft { --navigator-section-tone: var(--v-status-draft); }
-.navigator-section.is-status-done { --navigator-section-tone: var(--v-status-done); }
+.navigator-section.is-status-active { --navigator-status-title: color-mix(in srgb, var(--v-status-active) 48%, var(--v-text)); }
+.navigator-section.is-status-review { --navigator-status-title: color-mix(in srgb, var(--v-status-review) 48%, var(--v-text)); }
+.navigator-section.is-status-done { --navigator-status-title: color-mix(in srgb, var(--v-status-done) 48%, var(--v-text)); }
+.navigator-section.is-status-hold { --navigator-status-title: color-mix(in srgb, var(--v-status-hold) 48%, var(--v-text)); }
 
 .navigator-group-head {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto 14px;
+  grid-template-columns: minmax(0, 1fr) auto 14px;
+  gap: var(--v-space-2);
   align-items: center;
-  gap: 8px;
   width: 100%;
   min-width: 0;
   height: var(--navigator-group-height);
-  padding: 0 4px 0 2px;
-  border: 0;
+  padding: 0 var(--v-space-2);
+  border: 1px solid transparent;
   border-radius: var(--v-radius-sm);
   background: transparent;
   color: var(--v-text-dim);
@@ -592,54 +572,41 @@ onBeforeUnmount(() => {
   outline-offset: -2px;
 }
 
-.navigator-group-mark {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 100%;
-  color: color-mix(in srgb, var(--navigator-section-tone) 62%, var(--v-text-dim));
-  opacity: 0.74;
-  transition:
-    color var(--v-duration-fast) var(--v-ease-soft),
-    opacity var(--v-duration-fast) linear;
-}
-
 .navigator-group-icon {
-  width: 14px;
+  width: var(--navigator-icon-column, 15px);
   height: 14px;
-}
-
-.navigator-group-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: var(--v-radius-full);
-  background: var(--navigator-section-tone);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--navigator-section-tone) 14%, transparent);
-}
-
-.navigator-section.is-open .navigator-group-mark,
-.navigator-group-head:hover .navigator-group-mark {
-  opacity: 1;
+  flex-shrink: 0;
   color: var(--navigator-section-tone);
 }
 
 .navigator-group-label {
-  padding: 0;
-  color: inherit;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: var(--v-space-2);
+  color: var(--navigator-status-title, inherit);
+  font-size: var(--navigator-row-font-size);
+  font-weight: 700;
 }
 
 .navigator-group-count {
   color: var(--v-text-dim);
-  font-size: var(--v-text-2xs);
+  font-size: var(--v-text-sm);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  opacity: 0.58;
 }
 
 .navigator-group-chevron {
+  grid-column: 3;
+  justify-self: center;
   width: 11px;
   height: 11px;
-  opacity: 0.42;
   transition: transform var(--v-duration-normal) var(--v-ease-emphasized);
+}
+
+.app-navigator.with-thumbnails {
+  --navigator-icon-column: 34px;
+  --navigator-project-inset: 42px;
 }
 
 .navigator-section.is-open .navigator-group-chevron {
@@ -671,8 +638,9 @@ onBeforeUnmount(() => {
 }
 
 .navigator-more {
-  margin: 2px 0 0 20px;
-  padding: 2px 6px;
+  margin: 2px 0 0 calc(var(--v-space-2) + 1px);
+  padding: 2px 0;
+  text-align: left;
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
@@ -716,7 +684,6 @@ onBeforeUnmount(() => {
   height: auto;
   padding: 0 0 8px;
   border-bottom: 0;
-  background: transparent;
 }
 
 .app-navigator.is-drawer .navigator-body {
@@ -727,14 +694,6 @@ onBeforeUnmount(() => {
 .app-navigator.is-drawer .navigator-scope {
   min-height: 56px;
   padding: 6px 9px;
-  border-color: var(--v-control-border);
-  background: var(--v-surface-raised);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.app-navigator.is-drawer .navigator-scope:hover {
-  border-color: var(--v-control-border-hover);
-  background: var(--v-surface-raised-strong);
 }
 
 .app-navigator.is-drawer .navigator-back {
@@ -746,9 +705,7 @@ onBeforeUnmount(() => {
   .navigator-scope,
   .navigator-group-body,
   .navigator-group-body-inner,
-  .navigator-group-mark,
-  .navigator-group-chevron,
-  .navigator-back .icon {
+  .navigator-group-chevron {
     transition: none;
   }
 
@@ -756,12 +713,7 @@ onBeforeUnmount(() => {
     transition: none;
   }
 
-  .navigator-scope:active,
   .navigator-group-body-inner {
-    transform: none;
-  }
-
-  .navigator-back:hover .icon {
     transform: none;
   }
 }

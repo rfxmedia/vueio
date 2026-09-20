@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from pathlib import Path
@@ -64,6 +65,20 @@ def list_horizon_projects(db: Session, *, include_deleted: bool = False) -> list
     return query.order_by(HorizonProject.created_at.asc()).all()
 
 
+def _project_storage_available(project: HorizonProject) -> bool:
+    try:
+        root = resolve_project_root(project)
+        return root.is_dir() and os.access(root, os.R_OK | os.X_OK)
+    except (HTTPException, OSError):
+        return False
+
+
+def _unavailable_project_files(query):
+    # Count file locations, not the number of historical generations at them.
+    # Scope stays part of the key: equal names in different roots are not peers.
+    return query.with_entities(MediaAsset.storage_scope, MediaAsset.file_path).distinct()
+
+
 def serialize_horizon_project(db: Session, project: HorizonProject, user: dict | None = None, access_role: str | None = None) -> dict:
     from .shots import list_visible_horizon_shots
     from .team import is_restricted_horizon_artist
@@ -87,11 +102,8 @@ def serialize_horizon_project(db: Session, project: HorizonProject, user: dict |
         shot_count = db.query(func.count(HorizonShot.id)).filter(HorizonShot.project_id == project.id).scalar() or 0
         version_count = db.query(func.count(HorizonShotVersion.id)).filter(HorizonShotVersion.project_id == project.id).scalar() or 0
 
-    unavailable_asset_count = (
-        unavailable_project_media_query(db, project.id)
-        .with_entities(func.count(MediaAsset.id))
-        .scalar() or 0
-    )
+    storage_available = _project_storage_available(project)
+    unavailable_asset_count = _unavailable_project_files(unavailable_project_media_query(db, project.id)).count()
 
     return {
         'id': project.id,
@@ -107,13 +119,14 @@ def serialize_horizon_project(db: Session, project: HorizonProject, user: dict |
         'thumbnail_path': project.thumbnail_path,
         'storage_root': project.storage_root or 'data',
         'storage_path': project.storage_path or project.id,
-        'storage_read_only': project_storage_is_read_only(project),
+        'storage_read_only': not storage_available or project_storage_is_read_only(project),
+        'storage_available': storage_available,
         'uses_internal_storage': (project.storage_root or 'data') == 'data',
         'tracker_count': int(tracker_count),
         'shot_count': int(shot_count),
         'version_count': int(version_count),
         'unavailable_asset_count': int(unavailable_asset_count),
-        'has_offline_media': bool(unavailable_asset_count),
+        'has_offline_media': bool(unavailable_asset_count) or not storage_available,
         'source': 'horizons_db',
         'access_role': access_role,
     }
@@ -124,12 +137,16 @@ def list_horizon_project_summaries(db: Session) -> list[dict]:
 
 
 def list_unavailable_project_media(db: Session, project_id: str, *, limit: int = 100) -> dict:
-    query = (
-        unavailable_project_media_query(db, project_id)
-        .order_by(MediaAsset.file_path.asc())
-    )
-    total = query.count()
-    assets = query.limit(limit).all()
+    project = get_horizon_project(db, project_id)
+    if not _project_storage_available(project):
+        return {'total': 0, 'items': [], 'storage_available': False}
+    query = unavailable_project_media_query(db, project_id)
+    files = _unavailable_project_files(query)
+    total = files.count()
+    locations = files.order_by(MediaAsset.file_path.asc(), MediaAsset.storage_scope.asc()).limit(limit).all()
+    assets = query.filter(tuple_(MediaAsset.storage_scope, MediaAsset.file_path).in_(locations)).order_by(
+        MediaAsset.file_path.asc(), MediaAsset.unavailable_at.desc(), MediaAsset.id.asc(),
+    ).all() if locations else []
     asset_ids = [asset.id for asset in assets]
     references = {asset_id: [] for asset_id in asset_ids}
     seen_references = {asset_id: set() for asset_id in asset_ids}
@@ -180,17 +197,23 @@ def list_unavailable_project_media(db: Session, project_id: str, *, limit: int =
                 'version_label': shot.latest_version_label,
             })
 
-    return {
-        'total': total,
-        'items': [{
+    items = {}
+    for asset in assets:
+        key = (asset.storage_scope, asset.file_path)
+        item = items.setdefault(key, {
             'asset_id': asset.id,
             'file_path': asset.file_path,
             'file_name': Path(asset.file_path).name,
             'storage_scope': asset.storage_scope,
             'unavailable_reason': asset.unavailable_reason,
-            'references': references[asset.id],
-        } for asset in assets],
-    }
+            'issue': ('changed' if asset.unavailable_reason in ('replaced', 'external_signature_mismatch')
+                      else 'relink' if asset.unavailable_reason == 'duplicate_active_generation' else 'missing'),
+            'references': [],
+        })
+        for reference in references[asset.id]:
+            if reference not in item['references']:
+                item['references'].append(reference)
+    return {'total': total, 'items': list(items.values()), 'storage_available': True}
 
 
 def get_horizon_project(db: Session, project_id: str, *, include_deleted: bool = False) -> HorizonProject:

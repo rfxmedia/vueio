@@ -29,7 +29,9 @@ def validate_recipe(recipe):
     kind = recipe.get('kind')
     fields = {'thumbnail': {'kind', 'width', 'seek'}, 'mp4': {'kind', 'height'},
               'hls': {'kind', 'variants', 'has_audio', 'gop', 'segment_seconds'},
-              'comparison': {'kind', 'rate_n', 'rate_d', 'frames'}}
+              'comparison': {'kind', 'rate_n', 'rate_d', 'frames'},
+              'comparison_export': {'kind', 'rate_n', 'rate_d', 'frames', 'start_frame', 'width', 'height',
+                                    'mode', 'swapped', 'artwork', 'wipe_start', 'wipe_frames', 'freeze', 'stacked'}}
     if kind not in fields or set(recipe) != fields[kind]:
         raise ValueError('Unknown media recipe.')
     if kind == 'thumbnail':
@@ -37,12 +39,27 @@ def validate_recipe(recipe):
         number(recipe['seek'], 0, 7 * 86400)
     elif kind == 'mp4':
         number(recipe['height'], 0, 4320)
-    elif kind == 'comparison':
+    elif kind in ('comparison', 'comparison_export'):
         for key, maximum in [('rate_n', 240000), ('rate_d', 10000), ('frames', 240 * 86400)]:
             if type(recipe[key]) is not int:
                 raise ValueError('Invalid comparison recipe.')
             number(recipe[key], 1, maximum)
         number(recipe['rate_n'] / recipe['rate_d'], 1, 120)
+        if kind == 'comparison_export':
+            for key, low, high in [('start_frame', 0, 120 * 86400), ('width', 2, 1920), ('height', 2, 1920),
+                                   ('wipe_start', 0, recipe['frames']), ('wipe_frames', 2, recipe['frames'])]:
+                if type(recipe[key]) is not int:
+                    raise ValueError('Invalid export dimensions or timing.')
+                number(recipe[key], low, high)
+            if (recipe['width'] % 2 or recipe['height'] % 2 or min(recipe['width'], recipe['height']) > 1080
+                    or recipe['mode'] not in ('wipe', 'side-by-side')
+                    or type(recipe['stacked']) is not bool
+                    or (recipe['stacked'] and recipe['mode'] != 'side-by-side')
+                    or (recipe['mode'] == 'side-by-side' and recipe['height' if recipe['stacked'] else 'width'] % 4)
+                    or type(recipe['swapped']) is not bool or type(recipe['artwork']) is not bool or type(recipe['freeze']) is not bool
+                    or recipe['wipe_start'] + recipe['wipe_frames'] > recipe['frames']
+                    or recipe['frames'] * recipe['rate_d'] / recipe['rate_n'] > 300):
+                raise ValueError('Invalid comparison export.')
     else:
         number(recipe['gop'], 1, 1000)
         number(recipe['segment_seconds'], .1, 10)
@@ -140,6 +157,58 @@ def build_command(input_path, output_path, recipe, device=None):
     prefix, encoder = device_options(device)
     cmd = ['ffmpeg', '-hide_banner', '-nostdin', '-nostats', '-loglevel', 'error', '-y', *prefix]
     kind = recipe['kind']
+    if kind == 'comparison_export':
+        if not isinstance(input_path, (list, tuple)) or len(input_path) != 2 + int(recipe['artwork']):
+            raise ValueError('Invalid comparison export inputs.')
+        rate = f"{recipe['rate_n']}/{recipe['rate_d']}"
+        width, height = recipe['width'], recipe['height']
+        pane_width = width // 2 if recipe['mode'] == 'side-by-side' and not recipe['stacked'] else width
+        pane_height = height // 2 if recipe['stacked'] else height
+        # Match the export preview: height-fit wipes, contained split-view panes.
+        fit = (f'scale=-2:{pane_height}:flags=lanczos,setsar=1,'
+               f"crop='min(iw,{pane_width})':{pane_height}:(iw-ow)/2:0"
+               if recipe['mode'] == 'wipe' else
+               f'scale={pane_width}:{pane_height}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos')
+        duration = recipe['frames'] * recipe['rate_d'] / recipe['rate_n']
+        for source in input_path[:2]:
+            cmd += ['-threads', '2', '-protocol_whitelist', 'file,pipe', '-format_whitelist',
+                    'mov,matroska,webm,avi,mxf,mpegvideo,mpegts', '-i', str(source)]
+        if recipe['artwork']:
+            cmd += ['-protocol_whitelist', 'file,pipe', '-format_whitelist', 'png_pipe', '-i', str(input_path[2])]
+        graph = []
+        for index in range(2):
+            source_frames = 1 if recipe['freeze'] else recipe['frames']
+            # Select first, then resize one picture for a freeze. Repeating that
+            # picture does not decode or scale the rest of the source footage.
+            hold = f',tpad=stop_mode=clone:stop={recipe["frames"] - 1}' if recipe['freeze'] else ''
+            graph.append(
+                f'[{index}:v:0]setpts=PTS-STARTPTS,fps={rate}:start_time=0:round=near,'
+                f'tpad=stop_mode=clone:stop_duration=1,trim=start_frame={recipe["start_frame"]}:'
+                f'end_frame={recipe["start_frame"] + source_frames},setpts=PTS-STARTPTS,'
+                f'scale=ceil(iw*sar/2)*2:ih,setsar=1,'
+                f'{fit},'
+                f'pad={pane_width}:{pane_height}:(ow-iw)/2:(oh-ih)/2,format=yuv420p{hold}[v{index}]'
+            )
+        if recipe['mode'] == 'side-by-side':
+            graph.append('[v0][v1]' + ('vstack' if recipe['stacked'] else 'hstack') + '=inputs=2[base]')
+        else:
+            progress = f'clip((N-1-{recipe["wipe_start"]})/{recipe["wipe_frames"] - 1},0,1)'
+            eased = f'({progress}*{progress}*(3-2*{progress}))'
+            graph.append(f"[v0][v1]blend=all_expr='if(lt(X,W*{eased}),B,A)':shortest=1[base]")
+        if recipe['artwork']:
+            switch_time = math.ceil(recipe['wipe_start'] + (recipe['wipe_frames'] - 1) / 2) * recipe['rate_d'] / recipe['rate_n']
+            graph += ['[2:v:0]format=rgba,split=2[a0][a1]',
+                      f'[a0]crop={width}:{height}:0:0[before]', f'[a1]crop={width}:{height}:0:{height}[after]',
+                      f"[base][before]overlay=0:0:enable='lt(t,{switch_time:.9f})'[branded]",
+                      f"[branded][after]overlay=0:0:enable='gte(t,{switch_time:.9f})'[composed]"]
+        else:
+            graph.append('[base]null[composed]')
+        graph.append('[composed]' + ('format=nv12,hwupload' if encoder == 'h264_vaapi' else 'format=yuv420p') + '[out]')
+        return cmd + ['-filter_complex_threads', '2', '-filter_complex', ';'.join(graph), '-map', '[out]', '-an',
+                      '-map_metadata', '-1', '-map_chapters', '-1',
+                      *encoder_options(device, quality=18), '-threads', '2', '-maxrate', '20M', '-bufsize', '20M',
+                      '-frames:v', str(recipe['frames']), '-t', str(duration), '-movflags', '+faststart',
+                      '-progress', 'pipe:1', '-f', 'mp4', str(output_path)]
     if kind == 'comparison':
         if not isinstance(input_path, (list, tuple)) or len(input_path) != 2:
             raise ValueError('A comparison needs two inputs.')
@@ -353,8 +422,9 @@ class NativeMedia:
                 raise ValueError('Not enough free space for native processing.')
             lock = self.host.lock_file.open('a')
             fcntl.flock(lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
-            sources = payload['input'] if recipe['kind'] == 'comparison' else [payload['input']]
-            if not isinstance(sources, list) or len(sources) != (2 if recipe['kind'] == 'comparison' else 1):
+            paired = recipe['kind'] in ('comparison', 'comparison_export')
+            sources = payload['input'] if paired else [payload['input']]
+            if not isinstance(sources, list) or len(sources) != (2 + int(recipe.get('artwork', False)) if paired else 1):
                 raise ValueError('Invalid media inputs.')
             for source in sources:
                 input_fds.append(self.input_descriptor(source, config))
@@ -364,7 +434,7 @@ class NativeMedia:
                 target = Path(work.name) / 'hls'
                 target.mkdir()
             inputs = [f'/dev/fd/{fd}' for fd in input_fds]
-            cmd = build_command(inputs if recipe['kind'] == 'comparison' else inputs[0], target, recipe, self.devices[0])
+            cmd = build_command(inputs if paired else inputs[0], target, recipe, self.devices[0])
             cmd[0] = '/opt/homebrew/bin/ffmpeg'
             # Never let a playlist or concat document read unrelated host files.
             for input_index in reversed([i for i, item in enumerate(cmd) if item == '-i']):

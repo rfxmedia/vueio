@@ -62,7 +62,7 @@
       <div v-if="status.activity.length" class="processing-activity">
         <h4>Recent processing <span>This session</span></h4>
         <div v-for="job in status.activity.slice(0, 3)" :key="job.id" class="processing-job">
-          <span>{{ job.kind === 'thumbnail' ? 'Thumbnail' : 'Video preview' }}</span>
+          <span>{{ job.kind === 'thumbnail' ? 'Thumbnail' : job.kind === 'comparison_export' ? 'Comparison export' : 'Video preview' }}</span>
           <strong>{{ job.device }}</strong>
           <span :class="{ 'processing-fallback': job.fallback }">{{ job.fallback ? 'CPU fallback · ' : '' }}{{ job.state }}</span>
         </div>

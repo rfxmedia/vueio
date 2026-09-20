@@ -3,6 +3,7 @@
     class="nav-row"
     :class="[
       `is-tone-${tone}`,
+      { 'has-status': statusVariant },
       { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging, 'has-thumbnail': thumbnail, 'is-selectable': selectionMode },
     ]"
   >
@@ -18,7 +19,7 @@
     >
       <svg class="icon"><use href="#icon-chevron-right"/></svg>
     </button>
-    <span v-else class="nav-row-twisty is-empty" aria-hidden="true"></span>
+    <span v-else-if="!statusVariant" class="nav-row-twisty is-empty" aria-hidden="true"></span>
 
     <button
       class="nav-row-main"
@@ -34,8 +35,7 @@
       @dragend="$emit('dragend', $event)"
     >
       <span v-if="thumbnail" class="nav-row-thumbnail" aria-hidden="true"><VMediaThumbnail :src="thumbnail" /></span>
-      <span v-else-if="dot" class="nav-row-dot" :class="`is-${dot}`" aria-hidden="true"></span>
-      <svg v-else class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
+      <svg v-else-if="!statusVariant" class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
       <span class="nav-row-label v-truncate" :title="label">{{ label }}</span>
       <span v-if="meta" class="nav-row-meta">{{ meta }}</span>
     </button>
@@ -62,7 +62,7 @@ defineProps({
     default: 'default',
     validator: (value) => ['default', 'accent', 'page'].includes(value),
   },
-  dot: { type: String, default: '' },
+  statusVariant: { type: String, default: '' },
   active: { type: Boolean, default: false },
   expandable: { type: Boolean, default: false },
   expanded: { type: Boolean, default: false },
@@ -145,7 +145,13 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 
 
 .nav-row.is-selectable { grid-template-columns: var(--navigator-disclosure-width, 22px) minmax(0, 1fr) 26px; }
-.nav-row.has-thumbnail .nav-row-main { grid-template-columns: 34px minmax(0, 1fr) auto; gap: 7px; }
+.nav-row.has-status { grid-template-columns: minmax(0, 1fr); }
+.nav-row.has-status .nav-row-main { padding-left: var(--v-space-2); }
+.nav-row.has-status:not(.has-thumbnail) .nav-row-main {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: calc(var(--v-space-2) + var(--navigator-project-inset, 0px));
+}
+.nav-row.has-thumbnail .nav-row-main { grid-template-columns: 34px minmax(0, 1fr) auto; }
 .nav-row-thumbnail { width: 34px; height: 24px; overflow: hidden; border-radius: 4px; }
 .nav-row-open {
   display: grid;
@@ -217,7 +223,7 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 
 .nav-row-main {
   display: grid;
-  grid-template-columns: 15px minmax(0, 1fr) auto;
+  grid-template-columns: var(--navigator-icon-column, 15px) minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -230,7 +236,6 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: transform var(--v-duration-fast) var(--v-ease-soft);
 }
 
 .nav-row-main[draggable="true"] {
@@ -241,16 +246,13 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
   cursor: grabbing;
 }
 
-.nav-row-main:active {
-  transform: scale(0.985);
-}
-
 .nav-row-main:focus-visible {
   outline: 2px solid var(--v-border-focus);
   outline-offset: -2px;
 }
 
 .nav-row-icon {
+  justify-self: center;
   width: 14px;
   height: 14px;
   color: color-mix(in srgb, var(--nav-row-tone) 58%, var(--v-text-dim));
@@ -262,43 +264,22 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
   color: var(--nav-row-tone);
 }
 
-.nav-row-dot {
-  justify-self: center;
-  width: 6px;
-  height: 6px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-status-draft);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-draft) 20%, transparent);
-  transition: box-shadow var(--v-duration-fast) var(--v-ease-soft);
-}
-
-.nav-row-dot.is-active { background: var(--v-status-active); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-active) 24%, transparent); }
-.nav-row-dot.is-review { background: var(--v-status-review); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-review) 24%, transparent); }
-.nav-row-dot.is-done { background: var(--v-status-done); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-done) 24%, transparent); }
-.nav-row-dot.is-hold { background: var(--v-status-hold); box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-hold) 24%, transparent); }
+.nav-row.has-status .nav-row-label { color: var(--v-text); }
 
 .nav-row-label {
   font-size: var(--navigator-row-font-size, var(--v-text-sm));
-  font-weight: 540;
+  font-weight: 400;
   line-height: 1.2;
   transition: color var(--v-duration-fast) var(--v-ease-soft);
 }
 
-.nav-row.is-active .nav-row-label {
-  font-weight: 640;
-}
-
 .nav-row-meta {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
+  color: var(--v-text-dim);
+  font-size: var(--v-text-sm);
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  opacity: 0.72;
-  transition: opacity var(--v-duration-fast) var(--v-ease-soft);
-}
-
-.nav-row:hover .nav-row-meta,
-.nav-row.is-active .nav-row-meta {
-  opacity: 0.95;
+  white-space: nowrap;
+  text-align: right;
 }
 
 @keyframes v-nav-row-pulse {
@@ -309,17 +290,12 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 @media (prefers-reduced-motion: reduce) {
   .nav-row,
   .nav-row::before,
-  .nav-row-main,
   .nav-row-twisty .icon {
     transition: none;
   }
 
   .nav-row-twisty.is-loading .icon {
     animation: none;
-  }
-
-  .nav-row-main:active {
-    transform: none;
   }
 }
 </style>

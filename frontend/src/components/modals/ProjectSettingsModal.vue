@@ -334,18 +334,19 @@
       <section v-if="scope === 'project'" class="ps-section">
         <div class="v-section-label">
           <h3>Project storage</h3>
-          <span v-if="project.storage_read_only" class="v-tag">Read only</span>
+          <span v-if="project.storage_read_only && project.storage_available !== false" class="v-tag">Read only</span>
         </div>
         <div class="ps-storage-card">
-          <div v-if="project.has_offline_media" class="ps-storage-row ps-storage-alert">
+          <div v-if="project.has_offline_media || project.storage_available === false" class="ps-storage-row ps-storage-alert">
             <div class="ps-storage-icon" aria-hidden="true">
               <svg class="icon"><use href="#icon-alert" /></svg>
             </div>
             <div class="ps-storage-copy">
-              <strong>Some media is offline</strong>
-              <span>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} need{{ project.unavailable_asset_count === 1 ? 's' : '' }} attention. Search the working folder to reconnect files that were moved.</span>
+              <strong>{{ project.storage_available === false ? 'Storage unavailable' : 'Media needs attention' }}</strong>
+              <span v-if="project.storage_available === false">Reconnect the drive, or relink the project folder below.</span>
+              <span v-else>{{ project.unavailable_asset_count }} file{{ project.unavailable_asset_count === 1 ? '' : 's' }} need{{ project.unavailable_asset_count === 1 ? 's' : '' }} attention. Find the originals to reconnect them. Changed files can be added as new versions.</span>
             </div>
-            <div v-if="canEditProject" class="ps-storage-actions">
+            <div v-if="canEditProject && project.storage_available !== false" class="ps-storage-actions">
               <button type="button" class="v-btn v-btn-primary v-btn-sm" @click="openRelinkMedia">
                 <svg class="icon"><use href="#icon-search" /></svg>
                 Find media…
@@ -358,8 +359,8 @@
               <svg class="icon"><use :href="project.storage_read_only ? '#icon-lock' : '#icon-folder'" /></svg>
             </div>
             <div class="ps-storage-copy">
-              <strong>{{ project.storage_read_only ? 'Read-only storage' : project.uses_internal_storage ? 'Internal storage' : 'Working project folder' }}</strong>
-              <span>{{ project.storage_read_only ? 'Files play from a read-only location. Relink to writable storage to make changes.' : 'Moved the files yourself? Relink their folder. Read-only folders work too.' }}</span>
+              <strong>{{ project.storage_available === false ? 'Saved project folder' : project.storage_read_only ? 'Read-only storage' : project.uses_internal_storage ? 'Internal storage' : 'Working project folder' }}</strong>
+              <span>{{ project.storage_available === false ? 'Vue cannot access this folder. Your project records are kept.' : project.storage_read_only ? 'Files play from a read-only location. Relink to writable storage to make changes.' : 'Moved the files yourself? Relink their folder. Read-only folders work too.' }}</span>
               <code>{{ project.storage_root || 'data' }} / {{ project.storage_path || project.id }}</code>
             </div>
             <div v-if="canEditProject" class="ps-storage-actions">

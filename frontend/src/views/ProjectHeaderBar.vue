@@ -12,7 +12,7 @@
       <div class="project-title-row">
         <h2 class="project-title-readonly" :title="currentProject.title">{{ currentProject.title }}</h2>
         <span
-          v-if="currentProject.storage_read_only"
+          v-if="currentProject.storage_read_only && !storageUnavailable"
           class="project-storage-badge"
           title="Project files are on read-only storage. Change its permissions or relocate the project to make changes."
         >
@@ -95,19 +95,21 @@
       <div v-if="showOfflineNotice" class="project-header-notice is-offline" :class="{ 'is-expanded': showOfflineDetails }">
         <span class="project-header-notice__icon" aria-hidden="true"><svg class="icon"><use href="#icon-alert" /></svg></span>
         <p class="project-header-notice__copy">
-          <strong>Some media is offline</strong>
-          <span>{{ currentProject.unavailable_asset_count }} file{{ currentProject.unavailable_asset_count === 1 ? '' : 's' }} need{{ currentProject.unavailable_asset_count === 1 ? 's' : '' }} attention</span>
+          <strong>{{ storageUnavailable ? 'Storage unavailable' : 'Media needs attention' }}</strong>
+          <span v-if="storageUnavailable">Reconnect the drive, or relink the project folder.</span>
+          <span v-else>{{ mediaIssueCount }} file{{ mediaIssueCount === 1 ? '' : 's' }} need{{ mediaIssueCount === 1 ? 's' : '' }} attention</span>
         </p>
         <div v-if="isAdmin" class="project-header-notice__actions">
-          <button type="button" class="v-btn v-btn-quiet v-btn-sm" :aria-expanded="showOfflineDetails" @click="toggleOfflineDetails">
+          <button v-if="!storageUnavailable" type="button" class="v-btn v-btn-quiet v-btn-sm" :aria-expanded="showOfflineDetails" @click="toggleOfflineDetails">
             {{ showOfflineDetails ? 'Hide' : 'Details' }}
             <svg class="icon project-header-notice__chevron" :class="{ 'is-open': showOfflineDetails }"><use href="#icon-chevron-down" /></svg>
           </button>
-          <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="openRelinkMedia">Find media</button>
+          <button v-if="storageUnavailable" type="button" class="v-btn v-btn-quiet v-btn-sm" @click="openRelocateProject">Relink folder</button>
+          <button v-else type="button" class="v-btn v-btn-quiet v-btn-sm" @click="openRelinkMedia">Find media</button>
           <button
             type="button"
             class="v-icon-action is-muted is-compact project-header-notice__dismiss"
-            aria-label="Dismiss offline media notice"
+            aria-label="Dismiss media notice"
             title="Dismiss"
             @click="dismissOfflineNotice"
           >
@@ -115,24 +117,24 @@
           </button>
         </div>
 
-        <div v-if="showOfflineDetails" class="project-offline-details">
-          <div v-if="offlineDetailsLoading" class="project-offline-details__state">Finding offline media…</div>
+        <div v-if="showOfflineDetails && !storageUnavailable" class="project-offline-details">
+          <div v-if="offlineDetailsLoading" class="project-offline-details__state">Loading file details…</div>
           <div v-else-if="offlineDetailsError" class="project-offline-details__state is-error">
             <span>{{ offlineDetailsError }}</span>
             <button type="button" class="v-btn v-btn-quiet v-btn-sm" @click="loadOfflineDetails">Retry</button>
           </div>
-          <div v-else-if="!offlineMedia.length" class="project-offline-details__state">No offline media remains.</div>
+          <div v-else-if="!offlineMedia.length" class="project-offline-details__state">No files need attention.</div>
           <div v-else class="project-offline-details__list">
             <div v-for="item in offlineMedia" :key="item.asset_id" class="project-offline-item">
               <span class="project-offline-item__icon" aria-hidden="true"><svg class="icon"><use :href="item.references?.length ? '#icon-video' : '#icon-file'" /></svg></span>
               <div class="project-offline-item__copy">
-                <strong>{{ item.file_name || 'Missing file' }}</strong>
-                <span v-if="item.references?.length">
-                  {{ formatOfflineReference(item.references[0]) }}
-                  <template v-if="item.references.length > 1"> · +{{ item.references.length - 1 }} more</template>
-                </span>
-                <span>{{ ['replaced', 'external_signature_mismatch'].includes(item.unavailable_reason) ? 'File changed since it was linked' : 'File not found at its saved location' }}</span>
+                <strong>{{ item.file_name || 'File' }}</strong>
+                <span>{{ formatOfflineIssue(item) }}</span>
                 <small :title="item.file_path">{{ item.file_path }}</small>
+                <details v-if="item.references?.length" class="project-offline-item__references">
+                  <summary>{{ item.references.length }} affected version{{ item.references.length === 1 ? '' : 's' }}</summary>
+                  <ul><li v-for="reference in item.references" :key="reference.version_id || reference.shot_id">{{ formatOfflineReference(reference) }}</li></ul>
+                </details>
               </div>
             </div>
             <p v-if="offlineDetailsTotal > offlineMedia.length" class="project-offline-details__more">
@@ -201,7 +203,12 @@ const offlineDetailsError = ref('')
 const offlineDetailsProjectId = ref('')
 const offlineMedia = ref([])
 const offlineDetailsTotal = ref(0)
+const offlineDetailsStorageAvailable = ref(true)
 const offlineNoticeDismissed = ref(false)
+let offlineDetailsRequest = 0
+const storageUnavailable = computed(() => currentProject.value?.storage_available === false || !offlineDetailsStorageAvailable.value)
+const mediaIssueCount = computed(() => offlineDetailsProjectId.value === currentProject.value?.id
+  ? offlineDetailsTotal.value : Number(currentProject.value?.unavailable_asset_count || 0))
 
 const offlineNoticeStorageKey = computed(() => {
   const projectId = currentProject.value?.id
@@ -210,7 +217,7 @@ const offlineNoticeStorageKey = computed(() => {
 })
 
 const showOfflineNotice = computed(() => (
-  Boolean(currentProject.value?.has_offline_media)
+  (storageUnavailable.value || mediaIssueCount.value > 0)
   && !offlineNoticeDismissed.value
   && !shareMode.value
 ))
@@ -243,36 +250,51 @@ function dismissOfflineNotice() {
 async function loadOfflineDetails() {
   const projectId = currentProject.value?.id
   if (!projectId || !isAdmin.value) return
+  const request = ++offlineDetailsRequest
   offlineDetailsLoading.value = true
   offlineDetailsError.value = ''
   try {
     const { data } = await api.get(`/api/projects/${encodeURIComponent(projectId)}/offline-media`)
+    if (request !== offlineDetailsRequest) return
     offlineMedia.value = data.items || []
     offlineDetailsTotal.value = Number(data.total || 0)
+    offlineDetailsStorageAvailable.value = data.storage_available !== false
     offlineDetailsProjectId.value = projectId
   } catch (error) {
-    offlineDetailsError.value = getApiErrorMessage(error, 'Unable to load offline media details.')
+    if (request === offlineDetailsRequest) offlineDetailsError.value = getApiErrorMessage(error, 'Unable to load file details.')
   } finally {
-    offlineDetailsLoading.value = false
+    if (request === offlineDetailsRequest) offlineDetailsLoading.value = false
   }
 }
 
 async function toggleOfflineDetails() {
   showOfflineDetails.value = !showOfflineDetails.value
-  if (showOfflineDetails.value && offlineDetailsProjectId.value !== currentProject.value?.id) {
+  if (showOfflineDetails.value) {
     await loadOfflineDetails()
   }
+}
+
+function formatOfflineIssue(item) {
+  if (item.issue === 'relink' || item.unavailable_reason === 'duplicate_active_generation') return 'Locate the original file to reconnect it.'
+  if (item.issue === 'changed' || ['replaced', 'external_signature_mismatch'].includes(item.unavailable_reason)) {
+    return 'File changed — locate the original, or add the current file as a new version.'
+  }
+  return 'File missing — locate the original to reconnect it.'
 }
 
 function formatOfflineReference(reference) {
   return [reference.tracker_name, reference.shot_code, reference.version_label].filter(Boolean).join(' · ')
 }
 
-watch(() => currentProject.value?.id, () => {
+// A refreshed project summary supersedes previously loaded issue details.
+watch([currentProject, () => currentProject.value?.storage_available, () => currentProject.value?.unavailable_asset_count], () => {
+  offlineDetailsRequest += 1
   showOfflineDetails.value = false
   offlineDetailsProjectId.value = ''
   offlineMedia.value = []
   offlineDetailsTotal.value = 0
+  offlineDetailsStorageAvailable.value = true
+  offlineDetailsLoading.value = false
   offlineDetailsError.value = ''
 })
 
@@ -462,6 +484,12 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
   font-size: var(--v-text-xs);
   text-overflow: ellipsis;
 }
+.project-header-notice.is-offline .project-header-notice__copy {
+  flex-wrap: wrap;
+  gap: 0 8px;
+  white-space: normal;
+}
+.project-header-notice.is-offline .project-header-notice__copy span { overflow: visible; }
 .project-header-notice .v-btn {
   min-height: 28px;
   height: 28px;
@@ -510,7 +538,7 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
 .project-offline-item__copy {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   align-items: baseline;
   gap: 1px 8px;
 }
@@ -523,12 +551,13 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
   white-space: nowrap;
 }
 .project-offline-item__copy span {
-  overflow: hidden;
   color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--v-text-sm);
 }
+.project-offline-item__references { color: var(--v-text-secondary); font-size: var(--v-text-sm); }
+.project-offline-item__references summary { width: fit-content; min-height: 24px; padding: var(--v-space-1) 0; cursor: pointer; }
+.project-offline-item__references summary:focus-visible { outline: 2px solid var(--v-border-focus); outline-offset: 2px; }
+.project-offline-item__references ul { margin: var(--v-space-1) 0; padding-left: var(--v-space-4); overflow-wrap: anywhere; }
 .project-offline-item__copy small {
   grid-column: 1 / -1;
   overflow: hidden;

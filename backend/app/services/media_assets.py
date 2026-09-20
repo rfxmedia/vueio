@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Query, Session, aliased
+from sqlalchemy.orm import Query, Session
 
 from app.models import (
     Comment,
@@ -375,22 +375,21 @@ def media_asset_reference_clause(db: Session):
 
 
 def unavailable_project_media_query(db: Session, project_id: str) -> Query:
-    """Keep real offline references, not unused generations from normal saves."""
-    current = aliased(MediaAsset)
-    replacement_exists = db.query(current.id).filter(
-        current.project_id == MediaAsset.project_id,
-        current.storage_scope == MediaAsset.storage_scope,
-        current.file_path == MediaAsset.file_path,
-        current.unavailable_at.is_(None),
-    ).exists()
+    """Report missing files and referenced history, not unused retired records.
+
+    Replacement records can have a different owner or storage scope. Their
+    existence is not what makes an old generation relevant: its references are.
+    Keep every referenced generation available to the exact-identity relinker.
+    """
     return db.query(MediaAsset).filter(
         MediaAsset.project_id == project_id,
         MediaAsset.unavailable_at.isnot(None),
-        or_(MediaAsset.unavailable_reason.is_(None), MediaAsset.unavailable_reason != 'duplicate_active_generation'),
         or_(
             MediaAsset.unavailable_reason.is_(None),
-            MediaAsset.unavailable_reason.notin_(['replaced', 'external_signature_mismatch']),
-            ~replacement_exists,
+            MediaAsset.unavailable_reason.notin_([
+                'replaced', 'external_signature_mismatch', 'duplicate_active_generation',
+                'deleted', 'project_deleted',
+            ]),
             media_asset_reference_clause(db),
         ),
     )

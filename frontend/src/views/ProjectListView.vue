@@ -17,28 +17,28 @@
 
           <div class="v-page-actions project-browser-actions">
               <!-- View Toggle -->
-              <div class="v-view-toggle" role="group" aria-label="Project view">
+              <div class="project-view-toggle" role="group" aria-label="Project view">
                 <button
-                  class="v-view-toggle-btn"
-                  :class="{ active: !projectsListView }"
+                  type="button"
+                  class="v-btn v-btn-quiet"
+                  :class="{ 'v-btn-active': !projectsListView }"
                   @click="setProjectsListView(false)"
                   title="Grid view"
                   aria-label="Grid view"
                   :aria-pressed="!projectsListView"
                 >
-                  <svg class="icon"><use href="#icon-grid"/></svg>
-                  <span class="project-view-label">Grid</span>
+                  Grid
                 </button>
                 <button
-                  class="v-view-toggle-btn"
-                  :class="{ active: projectsListView }"
+                  type="button"
+                  class="v-btn v-btn-quiet"
+                  :class="{ 'v-btn-active': projectsListView }"
                   @click="setProjectsListView(true)"
                   title="List view"
                   aria-label="List view"
                   :aria-pressed="projectsListView"
                 >
-                  <svg class="icon"><use href="#icon-list"/></svg>
-                  <span class="project-view-label">List</span>
+                  List
                 </button>
               </div>
 
@@ -46,22 +46,23 @@
               <VMenu
                 :open="showSortMenu"
                 align="start"
+                teleport
+                :min-width="220"
                 class="projects-sort-menu"
                 panel-class="projects-sort-dropdown"
                 @update:open="open => !open && closeSortMenu()"
               >
                 <template #trigger="{ triggerProps }">
                   <button
-                    class="v-filter project-sort-trigger"
-                    :class="{ 'has-view-options': activeViewOptionCount > 0 }"
-                    aria-label="Sort and filter projects"
+                    type="button"
+                    class="v-btn v-btn-quiet project-sort-trigger"
+                    :aria-label="hideDoneProjects ? 'Sort and filter projects, completed projects hidden' : 'Sort and filter projects'"
                     v-bind="triggerProps"
                     @click="toggleSortMenu()"
                   >
-                    <svg class="icon project-sort-icon"><use href="#icon-sort"/></svg>
-                    <span class="project-sort-label">{{ projectSortLabel }}</span>
-                    <span v-if="activeViewOptionCount" class="project-view-option-count">{{ activeViewOptionCount }}</span>
-                    <svg class="icon project-sort-chevron"><use href="#icon-chevron-down"/></svg>
+                    <span class="project-sort-label">{{ projectSortLabel }}<template v-if="hideDoneProjects"> · Filtered</template></span>
+                    <span class="project-sort-label-compact">{{ hideDoneProjects ? 'Filtered' : 'Sort' }}</span>
+                    <svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
                   </button>
                 </template>
                 <div class="project-menu-label">Sort projects</div>
@@ -69,30 +70,28 @@
                   v-for="option in projectSortOptions"
                   :key="option.value"
                   class="v-dropdown-item project-sort-option"
-                  :class="{ 'is-selected': projectSort === option.value }"
+                  type="button"
+                  role="menuitemradio"
+                  :aria-checked="projectSort === option.value"
                   @click="setProjectSort(option.value)"
                 >
                   <span>{{ option.label }}</span>
-                  <svg v-if="projectSort === option.value" class="icon project-sort-check"><use href="#icon-check"/></svg>
+                  <svg v-if="projectSort === option.value" class="icon project-sort-check" aria-hidden="true"><use href="#icon-check"/></svg>
                 </button>
                 <div class="v-dropdown-divider"></div>
                 <div class="project-menu-label">Organize view</div>
-                <button class="v-dropdown-item project-view-option" :aria-pressed="groupByStatus" @click="toggleGroupByStatus()">
-                  <span class="project-menu-check" :class="{ 'is-checked': groupByStatus }">
-                    <svg v-if="groupByStatus" class="icon"><use href="#icon-check"/></svg>
-                  </span>
+                <button class="v-dropdown-item project-sort-option" type="button" role="menuitemcheckbox" :aria-checked="groupByStatus" @click="toggleGroupByStatus()">
                   <span>Group by status</span>
+                  <svg v-if="groupByStatus" class="icon project-sort-check" aria-hidden="true"><use href="#icon-check"/></svg>
                 </button>
-                <button class="v-dropdown-item project-view-option" :aria-pressed="hideDoneProjects" @click="toggleHideDoneProjects()">
-                  <span class="project-menu-check" :class="{ 'is-checked': hideDoneProjects }">
-                    <svg v-if="hideDoneProjects" class="icon"><use href="#icon-check"/></svg>
-                  </span>
+                <button class="v-dropdown-item project-sort-option" type="button" role="menuitemcheckbox" :aria-checked="hideDoneProjects" @click="toggleHideDoneProjects()">
                   <span>Hide completed</span>
+                  <svg v-if="hideDoneProjects" class="icon project-sort-check" aria-hidden="true"><use href="#icon-check"/></svg>
                 </button>
               </VMenu>
 
-              <button v-if="canCreateProjects" class="v-btn v-btn-primary" @click="openCreateProjectModal()">
-                <svg class="icon"><use href="#icon-plus"/></svg>
+              <button v-if="canCreateProjects" type="button" class="v-btn v-btn-primary" @click="openCreateProjectModal()">
+                <svg class="icon" aria-hidden="true"><use href="#icon-plus"/></svg>
                 <span>New project</span>
               </button>
           </div>
@@ -266,7 +265,7 @@
                   <ProjectStatusControl class="v-project-status-mobile" :project="p" :editable="canOpenProjectSettingsItem(p)" />
                   <span v-if="shouldFlagOfflineMedia(p)" class="v-project-capability-inline is-warning">
                     <svg class="icon"><use href="#icon-alert" /></svg>
-                    Media offline
+                    {{ p.storage_available === false ? 'Storage unavailable' : 'Check media' }}
                   </span>
                   <span class="v-project-list-meta-mobile">
                     <span>{{ p.shot_count }} shot{{ p.shot_count !== 1 ? 's' : '' }}</span>
@@ -449,10 +448,6 @@ const projectCountLabel = computed(() => {
   return `${totalCount} ${projectWord}`
 })
 
-const activeViewOptionCount = computed(() => (
-  Number(groupByStatus.value) + Number(hideDoneProjects.value)
-))
-
 const projectSections = computed(() => {
   if (projectsListView.value) {
     return []
@@ -587,9 +582,6 @@ function projectInitials(p) {
   background: var(--v-bg);
 }
 
-.projects-sort-menu {
-  position: relative;
-}
 .project-groups {
   display: flex;
   flex-direction: column;
@@ -865,11 +857,6 @@ function projectInitials(p) {
 /* Project card menu positioning */
 .v-project-card .project-menu {
   position: relative;
-}
-
-.projects-sort-dropdown {
-  top: 40px;
-  right: 0;
 }
 
 .project-card-menu-dropdown {
@@ -1160,14 +1147,6 @@ function projectInitials(p) {
     min-height: 44px;
   }
 
-  .projects-list .v-filter {
-    min-height: 44px;
-  }
-
-  .projects-list .v-view-toggle-btn {
-    padding: var(--v-space-3);
-  }
-
   .v-project-list-item .v-project-status-control.v-project-status-mobile {
     display: inline-flex;
   }
@@ -1363,138 +1342,31 @@ function projectInitials(p) {
   gap: var(--v-space-2);
 }
 
-.project-browser-header .v-view-toggle {
+.project-view-toggle {
   display: flex;
-  align-items: center;
-  gap: 2px;
-  height: var(--project-control-size);
-  padding: 3px;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-button-radius);
-  background: var(--v-control-bg);
-  box-sizing: border-box;
+  gap: var(--v-space-1);
 }
 
-.project-browser-header .v-view-toggle-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: auto;
-  min-width: 65px;
-  height: 28px;
-  min-height: 0;
-  padding: 0 9px;
-  gap: 6px;
-  border-radius: var(--v-button-radius);
-  font-size: var(--v-text-xs);
-  font-weight: 650;
-}
-
-.project-browser-header .v-view-toggle-btn .icon,
-.project-browser-header .project-sort-trigger .icon {
-  width: 15px;
-  height: 15px;
-}
-
-.project-browser-header .project-sort-trigger {
-  height: var(--project-control-size);
+.project-browser-actions .v-btn {
   min-height: var(--project-control-size);
-  padding: 0 11px;
-  gap: 7px;
-  border-radius: var(--v-button-radius);
-  box-sizing: border-box;
 }
 
-.project-view-label {
-  line-height: 1;
-}
-
-.project-view-option-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: var(--v-radius-full);
-  background: var(--v-accent-muted);
-  color: var(--v-accent);
-  font-size: var(--v-text-2xs);
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-}
-
-.project-sort-label {
-  max-width: 112px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-sort-chevron {
-  width: 13px !important;
-  height: 13px !important;
-  color: var(--v-text-muted);
-}
-
-.project-browser-header .v-btn-primary {
-  height: var(--project-control-size);
-  min-height: var(--project-control-size);
-  padding: 0 13px;
-  border-radius: var(--v-button-radius);
-  font-size: var(--v-text-sm);
-}
-
-.project-menu-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  margin-right: 3px;
-  border: 1px solid var(--v-control-border-hover);
-  border-radius: var(--v-radius-sm);
-  color: var(--v-accent);
-  flex: 0 0 auto;
-}
-
-.project-menu-check.is-checked {
-  border-color: color-mix(in srgb, var(--v-accent) 48%, var(--v-control-border));
-  background: color-mix(in srgb, var(--v-accent) 10%, transparent);
-}
-
-.project-menu-check .icon {
-  width: 12px;
-  height: 12px;
+.project-sort-label-compact {
+  display: none;
 }
 
 .projects-sort-dropdown {
-  min-width: 220px;
   padding-block: 7px;
 }
 
 .project-menu-label {
-  padding: 6px 11px 5px;
+  padding: var(--v-space-2) var(--v-space-3);
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-.project-sort-option,
-.project-view-option {
-  gap: 9px;
+  font-size: var(--v-text-xs);
 }
 
 .project-sort-option {
   justify-content: space-between;
-}
-
-.project-sort-option.is-selected {
-  color: var(--v-text);
-  background: var(--v-surface-tint-hover);
 }
 
 .project-sort-check {
@@ -1526,56 +1398,21 @@ function projectInitials(p) {
     gap: var(--v-space-2);
   }
 
-  .project-browser-header .v-view-toggle {
-    flex: 0 0 auto;
-    height: var(--project-control-size);
-    border-radius: var(--v-button-radius);
-  }
-
-  .project-browser-header .v-view-toggle-btn {
-    width: 36px;
-    min-width: 36px;
-    height: 36px;
-    padding: 0;
-    border-radius: var(--v-button-radius);
-  }
-
-  .project-browser-header .project-view-label,
-  .project-browser-header .project-view-option-count {
+  .project-sort-label {
     display: none;
   }
 
-  .project-browser-header .projects-sort-menu {
-    flex: 0 0 var(--project-control-size);
-    width: var(--project-control-size);
-    height: var(--project-control-size);
+  .project-sort-label-compact {
+    display: inline;
   }
 
-  .project-browser-header .project-sort-trigger {
-    width: 100%;
-    height: var(--project-control-size);
-    min-height: var(--project-control-size);
-    padding: 0;
-    justify-content: center;
-    border-radius: var(--v-button-radius);
-  }
-
-  .project-browser-header .project-sort-label,
-  .project-browser-header .project-sort-chevron {
-    display: none;
+  .projects-sort-dropdown .v-dropdown-item {
+    min-height: 44px;
   }
 
   .project-browser-header .v-btn-primary {
     flex: 1 1 0;
     min-width: 0;
-    height: var(--project-control-size);
-    min-height: var(--project-control-size);
-    justify-content: center;
-    border-radius: var(--v-button-radius);
-  }
-
-  .projects-sort-dropdown {
-    top: 48px;
   }
 
   .project-groups {

@@ -5,6 +5,7 @@ from typing import List, Optional
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response
+from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -45,28 +46,61 @@ from app.services.project_content_gateway import (
 from app.services.share_access import normalize_virtual_path, require_path_within_shared_root, resolve_shared_media_target, validate_share
 from app.services.zip_utils import ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget
 from app.services.comparison import comparison_file, comparison_status, resolve_comparison
+from app.services.comparison_export import cancel_export, read_export_request, resolve_export, start_export
 
 router = APIRouter(tags=['share-media'])
 settings = get_settings()
 
 
-def _shared_comparison(share_id, version_id, other_id, share_token, db):
+def _shared_comparison(share_id, version_id, other_id, share_token, db, *, download=False):
     share = _validate_shared_horizons_object_share(share_id, share_token, db)
+    if download and not share.allow_download:
+        raise HTTPException(403, 'Downloads are disabled for this share link')
     sources = [resolve_horizons_object_share(share, db, version_id=identity) for identity in (version_id, other_id)]
-    return resolve_comparison(db, *sources, share=True)
+    pair = resolve_comparison(db, *sources, share=True)
+    pair.info['can_export'] = bool(share.allow_download)
+    return pair, f'share:{share.id}'
 
 
 @router.api_route('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/status', methods=['GET', 'POST'])
 def shared_comparison_status(share_id: str, version_id: str, other_id: str, request: Request, response: Response,
                              share_token: str | None = None, db: Session = Depends(get_db)):
-    pair = _shared_comparison(share_id, version_id, other_id, share_token, db)
+    pair, _owner = _shared_comparison(share_id, version_id, other_id, share_token, db)
     response.headers['Cache-Control'] = 'private, no-store'
     return comparison_status(db, pair, retry=request.method == 'POST')
 
 
 @router.api_route('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/file', methods=['GET', 'HEAD'])
 def shared_comparison_file(share_id: str, version_id: str, other_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
-    return comparison_file(_shared_comparison(share_id, version_id, other_id, share_token, db))
+    pair, _owner = _shared_comparison(share_id, version_id, other_id, share_token, db)
+    return comparison_file(pair)
+
+
+@router.post('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export')
+async def shared_comparison_export(share_id: str, version_id: str, other_id: str, request: Request, response: Response,
+                             share_token: str | None = None, db: Session = Depends(get_db)):
+    pair, owner = await run_in_threadpool(_shared_comparison, share_id, version_id, other_id, share_token, db, download=True)
+    response.headers['Cache-Control'] = 'private, no-store'
+    data = await read_export_request(request)
+    return await run_in_threadpool(start_export, db, pair, owner, data)
+
+
+@router.get('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export/{token}')
+@router.delete('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export/{token}')
+def shared_comparison_export_status(share_id: str, version_id: str, other_id: str, token: str, request: Request, response: Response,
+                                    share_token: str | None = None, db: Session = Depends(get_db)):
+    pair, owner = _shared_comparison(share_id, version_id, other_id, share_token, db, download=True)
+    exported = resolve_export(pair, owner, token)
+    response.headers['Cache-Control'] = 'private, no-store'
+    return cancel_export(exported) if request.method == 'DELETE' else comparison_status(db, exported, start=False)
+
+
+@router.get('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export/{token}/file')
+@router.head('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export/{token}/file')
+def shared_comparison_export_file(share_id: str, version_id: str, other_id: str, token: str,
+                                  share_token: str | None = None, db: Session = Depends(get_db)):
+    pair, owner = _shared_comparison(share_id, version_id, other_id, share_token, db, download=True)
+    return comparison_file(resolve_export(pair, owner, token), filename='comparison.mp4')
 
 
 
