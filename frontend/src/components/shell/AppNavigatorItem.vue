@@ -11,6 +11,7 @@
       :expanded="expanded"
       :loading="loading"
       :thumbnail="showThumbnails ? item.thumbnail : ''"
+      :show-thumbnail="showThumbnails && Boolean(item.statusVariant)"
       @select="$emit('select', item.run)"
       @toggle="toggle"
     />
@@ -27,6 +28,7 @@
             :tone="child.tone || item.tone"
             :active="child.active"
             :thumbnail="showThumbnails && expanded ? child.thumbnail : ''"
+            :show-thumbnail="showThumbnails && expanded"
             @select="$emit('select', child.run)"
           />
 
@@ -53,6 +55,7 @@
                     tone="default"
                     :active="child.active"
                     :thumbnail="showThumbnails && expanded && archiveExpanded ? child.thumbnail : ''"
+                    :show-thumbnail="showThumbnails && expanded && archiveExpanded"
                     @select="$emit('select', child.run)"
                   />
                 </div>
@@ -138,9 +141,12 @@ function toggle() {
 }
 
 .navigator-item-children {
-  margin-left: calc(var(--navigator-disclosure-width, 22px) / 2);
-  padding-left: 5px;
-  border-left: 1px solid color-mix(in srgb, var(--v-divider) 62%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: calc(var(--navigator-disclosure-width, 24px) / 2);
+  padding: 1px 0 1px 5px;
+  border-left: 1px solid color-mix(in srgb, var(--v-divider) 56%, transparent);
 }
 
 .navigator-archive {
@@ -151,30 +157,31 @@ function toggle() {
 
 .navigator-item-empty {
   margin: 0;
-  padding: 4px 7px 4px 20px;
+  padding: 5px var(--v-space-2) 6px var(--navigator-disclosure-width, 24px);
   color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  font-style: italic;
+  font-size: var(--v-text-sm);
 }
 
 .navigator-item-error {
   display: flex;
   align-items: center;
-  gap: 5px;
-  min-height: 28px;
-  padding: 2px 6px 2px 10px;
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-xs);
+  justify-content: space-between;
+  gap: var(--v-space-2);
+  min-height: 30px;
+  padding: 0 var(--v-space-1) 0 var(--navigator-disclosure-width, 24px);
+  color: var(--v-danger-text);
+  font-size: var(--v-text-sm);
 }
 
 .navigator-item-retry {
-  padding: 3px 7px;
+  padding: 3px var(--v-space-2);
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
-  color: var(--v-text-dim);
+  color: var(--v-text-secondary);
   font: inherit;
-  font-size: var(--v-text-xs);
+  font-size: var(--v-text-sm);
+  font-weight: 500;
   cursor: pointer;
 }
 

@@ -20,25 +20,23 @@
               <div class="project-view-toggle" role="group" aria-label="Project view">
                 <button
                   type="button"
-                  class="v-btn v-btn-quiet"
-                  :class="{ 'v-btn-active': !projectsListView }"
-                  @click="setProjectsListView(false)"
                   title="Grid view"
                   aria-label="Grid view"
                   :aria-pressed="!projectsListView"
+                  @click="setProjectsListView(false)"
                 >
-                  Grid
+                  <svg class="icon" aria-hidden="true"><use href="#icon-grid"/></svg>
+                  <span class="project-view-toggle__label">Grid</span>
                 </button>
                 <button
                   type="button"
-                  class="v-btn v-btn-quiet"
-                  :class="{ 'v-btn-active': projectsListView }"
-                  @click="setProjectsListView(true)"
                   title="List view"
                   aria-label="List view"
                   :aria-pressed="projectsListView"
+                  @click="setProjectsListView(true)"
                 >
-                  List
+                  <svg class="icon" aria-hidden="true"><use href="#icon-list"/></svg>
+                  <span class="project-view-toggle__label">List</span>
                 </button>
               </div>
 
@@ -55,14 +53,17 @@
                 <template #trigger="{ triggerProps }">
                   <button
                     type="button"
-                    class="v-btn v-btn-quiet project-sort-trigger"
+                    class="v-btn v-btn-secondary project-sort-trigger"
+                    :class="{ 'is-filtered': hideDoneProjects }"
                     :aria-label="hideDoneProjects ? 'Sort and filter projects, completed projects hidden' : 'Sort and filter projects'"
                     v-bind="triggerProps"
                     @click="toggleSortMenu()"
                   >
-                    <span class="project-sort-label">{{ projectSortLabel }}<template v-if="hideDoneProjects"> · Filtered</template></span>
-                    <span class="project-sort-label-compact">{{ hideDoneProjects ? 'Filtered' : 'Sort' }}</span>
-                    <svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+                    <svg class="icon project-sort-icon" aria-hidden="true"><use href="#icon-sort"/></svg>
+                    <span class="project-sort-label">{{ projectSortLabel }}</span>
+                    <span class="project-sort-label-compact">Sort</span>
+                    <span v-if="hideDoneProjects" class="project-sort-filter-dot" aria-hidden="true"></span>
+                    <svg class="icon project-sort-chevron" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
                   </button>
                 </template>
                 <div class="project-menu-label">Sort projects</div>
@@ -164,8 +165,7 @@
                 </div>
 
                 <div class="v-project-body">
-                  <ProjectStatusControl :project="p" :editable="canOpenProjectSettingsItem(p)" />
-                  <div class="v-project-title">{{ p.title }}</div>
+                  <div class="v-project-title" :title="p.title">{{ p.title }}</div>
 
                   <div class="v-project-meta">
                     <span class="v-project-meta-item" :title="`${p.shot_count} shot${p.shot_count !== 1 ? 's' : ''}`">
@@ -195,6 +195,10 @@
                       <svg class="icon"><use href="#icon-clock" /></svg>
                       {{ formatProjectDate(p.updated_at) }}
                     </span>
+                  </div>
+
+                  <div class="v-project-footer">
+                    <ProjectStatusControl :project="p" :editable="canOpenProjectSettingsItem(p)" />
                   </div>
                 </div>
 
@@ -585,29 +589,44 @@ function projectInitials(p) {
 .project-groups {
   display: flex;
   flex-direction: column;
-  gap: 34px;
-  padding: 24px 24px 44px;
+  gap: 32px;
+  padding: 22px 24px 44px;
 }
 
 .project-group {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   margin: 0;
   min-width: 0;
 }
 
+/* Same heading language as the sidebar: dot, plain label, count pill. */
 .project-group-header {
-  min-height: 22px;
-  padding-inline: 1px;
+  gap: var(--v-space-2);
+  min-height: 24px;
+  padding-inline: 2px;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-base);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.project-group-header .v-dot {
+  margin-right: 2px;
 }
 
 .project-group-label {
   white-space: nowrap;
 }
 
-.project-group-header.is-active {
-  color: color-mix(in srgb, var(--v-status-active) 76%, var(--v-text));
+.project-group-count {
+  min-width: 20px;
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  box-shadow: none;
+  font-size: var(--v-text-xs);
+  font-weight: 500;
 }
 
 
@@ -624,15 +643,25 @@ function projectInitials(p) {
   border-color: var(--v-surface-border-soft);
   box-shadow: none;
   content-visibility: auto;
-  contain-intrinsic-size: 250px 210px;
+  contain-intrinsic-size: 250px 230px;
   transition:
     border-color var(--v-duration-fast) var(--v-ease-emphasized),
-    background var(--v-duration-fast) var(--v-ease-emphasized);
+    background var(--v-duration-fast) var(--v-ease-emphasized),
+    box-shadow var(--v-duration-normal) var(--v-ease-emphasized);
 }
 
 .v-project-card:hover {
   border-color: var(--v-surface-border-strong);
   background: color-mix(in srgb, var(--v-surface-panel) 97%, white);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.v-project-card .v-project-cover img {
+  transition: transform var(--v-duration-slow) var(--v-ease-emphasized);
+}
+
+.v-project-card:hover .v-project-cover img {
+  transform: scale(1.03);
 }
 
 .v-project-card:focus-visible,
@@ -781,16 +810,25 @@ function projectInitials(p) {
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 7px;
-  min-height: 94px;
-  padding: 12px 42px 13px 13px;
+  gap: 5px;
+  padding: 13px 14px 12px;
   min-width: 0;
+}
+
+/* Status and the card menu share one quiet row at the bottom. */
+.v-project-footer {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  margin-top: auto;
+  padding: 7px 34px 0 0;
 }
 
 .v-project-title {
   font-family: var(--v-font);
-  font-size: var(--v-text-md);
+  font-size: var(--v-text-lg);
   font-weight: 650;
+  line-height: 1.3;
   letter-spacing: 0;
   color: var(--v-text);
   white-space: nowrap;
@@ -805,8 +843,9 @@ function projectInitials(p) {
   flex-wrap: wrap;
   gap: 3px 7px;
   font-family: var(--v-font);
-  font-size: var(--v-text-xs);
-  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  color: var(--v-text-dim);
+  font-variant-numeric: tabular-nums;
   min-width: 0;
 }
 
@@ -869,10 +908,10 @@ function projectInitials(p) {
 
 .v-project-card .v-project-menu {
   position: absolute;
-  right: 7px;
-  bottom: 7px;
+  right: 10px;
+  bottom: 12px;
   z-index: 3;
-  opacity: 0.72;
+  opacity: 0.6;
   transition: opacity var(--v-duration-fast) var(--v-ease-emphasized);
 }
 
@@ -904,9 +943,14 @@ function projectInitials(p) {
   grid-template-columns: 68px minmax(0, 1fr) 76px 126px 126px 118px 36px;
   gap: 14px;
   align-items: center;
-  min-height: 38px;
+  min-height: 36px;
   padding: 0 10px;
   border-bottom: 1px solid var(--v-surface-border-soft);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
   background: var(--v-surface-panel-soft);
   border-radius: var(--v-radius-lg) var(--v-radius-lg) 0 0;
 }
@@ -929,8 +973,8 @@ function projectInitials(p) {
   grid-template-columns: 68px minmax(0, 1fr) 76px 126px 126px 118px 36px;
   gap: 14px;
   align-items: center;
-  min-height: 64px;
-  padding: 9px 10px;
+  min-height: 58px;
+  padding: 8px 10px;
   background: transparent;
   cursor: pointer;
   transition: background var(--v-duration-fast) var(--v-ease-emphasized);
@@ -954,8 +998,9 @@ function projectInitials(p) {
 .v-project-list-thumb {
   position: relative;
   width: 68px;
-  height: 42px;
-  border-radius: var(--v-radius-md);
+  height: 38px;
+  border-radius: var(--v-radius-sm);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-text) 8%, transparent);
   overflow: hidden;
   background: var(--v-surface-panel-soft);
   flex-shrink: 0;
@@ -983,11 +1028,17 @@ function projectInitials(p) {
   text-overflow: ellipsis;
 }
 
+/* On desktop, a row with no warnings keeps its title centred. */
+@media (min-width: 769px) {
+  .v-project-list-subtitle:not(:has(> :not(.v-project-status-mobile, .v-project-list-meta-mobile))) {
+    display: none;
+  }
+}
+
 .v-project-list-subtitle {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 14px;
   font-size: var(--v-text-xs);
   color: var(--v-text-secondary);
 }
@@ -1244,8 +1295,11 @@ function projectInitials(p) {
     aspect-ratio: 4 / 3;
   }
   .v-project-body {
-    padding: 10px 10px 12px;
-    gap: var(--v-space-1);
+    padding: 10px 10px 10px;
+    gap: 3px;
+  }
+  .v-project-footer {
+    padding-top: 6px;
   }
   .v-project-title { font-size: var(--v-text-base); }
   .v-project-meta {
@@ -1255,8 +1309,8 @@ function projectInitials(p) {
   .v-project-meta-word { display: none; }
 
   .v-project-card .v-project-menu {
-    right: 6px;
-    bottom: 6px;
+    right: 4px;
+    bottom: 8px;
   }
 
   .v-project-card.has-open-menu {
@@ -1282,27 +1336,28 @@ function projectInitials(p) {
 }
 
 .v-page-header.project-browser-header {
-  --project-control-size: 36px;
+  --project-control-size: 34px;
   align-items: center;
   justify-content: space-between;
   gap: var(--v-space-5);
-  min-height: 88px;
-  padding: 19px 24px 18px;
-  border-bottom: 1px solid var(--v-surface-border-soft);
+  min-height: 84px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--v-divider);
 }
 
 .project-browser-heading {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
 }
 
 .project-browser-heading .v-page-title {
   margin: 0;
-  font-size: 25px;
-  line-height: 1.1;
-  letter-spacing: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 
 .project-browser-summary {
@@ -1330,25 +1385,117 @@ function projectInitials(p) {
 }
 
 .project-browser-summary__active .v-project-status-dot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   background: var(--v-status-active);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--v-status-active) 18%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-status-active) 18%, transparent);
 }
 
 .project-browser-actions {
   flex: 0 0 auto;
   flex-wrap: nowrap;
+  align-items: center;
   gap: var(--v-space-2);
 }
 
-.project-view-toggle {
-  display: flex;
-  gap: var(--v-space-1);
+.project-browser-actions .v-btn {
+  height: var(--project-control-size);
+  min-height: 0;
 }
 
-.project-browser-actions .v-btn {
-  min-height: var(--project-control-size);
+/* Same segmented control as the sidebar view switch. */
+.project-view-toggle {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 2px;
+  height: var(--project-control-size);
+  padding: 2px;
+  border: 1px solid var(--v-control-border);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+  box-shadow: var(--v-surface-shadow-inset);
+}
+
+.project-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v-text-dim);
+  font: inherit;
+  font-size: var(--v-text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color var(--v-duration-fast) var(--v-ease-soft),
+    background var(--v-duration-fast) var(--v-ease-soft),
+    box-shadow var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.project-view-toggle button:hover {
+  color: var(--v-text);
+}
+
+.project-view-toggle button[aria-pressed="true"] {
+  background: var(--v-surface-inline-strong);
+  color: var(--v-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--v-text) 7%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.project-view-toggle button:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
+}
+
+.project-view-toggle .icon,
+.project-sort-trigger .icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.project-sort-trigger {
+  gap: 7px;
+  padding: 0 10px 0 11px;
+  font-weight: 600;
+}
+
+.project-sort-icon {
+  color: var(--v-text-dim);
+}
+
+.project-sort-chevron {
+  margin-left: 1px;
+  color: var(--v-text-muted);
+  transition: transform var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.project-sort-trigger[aria-expanded="true"] .project-sort-chevron {
+  transform: rotate(180deg);
+}
+
+/* A small dot tells the user that a filter hides some projects. */
+.project-sort-filter-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--v-radius-full);
+  background: var(--v-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-accent) 18%, transparent);
+}
+
+.project-sort-trigger.is-filtered .project-sort-icon {
+  color: var(--v-accent);
+}
+
+.project-browser-header .v-btn-primary {
+  padding: 0 14px 0 12px;
 }
 
 .project-sort-label-compact {
@@ -1377,11 +1524,12 @@ function projectInitials(p) {
 
 @media (max-width: 768px) {
   .v-page-header.project-browser-header {
-    --project-control-size: 44px;
-    align-items: flex-start;
+    --project-control-size: 40px;
+    align-items: stretch;
     flex-direction: column;
     gap: var(--v-space-3);
-    padding: 15px 14px 12px;
+    min-height: 0;
+    padding: 14px 14px 12px;
   }
 
   .project-browser-heading .v-page-title {
@@ -1395,7 +1543,23 @@ function projectInitials(p) {
   .project-browser-actions {
     width: 100%;
     margin-left: 0;
+    justify-content: flex-start;
     gap: var(--v-space-2);
+  }
+
+  /* Icons carry the meaning; labels stay in the accessible name. */
+  .project-view-toggle__label {
+    display: none;
+  }
+
+  .project-view-toggle button {
+    width: 40px;
+    padding: 0;
+  }
+
+  .project-view-toggle .icon {
+    width: 16px;
+    height: 16px;
   }
 
   .project-sort-label {
@@ -1466,6 +1630,16 @@ function projectInitials(p) {
 
   .v-project-meta {
     font-size: var(--v-text-2xs);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v-project-card .v-project-cover img {
+    transition: none;
+  }
+
+  .v-project-card:hover .v-project-cover img {
+    transform: none;
   }
 }
 </style>

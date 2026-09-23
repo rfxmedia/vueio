@@ -14,6 +14,8 @@
       :dragging="tree.isDragging(node.path)"
       :selection-mode="tree.selectionMode.value"
       :thumbnail="tree.thumbnailFor(node)"
+      :show-thumbnail="!isFolder && tree.showThumbnails.value"
+      :file-visual="node.fileVisual"
       @select="tree.select(node, $event)"
       @open="tree.openNode(node)"
       @toggle="tree.toggle(node.path)"
@@ -26,12 +28,13 @@
         <ul v-if="tree.hasLoaded(node.path)" class="nav-tree-children">
           <AppNavigatorTreeNode v-for="child in visibleChildren" :key="child.path" :node="child" />
 
-          <li v-if="hiddenCount" class="nav-tree-aside">
+          <li v-if="hiddenCount" class="nav-tree-aside is-more">
             <button class="nav-tree-more" type="button" @click="tree.revealAll(node.path)">
-              Show {{ hiddenCount }} more
+              <svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+              <span>Show {{ hiddenCount }} more</span>
             </button>
           </li>
-          <li v-if="tree.isEmpty(node.path)" class="nav-tree-aside is-note">{{ tree.emptyLabel }}</li>
+          <li v-if="tree.isEmpty(node.path)" class="nav-tree-aside">{{ tree.emptyLabel }}</li>
           <li v-if="tree.hasError(node.path)" class="nav-tree-aside is-error">Contents unavailable</li>
         </ul>
       </div>
@@ -80,6 +83,7 @@ const metaLabel = computed(() => (
 }
 
 .nav-tree-branch-inner {
+  min-height: 0;
   overflow: hidden;
   opacity: 0;
   transform: translateY(-3px);
@@ -94,9 +98,12 @@ const metaLabel = computed(() => (
 }
 
 .nav-tree-children {
-  margin-left: calc(var(--navigator-disclosure-width, 22px) / 2);
-  padding-left: 5px;
-  border-left: 1px solid color-mix(in srgb, var(--v-divider) 62%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: calc(var(--navigator-disclosure-width, 24px) / 2);
+  padding: 1px 0 1px 5px;
+  border-left: 1px solid color-mix(in srgb, var(--v-divider) 56%, transparent);
   transition: border-color var(--v-duration-fast) var(--v-ease-soft);
 }
 
@@ -105,35 +112,51 @@ const metaLabel = computed(() => (
 }
 
 .nav-tree-aside {
-  padding: 2px 0 4px 20px;
-  color: var(--v-text-dim);
-  font-size: var(--v-text-xs);
+  padding: 5px var(--v-space-2) 6px var(--navigator-disclosure-width, 24px);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
 }
 
-.nav-tree-aside.is-note {
-  font-style: italic;
-  opacity: 0.72;
+.nav-tree-aside.is-more {
+  padding: 0;
 }
 
 .nav-tree-aside.is-error {
-  color: color-mix(in srgb, var(--v-danger) 72%, white);
+  color: var(--v-danger-text);
 }
 
 .nav-tree-more {
-  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: var(--v-space-2);
+  width: 100%;
+  min-height: 28px;
+  padding: 0 var(--v-space-2) 0 calc(var(--navigator-disclosure-width, 24px) + 1px);
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
-  color: var(--v-text-dim);
+  color: var(--v-text-muted);
   font: inherit;
-  font-size: var(--v-text-xs);
+  font-size: var(--v-text-sm);
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
   transition: color var(--v-duration-fast) var(--v-ease-soft), background var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.nav-tree-more .icon {
+  width: 12px;
+  height: 12px;
 }
 
 .nav-tree-more:hover {
   color: var(--v-text);
   background: var(--v-bg-hover);
+}
+
+.nav-tree-more:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

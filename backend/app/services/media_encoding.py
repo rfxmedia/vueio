@@ -152,7 +152,7 @@ def thumbnail_decode_options(device):
     return options, 'hwdownload,format=nv12,'
 
 
-def build_command(input_path, output_path, recipe, device=None):
+def build_command(input_path, output_path, recipe, device=None, *, audio_input_path=None):
     validate_recipe(recipe)
     prefix, encoder = device_options(device)
     cmd = ['ffmpeg', '-hide_banner', '-nostdin', '-nostats', '-loglevel', 'error', '-y', *prefix]
@@ -241,10 +241,21 @@ def build_command(input_path, output_path, recipe, device=None):
         seek = ['-ss', str(recipe['seek'])] if recipe['seek'] > 0 else []
         return cmd + decode + seek + ['-i', str(input_path), '-frames:v', '1', '-vf',
                               f'{download}scale=ceil(iw*sar/2)*2:ih,setsar=1,scale={width}:-2', '-q:v', '2', str(output_path)]
-    cmd += ['-fflags', '+genpts', '-i', str(input_path)] if kind == 'hls' else ['-i', str(input_path)]
+    # Independent readers keep audio demand from buffering the much larger
+    # video packets ahead of the encoder on long, high-bitrate source files.
+    # Each stream is still decoded once, with its original timestamps.
+    separate_audio = kind == 'mp4' or recipe.get('has_audio', False)
+    cmd += ['-filter_threads', '4', '-filter_complex_threads', '4', '-threads', '4']
+    if separate_audio:
+        cmd += ['-an']
+    if kind == 'hls':
+        cmd += ['-fflags', '+genpts']
+    cmd += ['-i', str(input_path)]
+    if separate_audio:
+        cmd += ['-vn', '-threads', '1', '-i', str(audio_input_path or input_path)]
     upload = ',format=nv12,hwupload' if encoder == 'h264_vaapi' else ''
     if kind == 'mp4':
-        cmd += encoder_options(device)
+        cmd += ['-map', '0:v:0', '-map', '1:a:0?', *encoder_options(device), '-threads:v', '4']
         height = int(recipe['height'])
         filters = (f'scale=-2:{height}' if height else 'null') + upload
         if height or upload:
@@ -257,11 +268,12 @@ def build_command(input_path, output_path, recipe, device=None):
         graph += [f"[vsplit{i}]scale=-2:{int(v['height'])}:flags=lanczos{upload}[vout{i}]" for i, v in enumerate(variants)]
         cmd += ['-filter_complex', ';'.join(graph)]
         for i in range(len(variants)):
-            cmd += ['-map', f'[vout{i}]'] + (['-map', '0:a:0?'] if audio else [])
+            cmd += ['-map', f'[vout{i}]'] + (['-map', '1:a:0?'] if audio else [])
     else:
-        cmd += ['-map', '0:v:0'] + (['-map', '0:a:0?'] if audio else [])
+        cmd += ['-map', '0:v:0'] + (['-map', '1:a:0?'] if audio else [])
     for i, variant in enumerate(variants):
         cmd += encoder_options(device, index=i, quality=16)
+        cmd += [f'-threads:v:{i}', '4']
         cmd += [f'-profile:v:{i}', 'high', f'-g:v:{i}', str(int(recipe['gop'])), f'-bf:v:{i}', '0',
                 f'-force_key_frames:v:{i}', f'expr:gte(t,n_forced*{segment})', f'-b:v:{i}', variant['bitrate'],
                 f'-maxrate:v:{i}', variant['maxrate'], f'-bufsize:v:{i}', variant['bufsize']]
@@ -428,13 +440,19 @@ class NativeMedia:
                 raise ValueError('Invalid media inputs.')
             for source in sources:
                 input_fds.append(self.input_descriptor(source, config))
+            # Open separately, rather than dup(), so Mac readers do not share
+            # a seek offset through /dev/fd. Both opens use the same path guard.
+            separate_audio = recipe['kind'] == 'mp4' or (recipe['kind'] == 'hls' and recipe['has_audio'])
+            if separate_audio:
+                input_fds.append(self.input_descriptor(sources[0], config))
             work = tempfile.TemporaryDirectory(prefix='.native-media-', dir=self.host.home)
             target = Path(work.name) / ('output.jpg' if recipe['kind'] == 'thumbnail' else 'output.mp4')
             if recipe['kind'] == 'hls':
                 target = Path(work.name) / 'hls'
                 target.mkdir()
             inputs = [f'/dev/fd/{fd}' for fd in input_fds]
-            cmd = build_command(inputs if paired else inputs[0], target, recipe, self.devices[0])
+            cmd = build_command(inputs if paired else inputs[0], target, recipe, self.devices[0],
+                                audio_input_path=inputs[-1] if separate_audio else None)
             cmd[0] = '/opt/homebrew/bin/ffmpeg'
             # Never let a playlist or concat document read unrelated host files.
             for input_index in reversed([i for i, item in enumerate(cmd) if item == '-i']):

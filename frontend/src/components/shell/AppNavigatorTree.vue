@@ -387,6 +387,7 @@ provide(navigatorTreeKey, {
   open,
   openNode,
   selectionMode: computed(() => props.selectionMode),
+  showThumbnails: computed(() => props.active && Boolean(props.thumbnailFor)),
   thumbnailFor: (node) => props.active ? props.thumbnailFor?.(node.item) || '' : '',
   select,
   startDrag,

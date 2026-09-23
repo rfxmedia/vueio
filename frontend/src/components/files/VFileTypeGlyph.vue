@@ -1,7 +1,7 @@
 <template>
   <span
     class="file-type-glyph"
-    :class="{ 'is-compact': compact, 'is-three-d': visual.kind === 'three-d' }"
+    :class="{ 'is-compact': compact, 'is-thumbnail': thumbnail, 'is-three-d': visual.kind === 'three-d' }"
     :style="{ '--file-type-color': visual.color }"
     :title="visual.label"
     :aria-label="`${visual.label} file`"
@@ -22,6 +22,7 @@
 defineProps({
   visual: { type: Object, required: true },
   compact: { type: Boolean, default: false },
+  thumbnail: { type: Boolean, default: false },
 })
 </script>
 
@@ -116,5 +117,11 @@ defineProps({
   bottom: 3px;
   font-size: 5px;
   letter-spacing: 0.25px;
+}
+
+.file-type-glyph.is-thumbnail {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
 }
 </style>

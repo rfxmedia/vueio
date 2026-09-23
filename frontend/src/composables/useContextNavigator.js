@@ -9,7 +9,7 @@ import { useShareAccessContext } from '../ownership/shareAccessContext'
 import { useTrackerStore } from '../ownership/tracker'
 import { useViewerStore } from '../ownership/viewer'
 import { getMediaKind } from '../lib/mediaEntity'
-import { isFileBrowserEntry } from '../utils/fileBrowserItems'
+import { fileTypeVisual, isFileBrowserEntry } from '../utils/fileBrowserItems'
 import { isRestrictedProjectMember } from '../utils/accountAccess'
 import {
   readWorkspacePayload,
@@ -71,8 +71,8 @@ function readStoredWidth() {
 const navigatorOpen = ref(readStoredOpen())
 const navigatorWidth = ref(readStoredWidth())
 const navigatorThumbnails = ref((() => {
-  try { return globalThis.localStorage?.getItem('vueio.navigator.thumbnails') === '1' }
-  catch { return false }
+  try { return globalThis.localStorage?.getItem('vueio.navigator.thumbnails') !== '0' }
+  catch { return true }
 })())
 const collapsedGroups = reactive(new Set(readCollapsedGroups()))
 
@@ -182,6 +182,7 @@ export function toNavigatorNode(item) {
     count: isFolder ? (Number.isFinite(item.item_count) ? item.item_count : item.file_count) : undefined,
     meta: isFolder ? '' : String(item.extension || '').toUpperCase(),
     icon: isFolder ? '#icon-folder' : fileIcon(item),
+    fileVisual: fileTypeVisual(item),
     isWorkspace: Boolean(item.is_workspace),
     item,
   }

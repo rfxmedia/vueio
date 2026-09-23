@@ -968,7 +968,7 @@ function trimContext(text) {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--v-space-3);
-  padding: 16px 16px 14px;
+  padding: 14px 14px 10px 16px;
   flex-shrink: 0;
 }
 
@@ -976,7 +976,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .global-activity-title,
@@ -989,16 +989,16 @@ function trimContext(text) {
 
 .global-activity-title {
   color: var(--v-text);
-  font-size: var(--v-text-2xl);
+  font-size: var(--v-text-xl);
   font-weight: 700;
-  letter-spacing: 0;
-  line-height: 1.2;
+  letter-spacing: -0.005em;
+  line-height: 1.25;
 }
 
 .global-activity-meta {
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.35;
 }
 
@@ -1026,12 +1026,12 @@ function trimContext(text) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: var(--v-button-radius);
   background: transparent;
-  color: var(--v-text-muted);
+  color: var(--v-text-secondary);
   font-family: var(--v-font);
   font-size: var(--v-text-sm);
   font-weight: 600;
@@ -1072,10 +1072,8 @@ function trimContext(text) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(142px, 0.62fr);
   gap: var(--v-space-2);
-  padding: 10px 12px;
-  border-top: 1px solid var(--v-divider-subtle);
+  padding: 0 12px 12px;
   border-bottom: 1px solid var(--v-divider-subtle);
-  background: color-mix(in srgb, var(--v-surface-panel) 72%, transparent);
   flex-shrink: 0;
 }
 
@@ -1084,11 +1082,15 @@ function trimContext(text) {
   width: 100%;
 }
 
+.global-activity-read-toggle {
+  padding: 2px;
+}
+
 .global-activity-read-toggle :deep(.v-tab-btn) {
-  min-height: 36px;
+  min-height: 28px;
   padding: 0 10px;
   font-size: var(--v-text-sm);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .global-activity-read-toggle :deep(.v-tab-btn.active) {
@@ -1117,7 +1119,7 @@ function trimContext(text) {
 .global-activity-filter-control {
   position: relative;
   min-width: 0;
-  height: 38px;
+  height: 34px;
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) auto 12px;
   align-items: center;
@@ -1157,7 +1159,7 @@ function trimContext(text) {
   overflow: hidden;
   color: var(--v-text-secondary);
   font-size: var(--v-text-sm);
-  font-weight: 650;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1322,7 +1324,7 @@ function trimContext(text) {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
   margin: 0;
   padding: 0 12px 12px;
   list-style: none;
@@ -1359,19 +1361,33 @@ function trimContext(text) {
   justify-content: space-between;
   gap: var(--v-space-3);
   margin: 0 -2px;
-  padding: 12px 2px 8px;
+  padding: 12px 4px 6px;
   background: var(--v-surface-canvas);
   box-shadow: 0 8px 10px -8px var(--v-surface-canvas);
 }
 
+/* Plain-language day headings read faster than tracked capitals. */
+.global-activity-day-label {
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .global-activity-day-detail {
-  opacity: 0.72;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .global-activity-project-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .global-activity-project {
@@ -1393,12 +1409,12 @@ function trimContext(text) {
 
 .global-activity-project-head {
   width: 100%;
-  min-height: 54px;
+  min-height: 48px;
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr);
   gap: 10px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 9px 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1426,9 +1442,9 @@ function trimContext(text) {
 
 .global-activity-project-thumb {
   position: relative;
-  width: 42px;
-  height: 32px;
-  border-radius: var(--v-radius-md);
+  width: 40px;
+  height: 26px;
+  border-radius: 5px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1467,7 +1483,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
 }
 
 .global-activity-project-title-row {
@@ -1481,12 +1497,12 @@ function trimContext(text) {
   min-width: 0;
   color: var(--v-text);
   font-size: var(--v-text-base);
-  font-weight: 700;
-  line-height: 1.25;
+  font-weight: 650;
+  line-height: 1.3;
 }
 
 .global-activity-project-count {
-  min-height: 19px;
+  min-height: 18px;
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -1495,8 +1511,8 @@ function trimContext(text) {
   border-radius: var(--v-radius-full);
   background: color-mix(in srgb, var(--v-text) 7%, transparent);
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 750;
+  font-size: var(--v-text-xs);
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1508,7 +1524,7 @@ function trimContext(text) {
 .global-activity-project-detail {
   color: var(--v-text-muted);
   font-size: var(--v-text-xs);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.3;
 }
 
@@ -1529,10 +1545,10 @@ function trimContext(text) {
 .global-activity-item {
   min-width: 0;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 11px;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 10px;
   margin: 0;
-  padding: 11px 12px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1550,7 +1566,7 @@ function trimContext(text) {
   content: '';
   position: absolute;
   top: 0;
-  left: 51px;
+  left: 46px;
   right: 12px;
   height: 1px;
   background: var(--v-divider-subtle);
@@ -1579,9 +1595,9 @@ function trimContext(text) {
 .global-activity-item-icon,
 .global-activity-bundle-icon {
   position: relative;
-  width: 28px;
-  height: 28px;
-  border-radius: var(--v-radius-md);
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1597,8 +1613,8 @@ function trimContext(text) {
 
 .global-activity-item-icon .icon,
 .global-activity-bundle-icon .icon {
-  width: 13px;
-  height: 13px;
+  width: 12px;
+  height: 12px;
 }
 
 .global-activity-project.is-read-group .global-activity-item-icon,
@@ -1611,7 +1627,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 4px;
   grid-column: 2;
 }
 
@@ -1620,10 +1636,12 @@ function trimContext(text) {
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
+  padding-top: 2px;
   color: var(--v-text);
   font-size: var(--v-text-base);
-  font-weight: 650;
+  font-weight: 550;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .global-activity-summary span {
@@ -1638,13 +1656,24 @@ function trimContext(text) {
   gap: 6px;
 }
 
+/* Shot names are already uppercase; tracking makes them shout. */
+.global-activity-summary .v-tag {
+  min-height: 18px;
+  padding: 0 6px;
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
+}
+
 .global-activity-open-icon {
   width: 12px;
   height: 12px;
   flex: 0 0 auto;
   margin-top: 3px;
   color: var(--v-text-muted);
-  opacity: 0.35;
+  opacity: 0;
   transform: translateX(-2px);
   transition:
     opacity var(--global-activity-motion-fast) var(--global-activity-motion-ease),
@@ -1657,9 +1686,16 @@ function trimContext(text) {
   transform: translateX(0);
 }
 
+@media (hover: none) {
+  .global-activity-open-icon {
+    opacity: 0.4;
+    transform: none;
+  }
+}
+
 .global-activity-context {
-  margin: 1px 0 0;
-  padding: 7px 9px;
+  margin: 0;
+  padding: 6px 9px;
   border-left: 2px solid color-mix(in srgb, var(--global-activity-event-color) 35%, transparent);
   border-radius: var(--v-radius-sm);
   background: var(--v-surface-inline);
@@ -1674,10 +1710,10 @@ function trimContext(text) {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 5px 10px;
+  gap: 4px 8px;
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 500;
+  font-size: var(--v-text-xs);
+  font-weight: 400;
 }
 
 .global-activity-actor {
@@ -1685,9 +1721,9 @@ function trimContext(text) {
   max-width: 150px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   color: var(--v-text-secondary);
-  font-weight: 650;
+  font-weight: 550;
 }
 
 .global-activity-scope {
@@ -1703,8 +1739,8 @@ function trimContext(text) {
 
 .global-activity-avatar {
   --global-activity-avatar-color: var(--v-accent);
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   border-radius: var(--v-radius-full);
   display: inline-flex;
   align-items: center;
@@ -1729,10 +1765,10 @@ function trimContext(text) {
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 11px;
-  padding: 11px 12px;
+  gap: 10px;
+  padding: 10px 12px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -1751,7 +1787,7 @@ function trimContext(text) {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .global-activity-bundle-title {
@@ -1759,8 +1795,8 @@ function trimContext(text) {
   overflow: hidden;
   color: var(--v-text);
   font-size: var(--v-text-base);
-  font-weight: 700;
-  line-height: 1.3;
+  font-weight: 550;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1770,8 +1806,8 @@ function trimContext(text) {
   overflow: hidden;
   color: var(--v-text-muted);
   font-size: var(--v-text-xs);
-  font-weight: 500;
-  line-height: 1.3;
+  font-weight: 400;
+  line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1784,17 +1820,17 @@ function trimContext(text) {
 }
 
 .global-activity-bundle-count {
-  min-width: 22px;
-  height: 20px;
-  padding: 0 7px;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
   border-radius: var(--v-radius-full);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: color-mix(in srgb, var(--global-activity-event-color) 16%, transparent);
   color: color-mix(in srgb, var(--global-activity-event-color) 88%, var(--v-text));
-  font-size: var(--v-text-2xs);
-  font-weight: 800;
+  font-size: var(--v-text-xs);
+  font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1818,7 +1854,7 @@ function trimContext(text) {
 .global-activity-bundle-items {
   display: flex;
   flex-direction: column;
-  margin: 0 8px 8px 50px;
+  margin: 0 8px 8px 46px;
   padding: 4px;
   border: 1px solid var(--v-divider-subtle);
   border-radius: var(--v-radius-md);
@@ -1877,7 +1913,7 @@ function trimContext(text) {
 
 .global-activity-more {
   width: calc(100% - 24px);
-  min-height: 36px;
+  min-height: 32px;
   flex-shrink: 0;
   margin: 0 12px 12px;
 }
@@ -2020,7 +2056,7 @@ function trimContext(text) {
 
   .global-activity-bundle-items {
     margin-right: 6px;
-    margin-left: 47px;
+    margin-left: 44px;
   }
 
   .global-activity-skeleton {

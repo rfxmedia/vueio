@@ -159,9 +159,9 @@ def stream_shared_media_asset(share_id: str, asset_id: str, share_token: str | N
 
 
 @router.get('/api/projects/shared/{share_id}/media-assets/{asset_id}/hls/status')
-def hls_status_shared_media_asset(share_id: str, asset_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
+def hls_status_shared_media_asset(share_id: str, asset_id: str, share_token: str | None = None, db: Session = Depends(get_db), retry: bool = False):
     share = _validate_shared_horizons_object_share(share_id, share_token, db)
-    return get_object_hls_status(lambda: _build_shared_object_payload(share, db, horizons_media_asset_id=asset_id), db)
+    return get_object_hls_status(lambda: _build_shared_object_payload(share, db, horizons_media_asset_id=asset_id), db, retry=retry)
 
 
 @router.get('/api/projects/shared/{share_id}/media-assets/{asset_id}/hls/manifest')
@@ -244,9 +244,9 @@ def stream_shared_shot_version(share_id: str, version_id: str, share_token: str 
 
 
 @router.get('/api/projects/shared/{share_id}/shot-versions/{version_id}/hls/status')
-def hls_status_shared_shot_version(share_id: str, version_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
+def hls_status_shared_shot_version(share_id: str, version_id: str, share_token: str | None = None, db: Session = Depends(get_db), retry: bool = False):
     share = _validate_shared_horizons_object_share(share_id, share_token, db)
-    return get_object_hls_status(lambda: _build_shared_object_payload(share, db, horizons_shot_version_id=version_id), db)
+    return get_object_hls_status(lambda: _build_shared_object_payload(share, db, horizons_shot_version_id=version_id), db, retry=retry)
 
 
 @router.get('/api/projects/shared/{share_id}/shot-versions/{version_id}/hls/manifest')
@@ -326,10 +326,10 @@ def stream_shared_file(share_id: str, path: str = '', share_token: str | None = 
 
 
 @router.get('/api/projects/shared/{share_id}/hls/status')
-def hls_status_shared_file(share_id: str, path: str = '', share_token: str | None = None, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, db: Session = Depends(get_db)):
+def hls_status_shared_file(share_id: str, path: str = '', share_token: str | None = None, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, db: Session = Depends(get_db), retry: bool = False):
     share = _validate_shared_media_share(share_id, share_token, db)
     resolved = resolve_content(SharedMediaPolicy(db, share), _shared_media_ref(share, path, media_asset_id or horizons_media_asset_id), purpose='stream')
-    return serve_hls_status(media_target_from_resolved(resolved), db)
+    return serve_hls_status(media_target_from_resolved(resolved), db, retry=retry)
 
 
 @router.get('/api/projects/shared/{share_id}/hls/manifest')

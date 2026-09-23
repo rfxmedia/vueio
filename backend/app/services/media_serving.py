@@ -160,8 +160,8 @@ def serve_file(target: AuthorizedMediaTarget, db: Session, *, not_found_detail: 
     return response
 
 
-def serve_hls_status(target: AuthorizedMediaTarget, db: Session):
-    return get_hls_status(db, job_key=target.cache_identity or str(target.full_path), input_path=target.full_path)
+def serve_hls_status(target: AuthorizedMediaTarget, db: Session, *, retry: bool = False):
+    return get_hls_status(db, job_key=target.cache_identity or str(target.full_path), input_path=target.full_path, retry=retry)
 
 
 def serve_hls_manifest(target: AuthorizedMediaTarget, db: Session, *, build_asset_url: Callable[[str], str]):
@@ -260,9 +260,9 @@ def stream_object_file(resolve_payload: ResolveObjectPayload, db: Session, *, no
     return stream_file_response(full_path, cache_key, db)
 
 
-def get_object_hls_status(resolve_payload: ResolveObjectPayload, db: Session):
+def get_object_hls_status(resolve_payload: ResolveObjectPayload, db: Session, *, retry: bool = False):
     full_path, cache_key, _payload = resolve_payload()
-    return get_hls_status(db, job_key=cache_key, input_path=full_path)
+    return get_hls_status(db, job_key=cache_key, input_path=full_path, retry=retry)
 
 
 def get_object_hls_manifest(resolve_payload: ResolveObjectPayload, db: Session, *, build_asset_url: Callable[[str], str]):

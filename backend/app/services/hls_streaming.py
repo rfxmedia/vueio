@@ -794,7 +794,7 @@ def package_video_to_hls_with_progress(input_path: Path, package_dir: Path, job_
             release_transcode_claim(attempt)
 
 
-def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -> bool:
+def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path, retry: bool = False) -> bool:
     package_job_key = hls_job_key(job_key)
     restore_transcode_identity_for_authorized_source(package_job_key)
     package_dir = hls_package_dir_for_identity(package_job_key)
@@ -806,6 +806,10 @@ def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -
     active_master_playlist = active_package_dir / 'master.m3u8'
     has_master_playlist = _is_nonempty_file(active_master_playlist)
     if not has_master_playlist and transcode_claim_is_active(package_job_key):
+        return False
+    # Polling and manifest requests must observe a failed job, not restart it.
+    # Opening the video again explicitly permits one new attempt.
+    if job and job.status == 'error' and not retry:
         return False
 
     probe = _probe_video_streams(input_path)
@@ -871,23 +875,26 @@ def ensure_hls_package_running(db: Session, *, job_key: str, input_path: Path) -
     return False
 
 
-def get_hls_status(db: Session, *, job_key: str, input_path: Path | None) -> dict:
+def get_hls_status(db: Session, *, job_key: str, input_path: Path | None, retry: bool = False) -> dict:
     if not input_path or not input_path.exists():
         raise HTTPException(status_code=404, detail='File not found')
     if not is_video(input_path):
         raise HTTPException(status_code=400, detail='HLS playback is only available for video files')
 
-    if ensure_hls_package_running(db, job_key=job_key, input_path=input_path):
+    if ensure_hls_package_running(db, job_key=job_key, input_path=input_path, retry=retry):
         return {'status': 'complete', 'progress': 100}
 
     package_job_key = hls_job_key(job_key)
     inflight = transcode_progress.get(package_job_key)
-    if inflight:
+    if inflight and inflight.get('status') != 'error':
         return inflight
 
     job = db.query(TranscodeJob).filter(TranscodeJob.file_path == package_job_key).first()
     if not job:
         return {'status': 'pending', 'progress': 0}
+    if job.status == 'error' or (inflight and inflight.get('status') == 'error'):
+        return {'status': 'error', 'progress': 0,
+                'error': 'Preview could not be prepared. Close and reopen this video to try again.'}
     return {'status': job.status, 'progress': job.progress}
 
 

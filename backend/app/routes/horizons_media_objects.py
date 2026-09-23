@@ -147,7 +147,7 @@ def stream_horizons_media_asset(project_id: str, asset_id: str, vueio_session: s
 
 
 @router.get('/api/horizons/projects/{project_id}/media-assets/{asset_id}/hls/status')
-def hls_status_horizons_media_asset(project_id: str, asset_id: str, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+def hls_status_horizons_media_asset(project_id: str, asset_id: str, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db), retry: bool = False):
     user, access_role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
     return get_object_hls_status(lambda: _build_horizons_object_payload(
         db,
@@ -156,7 +156,7 @@ def hls_status_horizons_media_asset(project_id: str, asset_id: str, vueio_sessio
         detail='Horizons media asset not found',
         user=user,
         access_role=access_role,
-    ), db)
+    ), db, retry=retry)
 
 
 @router.get('/api/horizons/projects/{project_id}/media-assets/{asset_id}/hls/manifest')
@@ -295,7 +295,7 @@ def stream_horizons_shot_version(project_id: str, version_id: str, vueio_session
 
 
 @router.get('/api/horizons/projects/{project_id}/shot-versions/{version_id}/hls/status')
-def hls_status_horizons_shot_version(project_id: str, version_id: str, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+def hls_status_horizons_shot_version(project_id: str, version_id: str, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db), retry: bool = False):
     user, access_role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
     return get_object_hls_status(lambda: _build_horizons_object_payload(
         db,
@@ -304,7 +304,7 @@ def hls_status_horizons_shot_version(project_id: str, version_id: str, vueio_ses
         detail='Horizons shot version not found',
         user=user,
         access_role=access_role,
-    ), db)
+    ), db, retry=retry)
 
 
 @router.get('/api/horizons/projects/{project_id}/shot-versions/{version_id}/hls/manifest')

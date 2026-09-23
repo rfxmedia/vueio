@@ -94,6 +94,7 @@ def stream_video(
 @router.get('/api/hls/status')
 def hls_status(
     path: str,
+    retry: bool = False,
     project_id: str | None = None,
     media_asset_id: str | None = None,
     horizons_media_asset_id: str | None = None,
@@ -109,7 +110,7 @@ def hls_status(
         vueio_session=vueio_session,
         db=db,
     )
-    return serve_hls_status(media_target(full_path, job_key), db)
+    return serve_hls_status(media_target(full_path, job_key), db, retry=retry)
 
 
 @router.get('/api/hls/manifest')

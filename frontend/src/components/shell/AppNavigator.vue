@@ -3,7 +3,7 @@
     v-if="context"
     ref="navigatorElement"
     class="app-navigator"
-    :class="[`is-${variant}`, { 'is-collapsed': collapsed, 'is-resizing': resizing, 'with-thumbnails': navigatorThumbnails }]"
+    :class="[`is-${variant}`, { 'is-collapsed': collapsed, 'is-resizing': resizing }]"
     :style="navigatorStyle"
     aria-label="Context navigation"
     :aria-hidden="collapsed ? 'true' : undefined"
@@ -52,9 +52,10 @@
           >
             <span class="navigator-group-label">
               <svg v-if="group.icon" class="icon navigator-group-icon" aria-hidden="true"><use :href="group.icon"/></svg>
+              <span v-else-if="group.statusVariant" class="navigator-group-dot" aria-hidden="true"></span>
               <span class="v-truncate">{{ group.label }}</span>
+              <span v-if="group.count" class="navigator-group-count">{{ group.count }}</span>
             </span>
-            <span v-if="group.count" class="navigator-group-count">{{ group.count }}</span>
             <svg class="icon navigator-group-chevron" aria-hidden="true"><use href="#icon-chevron-right"/></svg>
           </button>
 
@@ -74,7 +75,8 @@
                 type="button"
                 @click="revealAll(group.key)"
               >
-                Show {{ hiddenCount(group) }} more
+                <svg class="icon" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
+                <span>Show {{ hiddenCount(group) }} more</span>
               </button>
 
               <AppNavigatorTree
@@ -100,11 +102,16 @@
         <p v-if="!sections.length" class="navigator-empty">{{ context.emptyLabel || 'Nothing here yet' }}</p>
       </div>
       <footer class="navigator-footer">
-        <button class="v-btn v-btn-quiet v-btn-sm" type="button" :aria-pressed="navigatorThumbnails" @click="toggleNavigatorThumbnails">
-          <svg class="icon" aria-hidden="true"><use href="#icon-image" /></svg>
-          <span>Thumbnails</span>
-          <span class="navigator-view-state">{{ navigatorThumbnails ? 'Previews' : 'Compact' }}</span>
-        </button>
+        <div class="navigator-view-toggle" role="group" aria-label="Sidebar view">
+          <button type="button" :aria-pressed="!navigatorThumbnails" @click="showThumbnails(false)">
+            <svg class="icon" aria-hidden="true"><use href="#icon-list" /></svg>
+            <span>List</span>
+          </button>
+          <button type="button" :aria-pressed="navigatorThumbnails" @click="showThumbnails(true)">
+            <svg class="icon" aria-hidden="true"><use href="#icon-image" /></svg>
+            <span>Previews</span>
+          </button>
+        </div>
       </footer>
     </div>
 
@@ -226,6 +233,10 @@ function revealAll(key) {
   expandedGroups.add(key)
 }
 
+function showThumbnails(value) {
+  if (navigatorThumbnails.value !== value) toggleNavigatorThumbnails()
+}
+
 function activate(run) {
   run?.()
   emit('navigate')
@@ -304,20 +315,12 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.app-navigator.is-rail.with-thumbnails { --navigator-row-height: 35px; }
-.navigator-footer {
-  flex-shrink: 0;
-  padding: 8px 10px;
-  border-top: 1px solid var(--v-divider);
-}
-.navigator-footer .v-btn { width: 100%; justify-content: flex-start; }
-.navigator-footer .v-btn[aria-pressed="true"] { color: var(--v-accent); }
-.navigator-view-state { margin-left: auto; color: var(--v-text-muted); font-size: var(--v-text-xs); }
 .app-navigator {
-  --navigator-row-height: 30px;
+  --navigator-row-height: 32px;
   --navigator-group-height: 30px;
-  --navigator-disclosure-width: 22px;
-  --navigator-row-font-size: var(--v-text-sm);
+  --navigator-disclosure-width: 24px;
+  --navigator-row-font-size: var(--v-text-base);
+  --navigator-group-font-size: var(--v-text-sm);
   position: relative;
   width: var(--v-navigator-width);
   flex-shrink: 0;
@@ -396,7 +399,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   height: var(--v-shell-header-height);
-  padding: 0 9px;
+  padding: 0 var(--v-space-2);
   flex-shrink: 0;
   border-bottom: 1px solid var(--v-divider);
 }
@@ -405,11 +408,11 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: 32px minmax(0, 1fr);
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   width: 100%;
   min-width: 0;
-  min-height: 42px;
-  padding: 4px 7px 4px 5px;
+  min-height: 44px;
+  padding: 5px 8px 5px 6px;
   border: 1px solid transparent;
   border-radius: var(--v-button-radius);
   background: transparent;
@@ -441,7 +444,18 @@ onBeforeUnmount(() => {
   height: 32px;
   overflow: hidden;
   border-radius: var(--v-radius-sm);
-  color: var(--v-text-dim);
+  background: var(--v-surface-inline);
+  color: var(--v-text-secondary);
+}
+
+/* A hairline frame keeps dark and light artwork crisp against the rail. */
+.navigator-scope-mark::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-text) 9%, transparent);
+  pointer-events: none;
 }
 
 .navigator-scope-thumbnail {
@@ -458,42 +472,44 @@ onBeforeUnmount(() => {
 .navigator-scope-copy {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
 .navigator-title {
   color: var(--v-text);
-  font-size: var(--v-text-base);
-  font-weight: 680;
-  line-height: 1.25;
+  font-size: var(--v-text-md);
+  font-weight: 650;
+  line-height: 1.2;
 }
 
 .navigator-body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   min-height: 0;
-  padding: 9px 9px 24px;
+  padding: var(--v-space-3) var(--v-space-2) var(--v-space-6);
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--v-text) 14%, transparent) transparent;
 }
 
 .navigator-back {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--v-space-2);
   width: 100%;
-  min-height: var(--navigator-row-height);
-  margin-bottom: 7px;
-  padding: 3px 8px;
-  border: 1px solid transparent;
+  min-height: 30px;
+  margin-bottom: var(--v-space-3);
+  padding: 0 var(--v-space-2);
+  border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
   color: var(--v-text-dim);
-  font-size: var(--v-text-xs);
-  font-weight: 400;
+  font: inherit;
+  font-size: var(--v-text-sm);
+  font-weight: 500;
   cursor: pointer;
   transition:
     color var(--v-duration-fast) var(--v-ease-soft),
@@ -502,55 +518,58 @@ onBeforeUnmount(() => {
 
 .navigator-back:hover {
   color: var(--v-text);
-  border-color: color-mix(in srgb, var(--v-surface-border-soft) 62%, transparent);
   background: var(--v-bg-hover);
 }
 
-.navigator-back:focus-visible,
-.navigator-more:focus-visible {
-  outline: 2px solid var(--v-border-focus);
-  outline-offset: -2px;
+.navigator-back .icon {
+  width: 13px;
+  height: 13px;
+  transition: transform var(--v-duration-fast) var(--v-ease-soft);
 }
 
-.navigator-back .icon {
-  width: 12px;
-  height: 12px;
+.navigator-back:hover .icon {
+  transform: translateX(-2px);
+}
+
+.navigator-back:focus-visible,
+.navigator-more:focus-visible,
+.navigator-group-head:focus-visible,
+.navigator-view-toggle button:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
 }
 
 .navigator-section {
   --navigator-section-tone: var(--v-text-dim);
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
 .navigator-section + .navigator-section {
-  margin-top: 11px;
+  margin-top: var(--v-space-4);
 }
 
-.navigator-section.is-tone-accent {
-  --navigator-section-tone: var(--v-accent);
-}
+.navigator-section.is-tone-accent { --navigator-section-tone: var(--v-accent); }
+.navigator-section.is-tone-page { --navigator-section-tone: var(--v-page); }
 
-.navigator-section.is-tone-page {
-  --navigator-section-tone: var(--v-page);
-}
-
-.navigator-section.is-status-active { --navigator-status-title: color-mix(in srgb, var(--v-status-active) 48%, var(--v-text)); }
-.navigator-section.is-status-review { --navigator-status-title: color-mix(in srgb, var(--v-status-review) 48%, var(--v-text)); }
-.navigator-section.is-status-done { --navigator-status-title: color-mix(in srgb, var(--v-status-done) 48%, var(--v-text)); }
-.navigator-section.is-status-hold { --navigator-status-title: color-mix(in srgb, var(--v-status-hold) 48%, var(--v-text)); }
+.navigator-section.is-status-active { --navigator-status-color: var(--v-status-active); }
+.navigator-section.is-status-review { --navigator-status-color: var(--v-status-review); }
+.navigator-section.is-status-done { --navigator-status-color: var(--v-status-done); }
+.navigator-section.is-status-hold { --navigator-status-color: var(--v-status-hold); }
+.navigator-section.is-status-draft { --navigator-status-color: color-mix(in srgb, var(--v-text-secondary) 58%, var(--v-bg-base)); }
 
 .navigator-group-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 14px;
+  grid-template-columns: minmax(0, 1fr) 14px;
   gap: var(--v-space-2);
   align-items: center;
   width: 100%;
   min-width: 0;
   height: var(--navigator-group-height);
   padding: 0 var(--v-space-2);
-  border: 1px solid transparent;
+  border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
   color: var(--v-text-dim);
@@ -567,46 +586,63 @@ onBeforeUnmount(() => {
   background: color-mix(in srgb, var(--v-bg-hover) 72%, transparent);
 }
 
-.navigator-group-head:focus-visible {
-  outline: 2px solid var(--v-border-focus);
-  outline-offset: -2px;
-}
-
-.navigator-group-icon {
-  width: var(--navigator-icon-column, 15px);
-  height: 14px;
-  flex-shrink: 0;
-  color: var(--navigator-section-tone);
-}
-
 .navigator-group-label {
   display: flex;
   align-items: center;
   min-width: 0;
   gap: var(--v-space-2);
-  color: var(--navigator-status-title, inherit);
-  font-size: var(--navigator-row-font-size);
-  font-weight: 700;
+  font-size: var(--navigator-group-font-size);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+.navigator-group-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: color-mix(in srgb, var(--navigator-section-tone) 76%, var(--v-text-dim));
+}
+
+/* Status groups use the same colour language as the project cards. */
+.navigator-group-dot {
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  margin: 0 3px 0 4px;
+  border-radius: var(--v-radius-full);
+  background: var(--navigator-status-color);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--navigator-status-color) 18%, transparent);
 }
 
 .navigator-group-count {
-  color: var(--v-text-dim);
-  font-size: var(--v-text-sm);
-  font-weight: 400;
+  flex-shrink: 0;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .navigator-group-chevron {
-  grid-column: 3;
   justify-self: center;
   width: 11px;
   height: 11px;
-  transition: transform var(--v-duration-normal) var(--v-ease-emphasized);
+  color: var(--v-text-muted);
+  transition:
+    color var(--v-duration-fast) var(--v-ease-soft),
+    transform var(--v-duration-normal) var(--v-ease-emphasized);
 }
 
-.app-navigator.with-thumbnails {
-  --navigator-icon-column: 34px;
-  --navigator-project-inset: 42px;
+.navigator-group-head:hover .navigator-group-chevron {
+  color: var(--v-text-secondary);
 }
 
 .navigator-section.is-open .navigator-group-chevron {
@@ -624,6 +660,10 @@ onBeforeUnmount(() => {
 }
 
 .navigator-group-body-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-height: 0;
   overflow: hidden;
   opacity: 0;
   transform: translateY(-3px);
@@ -638,19 +678,30 @@ onBeforeUnmount(() => {
 }
 
 .navigator-more {
-  margin: 2px 0 0 calc(var(--v-space-2) + 1px);
-  padding: 2px 0;
-  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: var(--v-space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--v-space-2);
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
-  color: var(--v-text-dim);
+  color: var(--v-text-muted);
   font: inherit;
-  font-size: var(--v-text-xs);
+  font-size: var(--v-text-sm);
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
   transition:
     color var(--v-duration-fast) var(--v-ease-soft),
     background var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.navigator-more .icon {
+  width: 12px;
+  height: 12px;
+  margin: 0 1px;
 }
 
 .navigator-more:hover {
@@ -660,16 +711,74 @@ onBeforeUnmount(() => {
 
 .navigator-empty {
   margin: 0;
-  padding: 0 6px;
+  padding: var(--v-space-2);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+}
+
+.navigator-footer {
+  flex-shrink: 0;
+  padding: var(--v-space-2);
+  border-top: 1px solid var(--v-divider);
+}
+
+.navigator-view-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--v-control-border);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+  box-shadow: var(--v-surface-shadow-inset);
+}
+
+.navigator-view-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  height: 28px;
+  padding: 0 var(--v-space-2);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   color: var(--v-text-dim);
-  font-size: var(--v-text-xs);
+  font: inherit;
+  font-size: var(--v-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    color var(--v-duration-fast) var(--v-ease-soft),
+    background var(--v-duration-fast) var(--v-ease-soft),
+    box-shadow var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.navigator-view-toggle button:hover {
+  color: var(--v-text);
+}
+
+.navigator-view-toggle button[aria-pressed="true"] {
+  background: var(--v-surface-inline-strong);
+  color: var(--v-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--v-text) 7%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+.navigator-view-toggle .icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
 }
 
 .app-navigator.is-drawer {
   --navigator-row-height: 44px;
-  --navigator-group-height: 42px;
+  --navigator-group-height: 40px;
   --navigator-disclosure-width: 34px;
-  --navigator-row-font-size: var(--v-text-base);
+  --navigator-row-font-size: var(--v-text-md);
+  --navigator-group-font-size: var(--v-text-base);
   width: 100%;
   border-right: 0;
   background: transparent;
@@ -682,7 +791,7 @@ onBeforeUnmount(() => {
 
 .app-navigator.is-drawer .navigator-head {
   height: auto;
-  padding: 0 0 8px;
+  padding: 0 0 var(--v-space-2);
   border-bottom: 0;
 }
 
@@ -696,23 +805,34 @@ onBeforeUnmount(() => {
   padding: 6px 9px;
 }
 
-.app-navigator.is-drawer .navigator-back {
+.app-navigator.is-drawer .navigator-back,
+.app-navigator.is-drawer .navigator-more {
+  min-height: 40px;
   font-size: var(--v-text-base);
+}
+
+.app-navigator.is-drawer .navigator-footer {
+  margin-top: var(--v-space-4);
+  padding: var(--v-space-3) 0 0;
+}
+
+.app-navigator.is-drawer .navigator-view-toggle button {
+  height: 36px;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app-navigator,
   .navigator-scope,
+  .navigator-back .icon,
   .navigator-group-body,
   .navigator-group-body-inner,
-  .navigator-group-chevron {
-    transition: none;
-  }
-
+  .navigator-group-chevron,
+  .navigator-view-toggle button,
   .navigator-resize-handle::after {
     transition: none;
   }
 
+  .navigator-back:hover .icon,
   .navigator-group-body-inner {
     transform: none;
   }

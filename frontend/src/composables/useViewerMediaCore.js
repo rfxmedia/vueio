@@ -396,7 +396,8 @@ export function useViewerMediaCore(ctx) {
     streamProgress.value = 0
 
     try {
-      const { data } = await api.get(statusUrl)
+      // Only opening a video can retry a failed preview. Progress polls cannot.
+      const { data } = await api.get(statusUrl, { params: { retry: true } })
       if (activeStreamStatusUrl !== statusUrl) return
       const status = String(data?.status || '').toLowerCase()
 
@@ -416,7 +417,7 @@ export function useViewerMediaCore(ctx) {
         streamPreparing.value = false
         showStreamPreparingOverlay.value = false
         streamProgress.value = 0
-        ctx.handleStreamError?.(data)
+        ctx.handleStreamError?.(new Error(data?.error || 'Preview could not be prepared.'))
         return
       }
 
@@ -452,7 +453,7 @@ export function useViewerMediaCore(ctx) {
         streamPreparing.value = false
         showStreamPreparingOverlay.value = false
         streamProgress.value = 0
-        ctx.handleStreamError?.(data)
+        ctx.handleStreamError?.(new Error(data?.error || 'Preview could not be prepared.'))
         return
       }
     } catch {

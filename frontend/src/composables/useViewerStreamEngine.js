@@ -184,6 +184,7 @@ export function useViewerStreamEngine(ctx) {
       && !!ctx.isViewingVideo.value
       && !ctx.mediaUnavailable?.value
       && !ctx.streamPreparing.value
+      && ctx.streamProgress.value === 100
   }
 
   function switchNativeQuality(value) {
@@ -361,6 +362,7 @@ export function useViewerStreamEngine(ctx) {
       () => ctx.videoEl.value,
       () => ctx.videoManifestUrl.value,
       () => ctx.streamPreparing.value,
+      () => ctx.streamProgress.value === 100,
       () => ctx.isViewingVideo.value,
       () => ctx.mediaUnavailable?.value,
     ],

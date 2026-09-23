@@ -438,6 +438,7 @@ export function useMediaViewerController({
     videoManifestUrl: media.videoManifestUrl,
     duration: transport.duration,
     streamPreparing: media.streamPreparing,
+    streamProgress: media.streamProgress,
     isViewingVideo: media.isViewingVideo,
     mediaUnavailable,
     suppressViewerAutoplay,

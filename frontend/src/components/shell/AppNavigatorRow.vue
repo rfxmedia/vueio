@@ -4,8 +4,10 @@
     :class="[
       `is-tone-${tone}`,
       { 'has-status': statusVariant },
-      { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging, 'has-thumbnail': thumbnail, 'is-selectable': selectionMode },
+      { 'is-active': active, 'is-open': expanded, 'is-selected': selected, 'is-dragging': dragging, 'has-thumbnail': thumbnail || showThumbnail, 'is-selectable': selectionMode },
     ]"
+    @click.self="$emit('select', $event)"
+    @dblclick.self="selectionMode && !$event.shiftKey && !$event.metaKey && !$event.ctrlKey && $emit('open')"
   >
     <button
       v-if="expandable"
@@ -26,6 +28,7 @@
       type="button"
       :draggable="draggable"
       :aria-current="active ? 'page' : undefined"
+      :aria-label="meta ? `${label}, ${meta}` : undefined"
       :aria-pressed="selectionMode ? selected : undefined"
       @dblclick="selectionMode && !$event.shiftKey && !$event.metaKey && !$event.ctrlKey && $emit('open')"
       @keydown.enter.prevent="selectionMode ? $emit('open') : $emit('select', $event)"
@@ -34,11 +37,15 @@
       @dragstart="$emit('dragstart', $event)"
       @dragend="$emit('dragend', $event)"
     >
-      <span v-if="thumbnail" class="nav-row-thumbnail" aria-hidden="true"><VMediaThumbnail :src="thumbnail" /></span>
+      <span v-if="thumbnail || showThumbnail" class="nav-row-thumbnail" aria-hidden="true">
+        <VMediaThumbnail v-if="thumbnail" :src="thumbnail" />
+        <VFileTypeGlyph v-else-if="fileVisual" :visual="fileVisual" compact thumbnail />
+        <svg v-else class="icon nav-row-icon"><use :href="icon" /></svg>
+      </span>
       <svg v-else-if="!statusVariant" class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
       <span class="nav-row-label v-truncate" :title="label">{{ label }}</span>
-      <span v-if="meta" class="nav-row-meta">{{ meta }}</span>
     </button>
+    <span v-if="meta" class="nav-row-meta" aria-hidden="true">{{ meta }}</span>
     <button
       v-if="selectionMode"
       type="button"
@@ -52,6 +59,7 @@
 
 <script setup>
 import VMediaThumbnail from '../media/VMediaThumbnail.vue'
+import VFileTypeGlyph from '../files/VFileTypeGlyph.vue'
 
 defineProps({
   label: { type: String, required: true },
@@ -71,6 +79,8 @@ defineProps({
   draggable: { type: Boolean, default: false },
   dragging: { type: Boolean, default: false },
   thumbnail: { type: String, default: '' },
+  showThumbnail: { type: Boolean, default: false },
+  fileVisual: { type: Object, default: null },
   selectionMode: { type: Boolean, default: false },
 })
 
@@ -81,32 +91,36 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 .nav-row {
   --nav-row-tone: var(--v-text-dim);
   --nav-row-marker: var(--v-accent);
+  --nav-row-height: var(--navigator-row-height, 32px);
   position: relative;
   display: grid;
-  grid-template-columns: var(--navigator-disclosure-width, 22px) minmax(0, 1fr);
+  grid-template-columns: var(--navigator-disclosure-width, 24px) minmax(0, 1fr) auto;
+  grid-template-areas: 'disclosure main trailing';
   align-items: center;
   min-width: 0;
-  min-height: var(--navigator-row-height, 30px);
-  border: 1px solid transparent;
+  min-height: var(--nav-row-height);
+  padding-right: var(--v-space-2);
   border-radius: var(--v-radius-sm);
   color: var(--v-text-secondary);
   transition:
     background var(--v-duration-fast) var(--v-ease-soft),
-    border-color var(--v-duration-fast) var(--v-ease-soft),
+    box-shadow var(--v-duration-fast) var(--v-ease-soft),
     color var(--v-duration-fast) var(--v-ease-soft);
 }
 
+/* The active marker grows in from the row centre. */
 .nav-row::before {
   content: '';
   position: absolute;
-  left: 1px;
-  top: 7px;
-  bottom: 7px;
-  width: 2px;
+  left: 2px;
+  top: 50%;
+  width: 3px;
+  height: 14px;
+  margin-top: -7px;
   border-radius: var(--v-radius-full);
   background: var(--nav-row-marker);
   opacity: 0;
-  transform: scaleY(0.45);
+  transform: scaleY(0.4);
   transition:
     opacity var(--v-duration-fast) linear,
     transform var(--v-duration-normal) var(--v-ease-emphasized);
@@ -123,74 +137,94 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 
 .nav-row:hover {
   background: var(--v-bg-hover);
+}
+
+.nav-row:hover,
+.nav-row:focus-within {
   color: var(--v-text);
 }
 
 .nav-row.is-active {
   color: var(--v-text);
-  border-color: color-mix(in srgb, var(--nav-row-marker) 12%, transparent);
-  background: color-mix(in srgb, var(--nav-row-marker) 7%, var(--v-surface-inline));
+  background: color-mix(in srgb, var(--nav-row-marker) 8%, var(--v-surface-inline));
+}
+
+.nav-row.is-active::before {
+  opacity: 1;
+  transform: scaleY(1);
 }
 
 .nav-row.is-selected {
-  border-color: color-mix(in srgb, var(--v-accent) 24%, var(--v-control-border));
-  background: var(--v-control-bg-active);
-  box-shadow: var(--v-control-ring-selected);
   color: var(--v-text);
+  background: color-mix(in srgb, var(--v-accent) 12%, var(--v-surface-inline));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 30%, transparent);
 }
 
 .nav-row.is-dragging {
-  opacity: 0.58;
+  opacity: 0.5;
 }
 
-
-.nav-row.is-selectable { grid-template-columns: var(--navigator-disclosure-width, 22px) minmax(0, 1fr) 26px; }
-.nav-row.has-status { grid-template-columns: minmax(0, 1fr); }
-.nav-row.has-status .nav-row-main { padding-left: var(--v-space-2); }
-.nav-row.has-status:not(.has-thumbnail) .nav-row-main {
+.nav-row.has-status {
   grid-template-columns: minmax(0, 1fr) auto;
-  padding-left: calc(var(--v-space-2) + var(--navigator-project-inset, 0px));
+  grid-template-areas: 'main trailing';
 }
-.nav-row.has-thumbnail .nav-row-main { grid-template-columns: 34px minmax(0, 1fr) auto; }
-.nav-row-thumbnail { width: 34px; height: 24px; overflow: hidden; border-radius: 4px; }
-.nav-row-open {
+
+.nav-row.has-status .nav-row-main {
+  padding-left: var(--v-space-2);
+}
+
+.nav-row.has-thumbnail {
+  --nav-row-height: max(var(--navigator-row-height, 32px), 36px);
+}
+
+.nav-row-thumbnail {
+  position: relative;
   display: grid;
   place-items: center;
-  align-self: stretch;
-  padding: 0;
-  border: 0;
-  border-radius: var(--v-radius-sm);
-  background: transparent;
-  color: var(--v-text-dim);
-  opacity: 0;
-  cursor: pointer;
+  flex: 0 0 40px;
+  width: 40px;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--v-surface-inline);
+  color: var(--v-text-muted);
 }
-.nav-row-open .icon { width: 13px; height: 13px; }
-.nav-row:hover .nav-row-open,
-.nav-row:focus-within .nav-row-open,
-.nav-row.is-selected .nav-row-open { opacity: 1; }
-.nav-row-open:hover { color: var(--v-text); background: var(--v-bg-hover); }
-.nav-row-open:focus-visible { outline: 2px solid var(--v-border-focus); outline-offset: -2px; }
-@media (hover: none) { .nav-row-open { opacity: 1; } }
 
-.nav-row.is-active::before {
-  transform: scaleY(1);
-  opacity: 1;
+/* A hairline frame keeps dark and light artwork crisp against the rail. */
+.nav-row-thumbnail::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-text) 9%, transparent);
+  pointer-events: none;
+  transition: box-shadow var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.nav-row.is-active .nav-row-thumbnail::after {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nav-row-marker) 55%, transparent);
+}
+
+.nav-row-thumbnail :deep(.v-media-thumb-status .icon) {
+  width: 12px;
+  height: 12px;
 }
 
 .nav-row-twisty {
+  grid-area: disclosure;
   display: flex;
   align-items: center;
   justify-content: center;
   align-self: stretch;
   width: 100%;
-  min-height: calc(var(--navigator-row-height, 30px) - 2px);
+  min-height: var(--nav-row-height);
   padding: 0;
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
-  color: color-mix(in srgb, var(--v-text-dim) 68%, transparent);
+  color: var(--v-text-muted);
   cursor: pointer;
+  transition: color var(--v-duration-fast) var(--v-ease-soft);
 }
 
 .nav-row-twisty.is-empty {
@@ -208,8 +242,8 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 }
 
 .nav-row-twisty .icon {
-  width: 11px;
-  height: 11px;
+  width: 10px;
+  height: 10px;
   transition: transform var(--v-duration-normal) var(--v-ease-emphasized);
 }
 
@@ -222,13 +256,14 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 }
 
 .nav-row-main {
-  display: grid;
-  grid-template-columns: var(--navigator-icon-column, 15px) minmax(0, 1fr) auto;
+  grid-area: main;
+  display: flex;
   align-items: center;
-  gap: 8px;
+  align-self: stretch;
+  gap: var(--v-space-2);
   min-width: 0;
-  height: calc(var(--navigator-row-height, 30px) - 2px);
-  padding: 0 8px 0 2px;
+  min-height: var(--nav-row-height);
+  padding: 0 var(--v-space-2) 0 0;
   border: 0;
   border-radius: var(--v-radius-sm);
   background: transparent;
@@ -252,34 +287,91 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 }
 
 .nav-row-icon {
-  justify-self: center;
+  flex-shrink: 0;
   width: 14px;
   height: 14px;
-  color: color-mix(in srgb, var(--nav-row-tone) 58%, var(--v-text-dim));
+  color: color-mix(in srgb, var(--nav-row-tone) 62%, var(--v-text-muted));
   transition: color var(--v-duration-fast) var(--v-ease-soft);
 }
 
 .nav-row:hover .nav-row-icon,
-.nav-row.is-active .nav-row-icon {
+.nav-row.is-active .nav-row-icon,
+.nav-row.is-selected .nav-row-icon {
   color: var(--nav-row-tone);
 }
 
-.nav-row.has-status .nav-row-label { color: var(--v-text); }
-
 .nav-row-label {
-  font-size: var(--navigator-row-font-size, var(--v-text-sm));
+  flex: 1;
+  min-width: 0;
+  font-size: var(--navigator-row-font-size, var(--v-text-base));
   font-weight: 400;
-  line-height: 1.2;
-  transition: color var(--v-duration-fast) var(--v-ease-soft);
+  line-height: 1.4;
+}
+
+.nav-row.is-active .nav-row-label {
+  font-weight: 550;
 }
 
 .nav-row-meta {
-  color: var(--v-text-dim);
-  font-size: var(--v-text-sm);
-  font-weight: 400;
+  grid-area: trailing;
+  pointer-events: none;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   text-align: right;
+}
+
+/* In the file tree, the open action replaces the count on interaction. */
+.nav-row-open {
+  grid-area: trailing;
+  display: grid;
+  place-items: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--v-radius-sm);
+  background: transparent;
+  color: var(--v-text-dim);
+  opacity: 0;
+  pointer-events: none;
+  cursor: pointer;
+  transition:
+    opacity var(--v-duration-fast) linear,
+    color var(--v-duration-fast) var(--v-ease-soft),
+    background var(--v-duration-fast) var(--v-ease-soft);
+}
+
+.nav-row-open .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.nav-row:hover .nav-row-open,
+.nav-row:focus-within .nav-row-open,
+.nav-row.is-selected .nav-row-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.nav-row.is-selectable:hover .nav-row-meta,
+.nav-row.is-selectable:focus-within .nav-row-meta,
+.nav-row.is-selectable.is-selected .nav-row-meta {
+  visibility: hidden;
+}
+
+.nav-row-open:hover {
+  color: var(--v-text);
+  background: color-mix(in srgb, var(--v-text) 9%, transparent);
+}
+
+.nav-row-open:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
 }
 
 @keyframes v-nav-row-pulse {
@@ -290,7 +382,11 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 @media (prefers-reduced-motion: reduce) {
   .nav-row,
   .nav-row::before,
-  .nav-row-twisty .icon {
+  .nav-row-twisty,
+  .nav-row-twisty .icon,
+  .nav-row-icon,
+  .nav-row-open,
+  .nav-row-thumbnail::after {
     transition: none;
   }
 
