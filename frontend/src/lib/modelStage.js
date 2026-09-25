@@ -240,7 +240,8 @@ export async function renderModelThumbnail(source) {
     if (!response.ok || !manifest.needs_thumbnail || manifest.format === 'abc') return null
     environment = createModelEnvironment(renderer, 'studio')
     scene.environment = environment.texture
-    const loaded = await loadModel(source, manifest, renderer, new AbortController().signal)
+    // A 960 px thumbnail cannot show more than 2048 px of texture detail.
+    const loaded = await loadModel(source, manifest, renderer, new AbortController().signal, undefined, { maxTextureSize: 2048 })
     root = loaded.root
     if (loaded.animations.length) {
       const mixer = new THREE.AnimationMixer(root)

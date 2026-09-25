@@ -99,7 +99,107 @@ function toStandardMaterial(material) {
   return replacement
 }
 
-export async function loadModel(source, manifest, renderer, signal, onProgress) {
+// Uncompressed textures use 4 bytes per texel and one third more for mipmaps.
+// The budget holds four 4096 px maps or one 8192 px map at full resolution.
+const TEXTURE_BUDGET = 64 * 1024 * 1024 * 4 * 4 / 3
+// Viewers notice lower resolution on these maps first, so they are reduced last.
+const DETAIL_MAPS = new Set(['map', 'normalMap', 'emissiveMap'])
+
+// KTX2 files can store their own mip levels. Drop the largest levels to reduce them.
+const hasLevels = texture => texture.isCompressedTexture || texture.mipmaps?.length > 1
+
+function textureCost({ texture, steps }) {
+  if (hasLevels(texture)) return texture.mipmaps.slice(steps).reduce((sum, level) => sum + level.data.byteLength, 0)
+  const { width, height } = texture.image
+  return Math.max(1, width >> steps) * Math.max(1, height >> steps) * 16 / 3
+}
+
+function canReduce({ texture, steps }) {
+  if (hasLevels(texture)) return steps < texture.mipmaps.length - 1
+  const { width, height, data } = texture.image
+  // TGA files decode to RGBA bytes. Other data textures keep their resolution.
+  if (data && !(data instanceof Uint8Array && data.length === width * height * 4)) return false
+  return Math.max(width >> steps, height >> steps) > 1
+}
+
+function halveTexels({ data, width, height }) {
+  const halfWidth = Math.max(1, width >> 1), halfHeight = Math.max(1, height >> 1)
+  const result = new Uint8Array(halfWidth * halfHeight * 4)
+  for (let y = 0; y < halfHeight; y++) {
+    const top = Math.min(y * 2, height - 1) * width, bottom = Math.min(y * 2 + 1, height - 1) * width
+    for (let x = 0; x < halfWidth; x++) {
+      const left = Math.min(x * 2, width - 1), right = Math.min(x * 2 + 1, width - 1)
+      for (let c = 0; c < 4; c++) {
+        result[(y * halfWidth + x) * 4 + c] = (data[(top + left) * 4 + c] + data[(top + right) * 4 + c] + data[(bottom + left) * 4 + c] + data[(bottom + right) * 4 + c] + 2) >> 2
+      }
+    }
+  }
+  return { data: result, width: halfWidth, height: halfHeight }
+}
+
+// Halve one step at a time. Each 2:1 step averages all texels in every browser.
+async function reduceTexture({ texture, textures, steps }) {
+  if (hasLevels(texture)) {
+    for (const each of textures) each.mipmaps = each.mipmaps.slice(steps)
+    const { data, width, height } = texture.mipmaps[0]
+    texture.source.data = texture.isCompressedTexture ? { width, height } : { data, width, height }
+  } else if (texture.image.data) {
+    let image = texture.image
+    for (let step = 0; step < steps; step++) image = halveTexels(image)
+    // Upload the new image, not a stored full-size level.
+    for (const each of textures) each.mipmaps = []
+    texture.source.data = image
+  } else {
+    const flipY = texture.flipY
+    let image = texture.image
+    for (let step = 0; step < steps; step++) {
+      const next = await createImageBitmap(image, {
+        resizeWidth: Math.max(1, image.width >> 1), resizeHeight: Math.max(1, image.height >> 1), resizeQuality: 'high',
+        premultiplyAlpha: 'none', colorSpaceConversion: 'none', ...(flipY && !step ? { imageOrientation: 'flipY' } : {}),
+      })
+      image.close?.()
+      image = next
+    }
+    // Uploads ignore flipY for an ImageBitmap, so the first step already flipped it.
+    for (const each of textures) each.flipY = false
+    texture.source.data = image
+  }
+  texture.source.needsUpdate = true
+}
+
+// Fit textures to the browser budget. Reduce the largest first and keep color
+// and normal detail at the highest resolution. Returns true if any changed.
+async function fitTextures(images, maxSize) {
+  let total = 0
+  for (const image of images) {
+    const { width, height } = image.texture.image
+    while (Math.max(width >> image.steps, height >> image.steps) > maxSize) {
+      if (!canReduce(image)) throw new Error('A texture is larger than this browser can show. Export smaller textures.')
+      image.steps++
+    }
+    total += textureCost(image)
+  }
+  while (total > TEXTURE_BUDGET) {
+    let largest = null, largestWeight = 0
+    for (const image of images) {
+      const weight = textureCost(image) * (image.detail ? 1 : 2)
+      if (weight > largestWeight && canReduce(image)) { largest = image; largestWeight = weight }
+    }
+    if (!largest) throw new Error('The textures exceed the browser preview budget. Export smaller textures.')
+    total -= textureCost(largest)
+    largest.steps++
+    total += textureCost(largest)
+  }
+  const reduced = images.filter(image => image.steps)
+  try {
+    for (const image of reduced) await reduceTexture(image)
+  } catch {
+    throw new Error('This browser cannot reduce the textures. Export smaller textures.')
+  }
+  return reduced.length > 0
+}
+
+export async function loadModel(source, manifest, renderer, signal, onProgress, { maxTextureSize = 8192 } = {}) {
   const manager = new THREE.LoadingManager()
   const blobs = new Set()
   const warnings = new Set()
@@ -169,9 +269,8 @@ export async function loadModel(source, manifest, renderer, signal, onProgress) 
       object.material = Array.isArray(object.material) ? object.material.map(convert) : convert(object.material)
     })
     let triangles = 0
-    const textures = new Set()
+    const images = new Map()
     const anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy())
-    let texels = 0
     root.traverse(object => {
       if (object.isLight || object.isCamera) object.visible = false
       for (const material of materialsOf(object)) {
@@ -179,18 +278,22 @@ export async function loadModel(source, manifest, renderer, signal, onProgress) 
           if (!texture?.isTexture) continue
           // A texture that failed to load samples as black. Show the surface without it.
           if (!texture.image) { material[key] = null; material.needsUpdate = true; texture.dispose(); textureErrors ||= 1; continue }
-          if (textures.has(texture)) continue
-          textures.add(texture)
-          const { width = 0, height = 0 } = texture.image
-          texels += width * height
-          if (width > 8192 || height > 8192 || texels > 64 * 1024 * 1024) throw new Error('The textures exceed the browser preview budget. Export smaller textures.')
           texture.anisotropy = anisotropy
+          // Textures that share one image, such as a packed ORM map, count once.
+          if (!images.has(texture.source)) images.set(texture.source, { texture, textures: new Set(), detail: false, steps: 0 })
+          const image = images.get(texture.source)
+          image.textures.add(texture)
+          image.detail ||= DETAIL_MAPS.has(key)
         }
       }
       if (object.isMesh) triangles += (object.geometry.index?.count || object.geometry.attributes.position?.count || 0) / 3
     })
     if (!triangles) throw new Error('This file contains no visible mesh geometry.')
     if (triangles > 2_000_000) throw new Error('This model has more than 2 million triangles. Export a lighter review model.')
+    if (await fitTextures([...images.values()], Math.min(renderer.capabilities.maxTextureSize, maxTextureSize))) {
+      warnings.add('Some textures show at a lower resolution in this preview. The original files do not change.')
+    }
+    signal.throwIfAborted()
     const missing = manifest.missing_textures || 0
     if (missing) warnings.add(missing === 1 ? 'A texture file is missing. Upload it to the model folder.' : `${missing} texture files are missing. Upload them to the model folder.`)
     else if (textureErrors) warnings.add('Some textures did not load. The model shows without them.')
