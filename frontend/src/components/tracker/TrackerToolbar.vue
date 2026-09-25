@@ -596,16 +596,18 @@ function toggleGroup(key) {
 }
 
 /* ─── Segmented list / grid switch ───────────────────────── */
+/* Same segmented control as the Projects header and the sidebar view switch. */
 .tracker-view-switch {
   display: inline-flex;
   align-items: center;
-  gap: 1px;
+  gap: 2px;
   flex: 0 0 auto;
+  height: 34px;
   padding: 2px;
   border: 1px solid var(--v-control-border);
-  border-radius: var(--v-button-radius);
+  border-radius: var(--v-radius-md);
   background: var(--v-surface-inset);
-  box-shadow: none;
+  box-shadow: var(--v-surface-shadow-inset);
 }
 
 .tracker-view-switch__btn {
@@ -613,12 +615,12 @@ function toggleGroup(key) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  height: 30px;
+  height: 100%;
   padding: 0 10px;
   border: 0;
-  border-radius: calc(var(--v-button-radius) - 3px);
+  border-radius: 8px;
   background: transparent;
-  color: var(--v-text-muted);
+  color: var(--v-text-dim);
   font-family: var(--v-font);
   font-size: var(--v-text-sm);
   font-weight: 650;
@@ -632,25 +634,25 @@ function toggleGroup(key) {
 }
 
 .tracker-view-switch__btn .icon {
-  width: 13px;
-  height: 13px;
-  opacity: 0.9;
+  width: 14px;
+  height: 14px;
 }
 
 .tracker-view-switch__btn:hover:not(.is-active) {
-  color: var(--v-text-secondary);
-  background: color-mix(in srgb, var(--v-bg-hover) 60%, transparent);
+  color: var(--v-text);
 }
 
 .tracker-view-switch__btn.is-active {
-  color: var(--v-accent);
-  background: var(--v-control-bg-active);
-  box-shadow: none;
+  color: var(--v-text);
+  background: var(--v-surface-inline-strong);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--v-text) 7%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.24);
 }
 
 .tracker-view-switch__btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--v-accent-muted);
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
 }
 
 .tracker-toolbar-group-filter,
@@ -665,7 +667,8 @@ function toggleGroup(key) {
 }
 
 .tracker-toolbar-action.v-btn {
-  min-height: var(--v-btn-height);
+  height: 34px;
+  min-height: 34px;
   gap: 6px;
   font-size: var(--v-text-sm);
   font-weight: 650;

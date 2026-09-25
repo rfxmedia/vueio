@@ -117,7 +117,8 @@ export function formatTimecodeWithFrames(seconds, fps = 24) {
   const h = Math.floor(seconds / 3600)
   const m = Math.floor((seconds % 3600) / 60)
   const s = Math.floor(seconds % 60)
-  const f = Math.floor((seconds % 1) * fps)
+  // Tolerate float error so a frame time such as 29 / 30 does not show frame 28.
+  const f = Math.min(Math.floor((seconds % 1) * fps + 1e-6), Math.ceil(fps) - 1)
   return h > 0
     ? `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`
     : `${m}:${s.toString().padStart(2, '0')}:${f.toString().padStart(2, '0')}`

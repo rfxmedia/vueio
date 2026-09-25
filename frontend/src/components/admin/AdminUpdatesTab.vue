@@ -1,6 +1,10 @@
 <template>
   <section class="admin-section updates-settings-section">
-    <AdminSettingsHeader title="Updates" icon="#icon-refresh">
+    <AdminSettingsHeader
+      title="Updates"
+      description="Install new versions of Vueio. Each update backs up the database first."
+      icon="#icon-refresh"
+    >
       <button class="v-btn v-btn-ghost v-btn-sm" type="button" :disabled="loading || busy" @click="refreshUpdates">
         <svg class="icon" :class="{ spinning: loading }" aria-hidden="true"><use href="#icon-refresh" /></svg>
         {{ loading ? 'Checking…' : 'Refresh' }}
@@ -286,21 +290,31 @@ onUnmounted(() => setVisible(false))
 </script>
 
 <style scoped>
+.updates-settings-section {
+  display: grid;
+  gap: var(--v-space-4);
+}
+
 .updates-body {
   display: grid;
-  gap: var(--v-space-6);
-  padding-top: var(--v-space-4);
+  gap: var(--v-space-4);
   min-width: 0;
 }
 
-.updates-summary {
+.updates-summary,
+.updates-notes,
+.updates-body > .updates-details {
   display: grid;
   gap: var(--v-space-3);
   min-width: 0;
-  padding: var(--v-space-4);
+  padding: 16px;
   border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-md);
+  border-radius: var(--v-radius-lg);
   background: var(--v-surface-canvas);
+}
+
+.updates-notes {
+  display: block;
 }
 
 .updates-versions {
@@ -399,7 +413,7 @@ onUnmounted(() => setVisible(false))
 .updates-progress-label > span { flex: none; font-variant-numeric: tabular-nums; }
 
 .updates-notes-heading { margin-bottom: var(--v-space-4); }
-.updates-notes-heading h3 { margin: 0; font-size: var(--v-text-lg); }
+.updates-notes-heading h3 { margin: 0; color: var(--v-text); font-size: var(--v-text-md); font-weight: 650; }
 
 .updates-release-note + .updates-release-note {
   margin-top: var(--v-space-5);
@@ -438,15 +452,17 @@ onUnmounted(() => setVisible(false))
   overflow-wrap: anywhere;
 }
 
-.updates-details {
-  border-top: 1px solid var(--v-surface-border-soft);
+.updates-summary .updates-details {
+  border-top: 1px solid var(--v-divider-subtle);
   padding-top: var(--v-space-2);
 }
+.updates-body > .updates-details { padding-block: 4px; }
 .updates-details summary {
   padding-block: var(--v-space-3);
   color: var(--v-text-secondary);
   cursor: pointer;
   font-size: var(--v-text-sm);
+  font-weight: 600;
 }
 .updates-detail-content { padding-top: var(--v-space-2); }
 .updates-detail-content p + p { margin-top: var(--v-space-2); }
@@ -480,7 +496,9 @@ onUnmounted(() => setVisible(false))
   .updates-install-button { width: 100%; min-height: var(--v-btn-height-lg); }
   .updates-channel-retry { min-height: var(--v-btn-height-lg); }
   .updates-notes-heading { flex-wrap: wrap; }
-  .updates-summary { padding: var(--v-space-3); }
+  .updates-summary,
+  .updates-notes,
+  .updates-body > .updates-details { padding: 14px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

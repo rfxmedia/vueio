@@ -98,10 +98,10 @@ watch(
 <style scoped>
 .project-file-toolbar {
   justify-content: space-between;
-  min-height: 48px;
-  padding: 0 0 var(--v-space-4);
+  min-height: 44px;
+  padding: 0 0 var(--v-space-3);
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--v-border) 72%, transparent);
+  border-bottom: 1px solid var(--v-divider);
   border-radius: 0;
   background: transparent;
   box-shadow: none;
@@ -123,9 +123,9 @@ watch(
 }
 
 .project-file-toolbar-label {
-  color: var(--v-text-secondary);
+  color: var(--v-text);
   font-size: var(--v-text-base);
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
 }
 
@@ -137,7 +137,7 @@ watch(
 
 .project-file-toolbar-count {
   color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
+  font-size: var(--v-text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -192,7 +192,8 @@ watch(
 
 .project-file-download-all {
   flex: 0 0 auto;
-  min-height: 36px;
+  height: 32px;
+  min-height: 0;
 }
 
 @media (max-width: 768px) {
@@ -239,14 +240,18 @@ watch(
     gap: 4px;
   }
 
-  .project-file-toolbar-actions :deep(.v-file-sort-select) {
+  .project-file-toolbar-actions :deep(.v-file-sort-group) {
     flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .project-file-toolbar-actions :deep(.v-file-sort-select) {
     width: auto;
     min-width: 0;
   }
 
   .project-file-download-all {
-    min-height: 44px;
+    height: 40px;
   }
 
   .project-file-download-all .icon {
@@ -261,9 +266,8 @@ watch(
   }
 
   .project-file-download-all {
-    width: 44px;
-    min-width: 44px;
-    min-height: 44px;
+    width: 40px;
+    min-width: 40px;
     padding: 0;
   }
 

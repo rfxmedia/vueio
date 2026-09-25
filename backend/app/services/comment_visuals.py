@@ -129,7 +129,8 @@ def build_comment_visual_context(db: Session, comment_id: int, user: dict, auth_
 
 
 def can_generate_comment_frame(path: Path) -> bool:
-    return _is_image(path) or bool(shutil.which('ffmpeg'))
+    from app.services.media import MODEL_EXTENSIONS
+    return path.suffix.lower() not in MODEL_EXTENSIONS and (_is_image(path) or bool(shutil.which('ffmpeg')))
 
 
 def _is_image(path: Path) -> bool:
@@ -186,6 +187,9 @@ def generate_comment_frame(ctx: dict, annotation_path: Path | None = None) -> Pa
     if output.exists() and output.stat().st_size > 0:
         return output
     source = ctx['full_path']
+    from app.services.media import MODEL_EXTENSIONS
+    if source.suffix.lower() in MODEL_EXTENSIONS:
+        raise HTTPException(422, 'Open the saved 3D view in the review player.')
     if _is_image(source):
         _image_frame(source, output, annotation_path)
     else:

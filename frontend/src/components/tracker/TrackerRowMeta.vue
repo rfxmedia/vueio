@@ -83,7 +83,7 @@ defineProps({
 }
 
 .tracker-row-updated {
-  color: color-mix(in srgb, var(--v-text-muted) 72%, var(--v-bg-base));
+  color: var(--v-text-muted);
   font-family: var(--v-font);
   font-size: var(--v-text-xs);
   font-weight: 500;

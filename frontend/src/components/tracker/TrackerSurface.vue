@@ -400,9 +400,9 @@ const projectVersionDropBlockedReason = computed(() => {
   if (projectDragProjectId.value && projectDragProjectId.value !== String(currentProject.value?.id || '')) {
     return 'This file belongs to a different project.'
   }
-  if (projectDragItems.value.length !== 1) return 'Drop exactly one image or video onto a shot.'
+  if (projectDragItems.value.length !== 1) return 'Drop one image, video, or 3D model onto a shot.'
   const item = projectDragItems.value[0]
-  if (item?.type === 'folder' || !picker.isTrackerImportMediaItem(item)) return 'Only image or video files can become versions.'
+  if (item?.type === 'folder' || !picker.isTrackerImportMediaItem(item)) return 'Choose an image, video, or supported 3D model.'
   return ''
 })
 const projectDropTargetShotRef = computed(() => getShotRef(projectDropTargetShot.value))
@@ -566,7 +566,7 @@ watch(
   /* One page gutter shared by the header bar, the toolbar and the shot list. */
   --tracker-page-gutter: 18px;
   /* Height of the pinned toolbar — tag headings park directly beneath it. */
-  --tracker-toolbar-height: 53px;
+  --tracker-toolbar-height: 51px;
   flex: 1;
   min-height: 0;
   display: flex;

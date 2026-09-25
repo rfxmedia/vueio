@@ -52,3 +52,18 @@ matching source packages.
 The build retains file decoders, CPU encoding, NVIDIA NVENC/NVDEC, and VA-API.
 It does not include desktop playback, camera capture, or optional broadcast
 services. Vueio does not use those features. CPU processing remains the default.
+
+## 3D review
+
+The browser viewer uses the pinned Three.js package (MIT). Its bundled Draco
+and Basis Universal decoders (Apache-2.0) and Meshoptimizer decoder (MIT) are
+served locally. The UI notice generator includes their licenses from
+`frontend/scripts/model-decoder-notices.txt`.
+
+The engine builds `vueio-model-preview` from `backend/app/model_decoder` using
+Alembic 1.8.12 (BSD-3-Clause), Mapbox earcut 2.2.4 (ISC), Imath (BSD-3-Clause),
+and zlib (Zlib). The upstream archive URLs and SHA-256 hashes are pinned in
+CMakeLists.txt. The decoder is installed as a Debian package with upstream
+versions in its package metadata. Alembic and earcut notices are retained in
+`/usr/share/doc/vueio-model-preview`; Imath and zlib retain Debian's notices.
+No Blender runtime, HDRI photographs, or third-party 3D models are bundled.

@@ -16,12 +16,10 @@
 }
 
 :where(.admin-page) .settings-eyebrow {
-  margin: 0 0 6px;
+  margin: 0 0 4px;
   color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: var(--v-text-sm);
+  font-weight: 600;
 }
 
 :where(.admin-page) .settings-title {
@@ -214,6 +212,420 @@
   line-height: 1.45;
 }
 
+/* Settings building blocks. A card groups related settings; each row pairs
+   a short explanation with its control, so every option says what it does. */
+:where(.admin-page) .settings-stack {
+  display: grid;
+  gap: var(--v-space-4);
+  min-width: 0;
+}
+
+:where(.admin-page) .settings-card {
+  min-width: 0;
+  border: 1px solid var(--v-surface-border-soft);
+  border-radius: var(--v-radius-lg);
+  background: var(--v-surface-canvas);
+}
+
+:where(.admin-page) .settings-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-4);
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--v-divider-subtle);
+}
+
+:where(.admin-page) .settings-card-head h3 {
+  margin: 0;
+  color: var(--v-text);
+  font-size: var(--v-text-md);
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+:where(.admin-page) .settings-card-head p {
+  margin: 3px 0 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+:where(.admin-page) .settings-card-head-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--v-space-2);
+}
+
+:where(.admin-page) .settings-card-body {
+  display: grid;
+  gap: var(--v-space-4);
+  padding: 16px;
+}
+
+:where(.admin-page) .settings-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--v-space-3);
+  padding: 12px 16px;
+  border-top: 1px solid var(--v-divider-subtle);
+  background: color-mix(in srgb, var(--v-text) 2%, transparent);
+  border-radius: 0 0 var(--v-radius-lg) var(--v-radius-lg);
+}
+
+:where(.admin-page) .settings-card-foot > p {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+:where(.admin-page) .settings-card-foot > p.is-error {
+  color: var(--v-danger-text);
+}
+
+:where(.admin-page) .settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-4);
+  min-width: 0;
+  padding: 14px 16px;
+}
+
+:where(.admin-page) .settings-row + .settings-row,
+:where(.admin-page) .settings-card-head + .settings-row.is-flush {
+  border-top: 1px solid var(--v-divider-subtle);
+}
+
+:where(.admin-page) .settings-row.is-stacked {
+  align-items: stretch;
+  flex-direction: column;
+  gap: var(--v-space-3);
+}
+
+:where(.admin-page) .settings-row-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+:where(.admin-page) .settings-row-copy > strong {
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+:where(.admin-page) .settings-row-copy > span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+:where(.admin-page) .settings-row-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  gap: var(--v-space-2);
+  min-width: 0;
+}
+
+:where(.admin-page) .settings-row-control .v-input {
+  width: 240px;
+}
+
+/* A switch row reads left to right: what it does, then the switch. */
+:where(.admin-page) .v-switch.settings-switch-row {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-4);
+  width: 100%;
+  padding: 14px 16px;
+}
+
+:where(.admin-page) .settings-switch-row + .settings-switch-row,
+:where(.admin-page) .settings-row + .settings-switch-row,
+:where(.admin-page) .settings-switch-row + .settings-row {
+  border-top: 1px solid var(--v-divider-subtle);
+}
+
+:where(.admin-page) .settings-switch-row .v-switch-hint {
+  font-size: var(--v-text-sm);
+  line-height: 1.45;
+}
+
+/* Same segmented control as the Projects header and the file browser. */
+:where(.admin-page) .settings-segmented {
+  display: inline-grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 2px;
+  min-height: 34px;
+  padding: 2px;
+  border: 1px solid var(--v-control-border);
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+  box-shadow: var(--v-surface-shadow-inset);
+}
+
+:where(.admin-page) .settings-segmented > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--v-text-dim);
+  font: 600 var(--v-text-base)/1 var(--v-font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--v-transition-fast), color var(--v-transition-fast);
+}
+
+:where(.admin-page) .settings-segmented > button:hover {
+  color: var(--v-text);
+}
+
+:where(.admin-page) .settings-segmented > button[aria-pressed="true"] {
+  background: var(--v-surface-inline-strong);
+  color: var(--v-text);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--v-text) 7%, transparent),
+    0 1px 2px rgba(0, 0, 0, 0.24);
+}
+
+:where(.admin-page) .settings-segmented > button:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
+}
+
+:where(.admin-page) .settings-segmented-count {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Search and filters above a list. */
+:where(.admin-page) .settings-list-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--v-space-2) var(--v-space-3);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--v-divider-subtle);
+}
+
+:where(.admin-page) .settings-list-toolbar .admin-search-wrap {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
+:where(.admin-page) .settings-list-count {
+  margin-left: auto;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* One person, key or item per row: mark, text, then actions. */
+:where(.admin-page) .settings-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:where(.admin-page) .settings-list-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  min-height: 60px;
+  padding: 10px 16px;
+  transition: background-color var(--v-transition-fast);
+}
+
+:where(.admin-page) .settings-list-row + .settings-list-row {
+  border-top: 1px solid var(--v-divider-subtle);
+}
+
+:where(.admin-page) .settings-list-row:hover {
+  background: color-mix(in srgb, var(--v-text) 2.5%, transparent);
+}
+
+:where(.admin-page) .settings-list-row.is-muted .settings-list-mark,
+:where(.admin-page) .settings-list-row.is-muted .settings-list-title {
+  opacity: 0.6;
+}
+
+:where(.admin-page) .settings-list-mark {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--v-radius-sm);
+  background: color-mix(in srgb, var(--v-text) 5%, transparent);
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-xs);
+  font-weight: 700;
+}
+
+:where(.admin-page) .settings-list-mark.is-round {
+  border-radius: 50%;
+  background: var(--v-accent-muted);
+  color: var(--v-accent-hover);
+}
+
+:where(.admin-page) .settings-list-mark .icon {
+  width: 15px;
+  height: 15px;
+}
+
+:where(.admin-page) .settings-list-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+:where(.admin-page) .settings-list-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+  color: var(--v-text);
+  font-size: var(--v-text-md);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+:where(.admin-page) .settings-list-title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:where(.admin-page) .settings-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  min-width: 0;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  line-height: 1.4;
+}
+
+:where(.admin-page) .settings-list-meta > span:not(:last-child)::after {
+  content: '·';
+  margin: 0 6px;
+  color: var(--v-text-dim);
+}
+
+:where(.admin-page) .settings-list-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+:where(.admin-page) .settings-list-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 6px;
+  color: var(--v-text);
+  font-size: var(--v-text-base);
+  font-weight: 650;
+}
+
+:where(.admin-page) .settings-list-group + .settings-list .settings-list-row:first-child {
+  border-top: 0;
+}
+
+:where(.admin-page) .settings-count-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 7px;
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.admin-page) .settings-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  padding: 0 8px;
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+:where(.admin-page) .settings-status-pill i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+:where(.admin-page) .settings-status-pill.is-good {
+  background: var(--v-accent-subtle);
+  color: var(--v-accent);
+}
+
+:where(.admin-page) .settings-status-pill.is-warn {
+  background: var(--v-warning-bg);
+  color: var(--v-warning);
+}
+
+:where(.admin-page) .settings-status-pill.is-bad {
+  background: var(--v-danger-bg);
+  color: var(--v-danger-text);
+}
+
+:where(.admin-page) .settings-card-head h3 .settings-count-pill,
+:where(.admin-page) .settings-card-head h3 .settings-status-pill {
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+:where(.admin-page) .settings-empty {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 32px 16px;
+  color: var(--v-text-muted);
+  font-size: var(--v-text-base);
+  text-align: center;
+}
+
+:where(.admin-page) .settings-empty strong {
+  color: var(--v-text-secondary);
+  font-weight: 600;
+}
+
 @media (max-width: 768px) {
   :where(.admin-page) .settings-form-panel {
     padding: 14px;
@@ -258,5 +670,92 @@
     flex: 0 0 auto;
     min-width: 0;
     justify-content: center;
+  }
+
+  :where(.admin-page) .settings-card-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--v-space-3);
+    padding: 14px;
+  }
+
+  :where(.admin-page) .settings-card-head-actions {
+    width: 100%;
+  }
+
+  :where(.admin-page) .settings-card-body {
+    padding: 14px;
+  }
+
+  :where(.admin-page) .settings-card-foot {
+    flex-wrap: wrap;
+    padding: 12px 14px;
+  }
+
+  :where(.admin-page) .settings-card-foot > p {
+    flex-basis: 100%;
+  }
+
+  :where(.admin-page) .settings-card-foot .v-btn {
+    flex: 1 1 auto;
+    min-height: var(--v-btn-height-lg);
+  }
+
+  :where(.admin-page) .settings-row {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--v-space-3);
+    padding: 14px;
+  }
+
+  :where(.admin-page) .settings-row-control {
+    justify-content: flex-start;
+  }
+
+  :where(.admin-page) .settings-row-control .v-input,
+  :where(.admin-page) .settings-row-control .settings-segmented {
+    width: 100%;
+  }
+
+  :where(.admin-page) .v-switch.settings-switch-row {
+    padding: 14px;
+  }
+
+  :where(.admin-page) .settings-segmented {
+    min-height: 40px;
+  }
+
+  :where(.admin-page) .settings-list-toolbar {
+    padding: 12px 14px;
+  }
+
+  :where(.admin-page) .settings-list-toolbar .admin-search-wrap {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  :where(.admin-page) .settings-list-count {
+    margin-left: 0;
+  }
+
+  :where(.admin-page) .settings-list-row {
+    grid-template-columns: 32px minmax(0, 1fr);
+    padding: 12px 14px;
+  }
+
+  :where(.admin-page) .settings-list-actions {
+    grid-column: 2;
+    justify-content: flex-start;
+  }
+
+  :where(.admin-page) .settings-list-actions .v-btn,
+  :where(.admin-page) .settings-card-head-actions .v-btn,
+  :where(.admin-page) .settings-row-control .v-btn {
+    min-height: 40px;
+  }
+
+  :where(.admin-page) .settings-list-actions .v-overflow-trigger {
+    width: 40px;
+    min-width: 40px;
   }
 }

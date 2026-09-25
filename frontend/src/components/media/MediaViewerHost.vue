@@ -5,6 +5,7 @@
     :class="{
       'image-mode': isViewingImage,
       'pdf-mode': isViewingPdf,
+      'model-mode': surfaceProps.isViewingModel,
       'compare-mode': versionCompareActive,
     }"
     :aria-label="hostAriaLabel"

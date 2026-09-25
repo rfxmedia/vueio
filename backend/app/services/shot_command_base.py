@@ -18,7 +18,7 @@ from app.services.horizons.team import (
     serialize_horizon_team_user,
 )
 from app.services.horizons.trackers import get_horizon_tracker_by_ref
-from app.services.media import is_image, is_video
+from app.services.media import MODEL_EXTENSIONS, is_image, is_video
 from app.services.media_resolution import resolve_media_target
 from app.services.shot_command_types import ShotCommandContext, ShotCommandResult
 from app.services.tracker_events import create_tracker_event
@@ -160,8 +160,8 @@ class ShotCommandBase:
         full_path, _job_key, _scope = resolve_media_target(normalized, ctx.project_id, storage_scope='tracker_version')
         if not full_path or not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail='Tracker media file not found')
-        if not is_video(full_path) and not is_image(full_path):
-            raise HTTPException(status_code=400, detail='Tracker media must be an image or video file')
+        if not is_video(full_path) and not is_image(full_path) and full_path.suffix.lower() not in MODEL_EXTENSIONS:
+            raise HTTPException(status_code=400, detail='Tracker media must be an image, video, or supported 3D model')
         return normalized
 
     def _enforce_restricted_artist_media_path(self, ctx: ShotCommandContext, normalized_path: str, *, storage_scope: str | None = None) -> None:

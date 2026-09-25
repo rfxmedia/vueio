@@ -105,7 +105,7 @@ def get_media_processing(vueio_session: str | None = Cookie(None)):
 def check_media_processing(request: Request, vueio_session: str | None = Cookie(None)):
     require_host_admin(vueio_session)
     require_host_origin(request)
-    return verify_hardware()
+    return verify_hardware(background=True)
 
 
 @router.put('/api/admin/media-processing')

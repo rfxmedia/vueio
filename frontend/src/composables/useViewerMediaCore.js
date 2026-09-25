@@ -55,6 +55,7 @@ export function useViewerMediaCore(ctx) {
   const currentMediaKind = computed(() => getMediaKind(ctx.currentVideo.value))
   const isViewingImage = computed(() => currentMediaKind.value === 'image')
   const isViewingPdf = computed(() => currentMediaKind.value === 'pdf')
+  const isViewingModel = computed(() => currentMediaKind.value === 'model')
   const isViewingVideo = computed(() => currentMediaKind.value === 'video')
   const mediaInfo = computed(() => ctx.videoInfo.value)
 
@@ -366,7 +367,7 @@ export function useViewerMediaCore(ctx) {
 
   async function checkStreamStatus(mediaInput) {
     const media = normalizeMediaInput(mediaInput)
-    if (!media?.path || media?.is_image || media?.is_pdf || media?.exists === false) {
+    if (!media?.path || media?.is_model || media?.is_image || media?.is_pdf || media?.exists === false) {
       resetStreamState()
       return
     }
@@ -489,6 +490,7 @@ export function useViewerMediaCore(ctx) {
     currentMedia,
     isViewingImage,
     isViewingPdf,
+    isViewingModel,
     isViewingVideo,
     mediaInfo,
     mediaStreamUrl,

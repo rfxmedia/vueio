@@ -26,6 +26,7 @@ GENERATED_IMAGE_PREVIEW_EXTENSIONS = {'.exr', '.dpx'}
 VIDEO_EXTENSIONS = {'.mp4', '.mov', '.mkv', '.avi', '.webm', '.m4v', '.mxf', '.prores', '.r3d'}
 AUDIO_EXTENSIONS = {'.weba', '.m4a', '.mp3', '.wav', '.ogg', '.opus'}
 PDF_EXTENSIONS = {'.pdf'}
+MODEL_EXTENSIONS = {'.glb', '.gltf', '.obj', '.fbx', '.abc', '.stl'}
 _thumbnail_jobs_in_progress: set[str] = set()
 _thumbnail_jobs_lock = threading.Lock()
 # Thumbnail misses are background work. Keep them from competing with playback
@@ -392,6 +393,18 @@ def build_thumbnail_response(
                 thumb_path.unlink()
             except Exception:
                 pass
+
+    if full_path.suffix.lower() in MODEL_EXTENSIONS:
+        # A publisher's browser renders model thumbnails with the review engine.
+        from app.services.model_preview import model_thumbnail_path
+        model_thumb = model_thumbnail_path(full_path)
+        if model_thumb.is_file() and model_thumb.stat().st_size > 0:
+            return FileResponse(
+                model_thumb,
+                media_type='image/jpeg',
+                headers={'Cache-Control': 'private, no-cache'},
+            )
+        raise HTTPException(status_code=404, detail=missing_detail)
 
     if is_video(full_path) or generated_image_preview:
         if not queue_missing:

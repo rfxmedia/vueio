@@ -121,12 +121,70 @@ Check the link as a signed-out visitor after changing publication.</p>
 Unavailable media cannot be published. A status change alone does not publish a held version.
 Publication is not a separate copy of the file or an immutable delivery package.</p>
 <h2 id="media-preview-support">Media preview support</h2>
-<p>The viewer has video, image, and PDF views.
+<p>The viewer has video, image, PDF, and 3D model views.
 Video controls include playback, seeking, volume, looping, quality selection, and fullscreen.
 Available quality choices depend on the media and its previews. Other files can still be stored and downloaded when permitted.
 Recognized filename extensions do not guarantee a working preview.
 Playback depends on the actual codec, generated previews, browser support, and available storage.
 For camera formats such as R3D or BRAW, test a representative file before relying on preview support.</p>
+<h2 id="review-a-3d-model">Review a 3D model</h2>
+<p>Open a supported model from Files, a project, a tracker version, or a share.
+Drag to orbit. Use the scroll wheel or a pinch gesture to zoom. Select <strong>Fit</strong> to reset the view.
+Open <strong>Lighting</strong> to choose Studio, Daylight, or Night. Adjust the light intensity and rotation there.
+These environments are generated locally. They need no external image service.</p>
+<table>
+<thead>
+<tr>
+<th>Format</th>
+<th>Preview support</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GLB / glTF 2.0</td>
+<td>Materials, textures, skeletal animation, and morph animation. GLB is the recommended review format. Draco, Meshopt, and KTX2 compression are supported.</td>
+</tr>
+<tr>
+<td>FBX</td>
+<td>Meshes, embedded textures, and supported skeletal or morph animation. Export external textures inside the FBX, or use GLB.</td>
+</tr>
+<tr>
+<td>OBJ</td>
+<td>Static meshes and one MTL material library. Place the MTL and its textures beside the model or in a subfolder. Texture-map options are not supported.</td>
+</tr>
+<tr>
+<td>STL</td>
+<td>Static geometry with neutral lighting.</td>
+</tr>
+<tr>
+<td>Alembic (.abc)</td>
+<td>Ogawa polygon meshes with animated transforms, deformation, or changing topology. The preview uses a neutral material. HDF5 archives, curves, points, volumes, and subdivision surfaces need conversion to polygon meshes first.</td>
+</tr>
+</tbody>
+</table>
+<p>For glTF, upload its referenced buffers and textures with the file. Keep their relative paths.
+Companion files must stay inside the model folder. Parent paths, symlinks, and remote URLs are blocked.
+A model share can serve the files declared by the model, subject to these limits. It does not expose a folder listing.</p>
+<p>Animated models show playback controls and a frame slider. Select the animation clip when a file contains several clips.
+Alembic uses the source frame rate when available. Other animations use a 30 fps review timeline.
+Static models have no timeline or comment timecode.</p>
+<p>To leave a note, choose the view and frame, then post the comment. Vue.io saves the camera and lighting with the note.
+Select <strong>Add Drawing</strong> to mark the view. The camera and frame stay fixed while you draw.
+Select a posted note to restore its view, lighting, animation clip, and frame.
+A saved drawing keeps its proportions on other screen sizes. Select <strong>Return to orbit</strong> to leave that view.
+The drawing is a screen overlay for the saved view. It is not attached to the model surface.</p>
+<p>GLB, glTF, FBX, OBJ, and STL load directly in the browser. Their combined files must be at most 128 MiB,
+with at most two million triangles. Use textures no larger than 8,192 pixels per side, with at most 64 million pixels in total.
+The viewer renders static models only when the view changes. Animation stops when the browser tab is hidden.</p>
+<p>The engine prepares Alembic frames once and reuses its normal preview cache.
+The first frame opens while the remaining frames are prepared. The browser keeps only a few nearby frames in memory.
+Alembic files must be at most 2 GiB, with at most 2,400 frames and 250,000 triangles per frame.
+Processing has a five-minute time limit and a 512 MiB cache limit per model.
+Large simulation caches may need a smaller review export. Vue.io does not change the original file.
+The engine image includes the Alembic decoder; a source installation needs the <code>vueio-model-preview</code> binary on its PATH.</p>
+<p>3D review requires WebGL 2. Preview speed depends on model size, device graphics, and network speed.
+Materials can differ from an offline renderer. Baked simulations in FBX or glTF must use animation those formats support.
+3D models do not use video LUTs, frame downloads, or the two-version comparison view.</p>
 <h2 id="compare-two-revisions">Compare two revisions</h2>
 <ol>
 <li>Open a shot with at least two available versions.</li>
@@ -137,7 +195,7 @@ For camera formats such as R3D or BRAW, test a representative file before relyin
 <li>Select <strong>Done</strong> to return to the normal viewer.</li>
 </ol>
 <p>Choose two videos or two images from the same shot.
-Mixed media pairs and PDFs are not supported by this comparison view.
+Mixed media pairs, PDFs, and 3D models are not supported by this comparison view.
 Playback depends on available source files and previews.
 Do not assume frame-accurate synchronization for different frame rates or durations.</p>
 <p>If the control is missing, check <strong>Settings → Comparison</strong> for that tracker.
@@ -174,4 +232,4 @@ Tracker downloads use the latest available version for each included shot, not e
 Filters and selection can change which shots an internal tracker download includes.</p>
 <p><a href="sharing.html">Sharing and delivery</a></p>
 <footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/REVIEW_WORKFLOW.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#create-a-project-and-tracker">Create a project and tracker</a><a href="#add-the-first-shots">Add the first shots</a><a href="#add-a-version-to-an-existing-shot">Add a version to an existing shot</a><a href="#organize-shots">Organize shots</a><a href="#write-comments-and-annotations">Write comments and annotations</a><a href="#control-which-versions-appear-in-shares">Control which versions appear in shares</a><a href="#media-preview-support">Media preview support</a><a href="#compare-two-revisions">Compare two revisions</a><a href="#use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</a><a href="#inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</a><a href="#deliver-the-selected-work">Deliver the selected work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#create-a-project-and-tracker">Create a project and tracker</a><a href="#add-the-first-shots">Add the first shots</a><a href="#add-a-version-to-an-existing-shot">Add a version to an existing shot</a><a href="#organize-shots">Organize shots</a><a href="#write-comments-and-annotations">Write comments and annotations</a><a href="#control-which-versions-appear-in-shares">Control which versions appear in shares</a><a href="#media-preview-support">Media preview support</a><a href="#review-a-3d-model">Review a 3D model</a><a href="#compare-two-revisions">Compare two revisions</a><a href="#use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</a><a href="#inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</a><a href="#deliver-the-selected-work">Deliver the selected work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

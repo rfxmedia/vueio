@@ -233,6 +233,7 @@ const props = defineProps({
   mediaInfo: { type: Object, default: () => ({}) },
   isAdmin: { type: Boolean, default: false },
   isViewingVideo: { type: Boolean, default: false },
+  isViewingModel: { type: Boolean, default: false },
   isViewingPdf: { type: Boolean, default: false },
   canEditVersionSummary: { type: Boolean, default: false },
   updateVersionSummary: { type: Function, default: null },
@@ -421,6 +422,7 @@ const rawFileName = computed(() => {
 
 const mediaGlyph = computed(() => {
   if (props.isViewingVideo) return '#icon-video'
+  if (props.isViewingModel) return '#icon-model'
   if (props.isViewingPdf) return '#icon-file'
   return '#icon-image'
 })
@@ -477,6 +479,19 @@ const specGroups = computed(() => {
     })
   }
 
+  if (props.isViewingModel) {
+    groups.push({
+      key: 'model',
+      label: '3D model',
+      rows: [
+        spec('Triangles', info.triangles ? info.triangles.toLocaleString() : null, { mono: true }),
+        spec('Duration', info.duration ? formatTimecode.value(info.duration) : '', { mono: true }),
+        spec('Frame rate', info.duration ? info.fps : null, { suffix: ' fps', mono: true }),
+        spec('Frames', info.duration ? info.frames : null, { mono: true }),
+      ],
+    })
+  }
+
   groups.push({
     key: 'file',
     label: 'File',
@@ -504,17 +519,23 @@ const keyStats = computed(() => {
       spec('Duration', info.duration ? formatTimecode.value(info.duration) : ''),
       spec('Frame rate', info.fps, { suffix: ' fps' }),
     ]
-    : props.isViewingPdf
+    : props.isViewingModel
       ? [
-        spec('Pages', info.pages),
-        spec('Size', fileSize.value),
+        spec('Triangles', info.triangles ? new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(info.triangles) : null),
+        info.duration ? spec('Duration', formatTimecode.value(info.duration)) : spec('Size', fileSize.value),
         spec('Type', fileExtension.value),
       ]
-      : [
-        spec('Resolution', info.resolution),
-        spec('Size', fileSize.value),
-        spec('Type', fileExtension.value),
-      ]
+      : props.isViewingPdf
+        ? [
+          spec('Pages', info.pages),
+          spec('Size', fileSize.value),
+          spec('Type', fileExtension.value),
+        ]
+        : [
+          spec('Resolution', info.resolution),
+          spec('Size', fileSize.value),
+          spec('Type', fileExtension.value),
+        ]
   return stats.filter(Boolean)
 })
 

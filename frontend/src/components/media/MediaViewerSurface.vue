@@ -16,6 +16,24 @@
         <h3>Version unavailable</h3>
         <p>The source file was deleted or replaced. Its tracker notes and comments remain available.</p>
       </div>
+      <MediaModelViewer
+        v-else-if="isViewingModel"
+        :key="mediaStreamUrl"
+        :ref="setModelViewerRef"
+        :source-url="mediaStreamUrl"
+        :is-drawing-mode="isDrawingMode"
+        :show-annotation-preview="showAnnotationPreview"
+        :comments="comments"
+        :start-pointer-drawing="startPointerDrawing"
+        :move-pointer-drawing="movePointerDrawing"
+        :finish-pointer-drawing="finishPointerDrawing"
+        :set-annotation-canvas-ref="setAnnotationCanvasRef"
+        :set-preview-canvas-ref="setPreviewCanvasRef"
+        @loaded="onModelLoaded"
+        @time="onModelTime"
+        @annotation="onModelAnnotation"
+        @click.stop
+      />
       <MediaPdfViewer
         v-else-if="isViewingPdf"
         :source-url="mediaStreamUrl"
@@ -137,12 +155,18 @@ import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } fr
 import { clamp } from '../../utils/math'
 import { createVideoColorPreviewRenderer, isVideoColorPreviewActive } from '../../lib/videoColorPreview'
 
+const MediaModelViewer = defineAsyncComponent(() => import('./MediaModelViewer.vue'))
 const MediaPdfViewer = defineAsyncComponent(() => import('./MediaPdfViewer.vue'))
 
 const props = defineProps({
   playerMainClass: { type: [String, Array, Object], default: '' },
   isViewingImage: { type: Boolean, default: false },
   isViewingPdf: { type: Boolean, default: false },
+  isViewingModel: { type: Boolean, default: false },
+  setModelViewerRef: { type: Function, default: null },
+  onModelLoaded: { type: Function, default: null },
+  onModelTime: { type: Function, default: null },
+  onModelAnnotation: { type: Function, default: null },
   isViewingVideo: { type: Boolean, default: false },
   enableImageDesktopNavigation: { type: Boolean, default: false },
   streamPreparing: { type: Boolean, default: false },

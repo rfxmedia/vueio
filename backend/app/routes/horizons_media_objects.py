@@ -21,6 +21,8 @@ from app.services.media_serving import (
     stream_object_file,
 )
 from app.services.project_content_gateway import object_payload_tuple, resolve_horizons_object_auth
+from app.services.horizons.common import ROLE_RANK
+from app.services.model_preview import save_model_thumbnail, serve_model
 from app.services.comparison import comparison_file, comparison_status, resolve_comparison
 from app.services.comparison_export import cancel_export, read_export_request, resolve_export, start_export
 
@@ -409,3 +411,29 @@ def download_horizons_shot_version(project_id: str, version_id: str, request: Re
         not_found_detail='Horizons shot version file not found',
         audit_before_exists=True,
     )
+
+
+@router.api_route('/api/horizons/projects/{project_id}/media-assets/{asset_id}/model', methods=['GET', 'POST'])
+@router.api_route('/api/horizons/projects/{project_id}/shot-versions/{version_id}/model', methods=['GET', 'POST'])
+def model_horizons_object(project_id: str, request: Request, asset_id: str | None = None, version_id: str | None = None,
+                          resource: str = 'manifest', name: str = '', frame: int = 0, generation: str = '',
+                          vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    user, role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
+    target = resolve_horizons_object_auth(db, project_id, asset_id=asset_id, version_id=version_id,
+                                         detail='Model not found', user=user, access_role=role)
+    return serve_model(target.full_path, target.cache_identity, db, resource=resource, name=name, frame=frame,
+                       generation=generation, retry=request.method == 'POST', publisher=ROLE_RANK.get(role, 0) >= ROLE_RANK['editor'])
+
+
+# Editors may set custom thumbnails, so they may also store rendered ones.
+@router.put('/api/horizons/projects/{project_id}/media-assets/{asset_id}/model')
+@router.put('/api/horizons/projects/{project_id}/shot-versions/{version_id}/model')
+async def put_horizons_model_thumbnail(project_id: str, generation: str, asset_id: str | None = None, version_id: str | None = None,
+                                       file: UploadFile = File(...), vueio_session: str | None = Cookie(None),
+                                       x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    def resolve():
+        user, role = _require_horizons_media_editor(project_id, vueio_session, x_vueio_agent_key, db)
+        return resolve_horizons_object_auth(db, project_id, asset_id=asset_id, version_id=version_id,
+                                            detail='Model not found', user=user, access_role=role)
+    target = await run_in_threadpool(resolve)
+    return await save_model_thumbnail(target.full_path, file, generation)

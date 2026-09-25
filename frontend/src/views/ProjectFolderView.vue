@@ -847,10 +847,6 @@ function handleProjectListDrop(event, item) {
   animation: v-spin 0.8s linear infinite;
 }
 
-.project-specialty-section {
-  gap: var(--v-space-2);
-}
-
 .project-specialty-shelf {
   display: flex;
   flex-direction: column;
@@ -858,10 +854,11 @@ function handleProjectListDrop(event, item) {
   min-width: 0;
 }
 
+/* Same columns as the file grid, so asset and folder cards line up. */
 .project-specialty-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(172px, 220px));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 10px;
 }
 
 .project-specialty-shelf > .v-load-more {

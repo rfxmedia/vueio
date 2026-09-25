@@ -69,5 +69,7 @@ for (const item of packages) {
   lines.push('', '------------------------------------------------------------------------', '')
 }
 
+lines.push(fs.readFileSync(path.join(root, 'scripts/model-decoder-notices.txt'), 'utf8'))
+
 fs.mkdirSync(path.dirname(outputPath), { recursive: true })
 fs.writeFileSync(outputPath, `${lines.join('\n')}\n`, 'utf8')

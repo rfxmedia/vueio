@@ -12,11 +12,14 @@
       @load="handleImageLoad"
       @error="handleImageError"
     />
-    <div v-if="isPending" class="v-media-thumb-status" aria-hidden="true">
+    <div v-if="!isReady && $slots.fallback" class="v-media-thumb-fallback">
+      <slot name="fallback" />
+    </div>
+    <div v-else-if="isPending" class="v-media-thumb-status" aria-hidden="true">
       <span class="v-media-thumb-spinner"></span>
     </div>
     <div v-else-if="isFailed || !resolvedSrc" class="v-media-thumb-status is-failed" aria-hidden="true">
-      <svg class="icon"><use href="#icon-image" /></svg>
+      <svg class="icon"><use :href="fallbackIcon" /></svg>
     </div>
   </div>
 </template>
@@ -31,12 +34,16 @@ import {
   setThumbnailState,
   subscribeToThumbnailVisibility,
 } from './mediaThumbnailProbe'
+import { requestModelThumbnail, watchModelThumbnails } from '../../lib/modelThumbnails'
 
 const props = defineProps({
   src: { type: String, default: '' },
   alt: { type: String, default: '' },
+  fallbackIcon: { type: String, default: '#icon-image' },
   pollMs: { type: Number, default: 1500 },
   pollPending: { type: Boolean, default: true },
+  // A missing model thumbnail asks a publisher's browser to render one.
+  model: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['visible'])
@@ -54,6 +61,8 @@ let retryDelayMs = Math.max(400, props.pollMs || 1500)
 let visibleEmittedSrc = ''
 let stopObserving = null
 let stopVisibilitySubscription = null
+let releaseModelThumbnail = () => {}
+let stopWatchingModels = null
 
 function clearRefreshTimer() {
   if (!refreshTimer) return
@@ -133,13 +142,24 @@ async function refreshSource(src, { forceProbe = false } = {}) {
     if (token !== requestToken) return
     isPending.value = false
     isFailed.value = false
+    if (props.model) {
+      releaseModelThumbnail()
+      releaseModelThumbnail = requestModelThumbnail(src)
+    }
   }
+}
+
+function modelThumbnailPublished() {
+  if (isReady.value || !props.src) return
+  clearThumbnailState(props.src)
+  refreshSource(props.src, { forceProbe: true })
 }
 
 function handleIntersection(intersecting) {
   isObserved = intersecting
   if (!intersecting) {
     clearRefreshTimer()
+    releaseModelThumbnail()
     return
   }
   if (props.src && visibleEmittedSrc !== props.src) {
@@ -174,6 +194,7 @@ function handleImageError() {
 }
 
 watch(() => props.src, (next) => {
+  releaseModelThumbnail()
   requestToken += 1
   clearRefreshTimer()
   retryDelayMs = Math.max(400, props.pollMs || 1500)
@@ -185,6 +206,7 @@ watch(() => props.src, (next) => {
 onMounted(() => {
   stopVisibilitySubscription = subscribeToThumbnailVisibility(handleVisibilityChange)
   stopObserving = observeThumbnail(thumbnailRoot.value, handleIntersection)
+  if (props.model) stopWatchingModels = watchModelThumbnails(modelThumbnailPublished)
 })
 
 onBeforeUnmount(() => {
@@ -192,6 +214,8 @@ onBeforeUnmount(() => {
   clearRefreshTimer()
   stopObserving?.()
   stopVisibilitySubscription?.()
+  stopWatchingModels?.()
+  releaseModelThumbnail()
 })
 </script>
 
@@ -220,6 +244,14 @@ onBeforeUnmount(() => {
 .v-media-thumb.is-pending .v-media-thumb-image {
   opacity: 0.28;
   filter: saturate(0.8);
+}
+
+.v-media-thumb-fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .v-media-thumb-status {

@@ -1,84 +1,92 @@
 <template>
-  <section class="admin-section agent-key-section">
+  <section class="admin-section settings-stack">
     <AdminSettingsHeader
       title="Agent keys"
-      description="Agent access follows its owner’s permissions. Revoke a key at any time."
+      description="Let an AI agent or script use Vueio for you. A key can see and do only what its owner can."
       icon="#icon-zap"
     >
-      <button class="v-btn v-btn-secondary v-btn-sm" :disabled="personalKeySaving" @click="$emit('create-personal-agent-key')">
+      <button class="v-btn v-btn-primary v-btn-sm" type="button" @click="$emit('open-create-key-modal')">
         <svg class="icon"><use href="#icon-plus" /></svg>
-        {{ isAdmin ? 'New personal key' : 'New key' }}
-      </button>
-      <button v-if="isAdmin" class="v-btn v-btn-primary v-btn-sm" @click="$emit('open-create-key-modal')">
-        <svg class="icon"><use href="#icon-plus" /></svg>
-        New managed key
+        New key
       </button>
     </AdminSettingsHeader>
 
-    <div class="admin-toolbar agent-key-toolbar">
-      <div class="v-search-shell admin-search-wrap">
-        <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
-        <input
-          :value="keySearch"
-          class="v-search-input admin-search-input"
-          placeholder="Search keys..."
-          @input="$emit('update:key-search', $event.target.value)"
-        />
-      </div>
-      <div class="admin-toolbar-actions">
-        <div v-if="isAdmin" class="admin-filter-row">
-          <button class="v-chip admin-chip" :class="{ active: agentKeyScope === 'mine' }" @click="$emit('update:agent-key-scope', 'mine')">My keys</button>
-          <button class="v-chip admin-chip" :class="{ active: agentKeyScope === 'all' }" @click="$emit('update:agent-key-scope', 'all')">All team keys</button>
+    <section v-if="visibleToken?.token" class="settings-card agent-token-card" role="status">
+      <div class="settings-card-head">
+        <div>
+          <h3>{{ visibleToken.title }}</h3>
+          <p>Copy the token now. Vueio shows it only once. {{ visibleToken.subtitle }}</p>
         </div>
-        <span class="agent-key-result-count">{{ filteredVisibleAgentKeys.length }} shown</span>
       </div>
-    </div>
+      <div class="settings-card-body agent-token-body">
+        <code class="agent-token">{{ visibleToken.token }}</code>
+        <div class="agent-token-actions">
+          <button class="v-btn v-btn-primary v-btn-sm" type="button" @click="$emit('copy-token')">
+            <svg class="icon"><use href="#icon-copy" /></svg>
+            Copy token
+          </button>
+          <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="$emit('copy-token-skill')">Copy skill</button>
+          <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="$emit('dismiss-token')">Done</button>
+        </div>
+      </div>
+    </section>
 
-    <div v-if="filteredVisibleAgentKeys.length === 0" class="v-empty-state v-empty-state-compact admin-empty">No agent keys match your filters.</div>
-    <div v-else class="agent-key-owner-list">
-      <article v-for="group in groupedVisibleAgentKeys" :key="group.key" class="agent-key-owner-group">
-        <header class="agent-key-owner-header">
-          <div class="agent-key-owner-identity">
-            <div class="agent-key-owner-avatar">{{ group.initials }}</div>
-            <div>
-              <div class="agent-key-owner-kicker">{{ group.subtitle }}</div>
-              <h3>{{ group.ownerLabel }}</h3>
-              <p>{{ group.summary }}</p>
-            </div>
-          </div>
-          <div class="agent-key-owner-counts">
-            <span class="share-count-pill is-active">{{ group.activeCount }} active</span>
-            <span v-if="group.inactiveCount" class="share-count-pill is-revoked">{{ group.inactiveCount }} inactive</span>
-          </div>
-        </header>
+    <section class="settings-card">
+      <div class="settings-list-toolbar">
+        <div class="v-search-shell admin-search-wrap">
+          <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
+          <input
+            :value="keySearch"
+            class="v-search-input admin-search-input"
+            placeholder="Search keys"
+            aria-label="Search keys"
+            @input="$emit('update:key-search', $event.target.value)"
+          />
+        </div>
+        <div v-if="isAdmin" class="settings-segmented" role="group" aria-label="Show keys">
+          <button type="button" :aria-pressed="agentKeyScope === 'mine'" @click="$emit('update:agent-key-scope', 'mine')">Mine</button>
+          <button type="button" :aria-pressed="agentKeyScope === 'all'" @click="$emit('update:agent-key-scope', 'all')">Everyone</button>
+        </div>
+        <span class="settings-list-count">{{ filteredVisibleAgentKeys.length }} {{ filteredVisibleAgentKeys.length === 1 ? 'key' : 'keys' }}</span>
+      </div>
 
-        <ol class="agent-key-list">
-          <li v-for="entry in group.entries" :key="entry.key" class="agent-key-item" :class="{ 'is-disabled': !entry.record.is_active }">
-            <div class="agent-key-main">
-              <div class="agent-key-title-row">
-                <h4>{{ entry.record.name }}</h4>
-                <span class="share-status-pill" :class="entry.record.is_active ? 'success' : 'danger'">{{ entry.record.is_active ? 'Active' : 'Inactive' }}</span>
-                <span v-if="entry.isMine" class="admin-badge success">Mine</span>
-                <span v-if="entry.kind === 'managed'" class="admin-badge">Managed</span>
-                <span class="admin-badge">Shown once</span>
+      <div v-if="filteredVisibleAgentKeys.length === 0" class="settings-empty">
+        <strong>{{ keySearch ? 'No keys found' : 'No agent keys yet' }}</strong>
+        <span>{{ keySearch ? 'Try a different name.' : 'Select New key to connect an agent or script.' }}</span>
+      </div>
+      <div v-else>
+      <template v-for="group in groupedVisibleAgentKeys" :key="group.key">
+        <div v-if="showGroups" class="settings-list-group">
+          {{ group.ownerLabel }}
+          <span class="settings-count-pill">{{ group.entries.length }}</span>
+        </div>
+        <ul class="settings-list">
+          <li v-for="entry in group.entries" :key="entry.key" class="settings-list-row" :class="{ 'is-muted': !entry.record.is_active }">
+            <span class="settings-list-mark" aria-hidden="true"><svg class="icon"><use href="#icon-zap" /></svg></span>
+            <div class="settings-list-main">
+              <div class="settings-list-title">
+                <span>{{ entry.record.name }}</span>
+                <span v-if="!entry.record.is_active" class="settings-count-pill">Off</span>
               </div>
-              <div class="agent-key-meta">
-                <span>{{ entry.record.key_prefix }}...</span>
+              <div class="settings-list-meta">
+                <span class="agent-key-prefix">{{ entry.record.key_prefix }}…</span>
                 <span>{{ entry.record.last_used_at ? `Last used ${formatDateLabel(entry.record.last_used_at)}` : 'Never used' }}</span>
-                <span>{{ entry.kind === 'personal' ? 'Acts as you' : 'Admin managed' }}</span>
               </div>
-              <p class="agent-key-permission-note">Inherits the owner’s current Vueio permissions</p>
             </div>
-            <div class="agent-key-actions">
-              <button class="v-btn v-btn-secondary v-btn-sm" @click="$emit('reissue-agent-key-skill', entry)">
+            <div class="settings-list-actions">
+              <button
+                class="v-btn v-btn-ghost v-btn-sm"
+                type="button"
+                title="Makes a new token and copies setup text for your agent. The old token stops working."
+                @click="$emit('reissue-agent-key-skill', entry)"
+              >
                 <svg class="icon"><use href="#icon-copy" /></svg>
-                Reissue and copy skill
+                Copy skill
               </button>
-              <button class="v-btn v-btn-ghost v-btn-sm" @click="$emit('reissue-unified-agent-key', entry)">Reissue</button>
               <VMenu
                 :open="openActionKey === entry.key"
                 align="end"
-                :min-width="190"
+                :min-width="200"
                 teleport
                 @update:open="openActionKey = $event ? entry.key : ''"
               >
@@ -94,32 +102,35 @@
               </VMenu>
             </div>
           </li>
-        </ol>
-      </article>
-    </div>
+        </ul>
+      </template>
+      </div>
+    </section>
   </section>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../primitives'
 import AdminSettingsHeader from './AdminSettingsHeader.vue'
 
 const openActionKey = ref('')
 
-defineProps({
+const props = defineProps({
   agentKeyScope: { type: String, required: true },
   filteredVisibleAgentKeys: { type: Array, required: true },
   formatDateLabel: { type: Function, required: true },
   groupedVisibleAgentKeys: { type: Array, required: true },
   isAdmin: { type: Boolean, required: true },
   keySearch: { type: String, default: '' },
-  personalKeySaving: { type: Boolean, required: true },
+  visibleToken: { type: Object, default: null },
 })
 
 const emit = defineEmits([
-  'create-personal-agent-key',
+  'copy-token',
+  'copy-token-skill',
   'delete-unified-agent-key',
+  'dismiss-token',
   'open-create-key-modal',
   'open-edit-agent-key',
   'reissue-agent-key-skill',
@@ -129,11 +140,14 @@ const emit = defineEmits([
   'update:key-search',
 ])
 
+const showGroups = computed(() => props.isAdmin && props.agentKeyScope === 'all')
+
 function entryMenuActions(entry) {
   return [
-    { label: 'Edit key', icon: '#icon-edit', run: () => emit('open-edit-agent-key', entry) },
+    { label: 'Rename', icon: '#icon-edit', run: () => emit('open-edit-agent-key', entry) },
+    { label: 'Make new token', icon: '#icon-refresh', run: () => emit('reissue-unified-agent-key', entry) },
     {
-      label: entry.record.is_active ? 'Deactivate key' : 'Activate key',
+      label: entry.record.is_active ? 'Turn off' : 'Turn on',
       icon: entry.record.is_active ? '#icon-lock' : '#icon-check',
       run: () => emit('toggle-unified-agent-key', entry),
     },
@@ -144,252 +158,47 @@ function entryMenuActions(entry) {
 </script>
 
 <style scoped>
-.agent-key-section {
-  overflow: hidden;
+.agent-token-card {
+  border-color: color-mix(in srgb, var(--v-accent) 28%, var(--v-surface-border-soft));
+  background: color-mix(in srgb, var(--v-accent) 5%, var(--v-surface-canvas));
 }
 
-.agent-key-toolbar {
+.agent-token-body {
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  margin-top: var(--v-space-4);
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
 }
 
-.agent-key-toolbar .admin-toolbar-actions {
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.agent-key-toolbar .admin-search-wrap {
-  flex: 1 1 260px;
-  max-width: 420px;
-}
-
-.agent-key-result-count {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.agent-key-owner-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-3);
-  padding-top: var(--v-space-4);
-}
-
-.agent-key-owner-group {
-  overflow: hidden;
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.agent-key-owner-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--v-divider-subtle);
-  background: var(--v-surface-tint-strong);
-}
-
-.agent-key-owner-identity {
-  display: flex;
-  align-items: center;
+.agent-token {
   min-width: 0;
-  gap: var(--v-space-3);
-}
-
-.agent-key-owner-avatar {
-  width: 42px;
-  height: 42px;
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
+  overflow-x: auto;
+  padding: 9px 12px;
+  border: 1px solid var(--v-control-border);
   border-radius: var(--v-radius-md);
-  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
-  background: color-mix(in srgb, var(--v-bg-field) 72%, transparent);
-  color: var(--v-accent-hover);
-  font-size: var(--v-text-base);
-  font-weight: 800;
-}
-
-.agent-key-owner-kicker {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  line-height: 1.1;
-  text-transform: uppercase;
-}
-
-.agent-key-owner-header h3 {
-  margin: 3px 0 0;
+  background: var(--v-surface-inset);
   color: var(--v-text);
-  font-size: var(--v-text-md);
-  line-height: 1.25;
-}
-
-.agent-key-owner-header p {
-  margin: 3px 0 0;
-  color: var(--v-text-muted);
   font-size: var(--v-text-sm);
-  line-height: 1.25;
+  white-space: nowrap;
 }
 
-.agent-key-owner-counts {
+.agent-token-actions {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.agent-key-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-1);
-  margin: 0;
-  padding: 8px 10px 10px;
-  list-style: none;
-}
-
-.agent-key-item {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: 11px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--v-radius-md);
-  background: transparent;
-  transition: background-color 140ms ease, border-color 140ms ease;
-}
-
-.agent-key-item:hover {
-  border-color: color-mix(in srgb, var(--v-border) 64%, transparent);
-  background: var(--v-surface-tint-hover);
-}
-
-.agent-key-item.is-disabled {
-  opacity: 0.72;
-}
-
-.agent-key-main {
-  min-width: 0;
-}
-
-.agent-key-title-row {
-  display: flex;
-  align-items: center;
   flex-wrap: wrap;
   gap: var(--v-space-2);
 }
 
-.agent-key-title-row h4 {
-  min-width: 0;
-  margin: 0;
-  color: var(--v-text);
-  font-size: var(--v-text-base);
-  line-height: 1.3;
-}
-
-.agent-key-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 8px;
-  margin-top: 5px;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.35;
-}
-
-.agent-key-meta span:not(:last-child)::after {
-  content: '·';
-  margin-left: var(--v-space-2);
-  color: color-mix(in srgb, var(--v-text-muted) 58%, transparent);
-}
-
-.agent-key-permission-note {
-  margin-top: var(--v-space-2);
-  color: var(--v-text-muted);
+.agent-key-prefix {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--v-text-xs);
 }
 
-.agent-key-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 7px;
-  max-width: 430px;
-}
-
 @media (max-width: 768px) {
-  .agent-key-toolbar {
-    gap: 10px;
-    overflow-x: visible;
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .agent-key-toolbar .admin-toolbar-actions {
-    align-items: center;
-    flex-direction: row;
-    flex-wrap: wrap;
-    justify-content: flex-start;
-  }
-
-  .agent-key-toolbar > .admin-search-wrap {
-    flex: 0 0 100%;
-    width: 100%;
-    max-width: none;
-  }
-
-  .agent-key-toolbar .admin-filter-row {
-    flex: 1 1 auto;
-    width: auto;
-    max-width: 100%;
-  }
-
-  .agent-key-owner-list {
-    padding-top: var(--v-space-3);
-    gap: 10px;
-  }
-
-  .agent-key-owner-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-    padding: var(--v-space-3);
-  }
-
-  .agent-key-owner-counts {
-    justify-content: flex-start;
-  }
-
-  .agent-key-list {
-    gap: 7px;
-    padding: var(--v-space-2);
-  }
-
-  .agent-key-item {
+  .agent-token-body {
     grid-template-columns: 1fr;
-    gap: var(--v-space-2);
-    padding: 10px;
   }
 
-  .agent-key-actions {
-    justify-content: flex-start;
-    max-width: none;
-    gap: 5px;
-  }
-
-  .agent-key-actions .v-btn {
-    min-width: 0;
+  .agent-token-actions .v-btn {
+    flex: 1 1 auto;
+    min-height: var(--v-btn-height-lg);
   }
 }
 </style>

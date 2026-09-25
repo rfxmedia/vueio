@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.services.model_annotations import MAX_ANNOTATION_TARGET_LENGTH, validate_annotation_target
 from app.config import get_settings
 from app.limiter import enforce_rate_limit
 from app.models import Comment
@@ -62,7 +63,7 @@ class CommentCreate(BaseModel):
     text: str = Field(max_length=20000)
     timestamp: float
     annotation_data: Optional[str] = None
-    annotation_target: Optional[str] = Field(default=None, max_length=100)
+    annotation_target: Optional[str] = Field(default=None, max_length=MAX_ANNOTATION_TARGET_LENGTH)
     parent_comment_id: Optional[int] = None
 
 
@@ -98,7 +99,7 @@ def get_comment_visual_context(comment_id: int, vueio_session: str | None = Cook
         'timestamp': comment.timestamp,
         'has_annotation': bool(comment.annotation_data),
         'frame_available': frame_available,
-        'frame_unavailable_reason': None if frame_available else 'ffmpeg is not available for video frame extraction',
+        'frame_unavailable_reason': None if frame_available else 'Open this note in the review player; a server-rendered frame is unavailable.',
         'annotation_url': comment_visual_url(comment.id, 'annotation.png') if comment.annotation_data else None,
         'frame_url': comment_visual_url(comment.id, 'frame.jpg'),
         'annotated_frame_url': comment_visual_url(comment.id, 'annotated-frame.jpg') if comment.annotation_data else comment_visual_url(comment.id, 'frame.jpg'),
@@ -381,6 +382,7 @@ def get_comments(
 def add_comment(request: Request, data: CommentCreate, share_id: str = None, share_token: str = None, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
     _enforce_public_comment_mutation_limit(request, share_id)
     _validate_annotation(data.annotation_data)
+    validate_annotation_target(data.annotation_target)
     user, share, effective_project_id = require_comment_access(
         data.path,
         share_id,
@@ -485,8 +487,7 @@ async def add_comment_with_attachments(
     if len(path) > 4096 or len(user_name) > 120 or len(text) > 20000:
         raise HTTPException(status_code=413, detail='Comment fields are too large')
     _validate_annotation(annotation_data)
-    if annotation_target and len(annotation_target) > 100:
-        raise HTTPException(status_code=413, detail='Comment annotation target is too large')
+    validate_annotation_target(annotation_target)
     user, share, effective_project_id = require_comment_access(
         path,
         share_id,

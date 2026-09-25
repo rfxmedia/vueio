@@ -68,6 +68,7 @@ jobs:
           platforms: linux/${{ inputs.architecture }}
           outputs: type=image,name=${{ steps.vars.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: VUEIO_PACKAGE_REFRESH=${{ github.ref_name }}
           cache-from: type=gha,scope=${{ inputs.component }}-${{ inputs.architecture }}
           cache-to: type=gha,mode=max,scope=${{ inputs.component }}-${{ inputs.architecture }}
       - name: Scan the exact untagged image

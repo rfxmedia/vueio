@@ -83,6 +83,19 @@ def hardware_devices():
             name = 'Apple Silicon'
         return [{'id': 'videotoolbox', 'name': name, 'encoder': 'h264_videotoolbox'}]
     devices = []
+    # PCI inventory is visible even when a driver or container device mapping
+    # is missing. Do not mistake an installed card for a usable encoder.
+    inventory = {}
+    try:
+        rows = subprocess.check_output(['lspci', '-D', '-nn'], text=True, timeout=3)
+        for row in rows.splitlines():
+            match = re.fullmatch(r'([0-9a-f:.]+) .*\[030[02]\]: (.+) \[(1002|10de|8086):[0-9a-f]{4}\].*', row)
+            if match:
+                address, name, vendor = match.groups()
+                inventory[address] = (name, vendor)
+    except (OSError, subprocess.SubprocessError):
+        pass
+    available = set()
     for path in sorted(Path('/dev/dri').glob('renderD*')):
         if not re.fullmatch(r'renderD[0-9]+', path.name):
             continue
@@ -94,20 +107,30 @@ def hardware_devices():
         if vendor not in {'0x1002', '0x8086'}:
             continue
         name = 'AMD Radeon' if vendor == '0x1002' else 'Intel graphics'
-        try:
-            name = subprocess.check_output(['lspci', '-s', device_path.resolve().name], text=True, timeout=3).strip().split(': ', 1)[-1]
-        except (OSError, subprocess.SubprocessError):
-            pass
-        devices.append({'id': f'vaapi:{path.name}', 'name': name, 'encoder': 'h264_vaapi'})
+        address = device_path.resolve().name
+        name = inventory.get(address, (name, ''))[0]
+        available.add(address)
+        devices.append({'id': f'vaapi:{path.name}', 'name': name, 'encoder': 'h264_vaapi', 'location': address})
     try:
-        rows = subprocess.check_output(['nvidia-smi', '--query-gpu=index,name', '--format=csv,noheader'], text=True, timeout=3)
+        rows = subprocess.check_output(['nvidia-smi', '--query-gpu=index,name,pci.bus_id', '--format=csv,noheader'], text=True, timeout=3)
         for row in rows.splitlines():
-            index, name = row.split(',', 1)
+            index, name, address = (item.strip() for item in row.split(',', 2))
+            address = address.lower()[-12:]
             if re.fullmatch(r'[0-9]{1,2}', index.strip()):
-                devices.append({'id': f'nvenc:{index.strip()}', 'name': name.strip(), 'encoder': 'h264_nvenc'})
+                available.add(address)
+                devices.append({'id': f'nvenc:{index}', 'name': name, 'encoder': 'h264_nvenc', 'location': address})
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
-    return devices
+    for address, (name, vendor) in inventory.items():
+        if address not in available:
+            isolated = (Path('/sys/bus/pci/devices') / address / 'driver').resolve().name == 'vfio-pci'
+            devices.append({'id': f'unavailable:{address}', 'name': name, 'location': address,
+                            'encoder': 'h264_nvenc' if vendor == '10de' else 'h264_vaapi',
+                            'unavailable': True,
+                            'message': ('This GPU is reserved for a virtual machine. Make it available to apps in the host settings first.'
+                                        if isolated else 'Enable the NVIDIA driver and NVIDIA Container Toolkit on the host, then restart Vueio.'
+                                        if vendor == '10de' else 'Enable the graphics driver and render-device access on the host, then restart Vueio.')})
+    return devices[:16]
 
 
 def device_options(device):
@@ -230,7 +253,7 @@ def build_command(input_path, output_path, recipe, device=None, *, audio_input_p
         return cmd + ['-filter_complex_threads', '2', '-filter_complex', ';'.join(graph),
                       '-map', '[out]', '-map', '0:a:0?', *encoder_options(device, quality=18),
                       '-threads', '2', '-maxrate', '12M', '-bufsize', '12M',
-                      '-g', str(round(recipe['rate_n'] / recipe['rate_d'])), '-bf', '2',
+                      '-g', str(round(recipe['rate_n'] / recipe['rate_d'])), '-bf', '0' if encoder == 'h264_vaapi' else '2',
                       *([] if encoder == 'h264_vaapi' else ['-pix_fmt', 'yuv420p']),
                       '-frames:v', str(recipe['frames']), '-t', str(duration),
                       '-c:a', 'aac', '-b:a', '128k', '-af', 'asetpts=PTS-STARTPTS',
@@ -293,23 +316,50 @@ def build_command(input_path, output_path, recipe, device=None, *, audio_input_p
 
 
 def check_device(device):
-    result = {**device, 'encoding': False, 'thumbnails': False, 'message': 'Hardware check failed. CPU remains available.'}
+    capabilities = dict.fromkeys(('thumbnail', 'mp4', 'hls', 'comparison', 'comparison_export'), False)
+    result = {**device, 'encoding': False, 'thumbnails': False, 'capabilities': capabilities,
+              'message': device.get('message', 'Hardware check failed. Check the host driver and GPU access. CPU remains available.')}
+    if device.get('unavailable'):
+        return result
     try:
         with tempfile.TemporaryDirectory(prefix='vueio-hardware-') as temporary:
             source = Path(temporary) / 'sample.mp4'
-            prefix, encoder = device_options(device)
-            filters = 'format=nv12,hwupload' if encoder == 'h264_vaapi' else 'format=yuv420p'
-            cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y', *prefix, '-f', 'lavfi',
-                   '-i', 'color=c=black:s=320x180:r=24', '-frames:v', '8', '-vf', filters, *encoder_options(device), str(source)]
-            run = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
-            result['encoding'] = run.returncode == 0 and source.is_file() and source.stat().st_size > 0
-            if result['encoding']:
-                target = Path(temporary) / 'thumbnail.jpg'
-                run = subprocess.run(build_command(source, target, {'kind': 'thumbnail', 'seek': 0, 'width': 320}, device),
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
-                result['thumbnails'] = run.returncode == 0 and target.is_file() and target.stat().st_size > 0
-                result['message'] = 'Hardware video encoding passed.' + (' Hardware thumbnail decoding passed.' if result['thumbnails'] else ' Thumbnails will use CPU.')
-    except (OSError, subprocess.SubprocessError):
+            # Exercise the production recipes, including dual HLS streams and
+            # wide comparisons. A tiny encoder-only check misses these limits.
+            cmd = ['ffmpeg', '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
+                   '-f', 'lavfi', '-i', 'color=c=black:s=320x180:r=24', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+                   '-t', '0.333333', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', '-c:a', 'aac', str(source)]
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6, check=True)
+            timing = {'rate_n': 24, 'rate_d': 1, 'frames': 8}
+            recipes = [
+                {'kind': 'mp4', 'height': 1080},
+                {'kind': 'hls', 'variants': [dict(height=height, bitrate='4000k', maxrate='5000k', bufsize='8000k', audio_bitrate='128k')
+                                           for height in (1080, 720)], 'has_audio': True, 'gop': 24, 'segment_seconds': 1},
+                {'kind': 'comparison', **timing},
+                {'kind': 'comparison_export', **timing, 'start_frame': 0, 'width': 1080, 'height': 1440,
+                 'mode': 'wipe', 'swapped': False, 'artwork': False, 'wipe_start': 0, 'wipe_frames': 8, 'freeze': False, 'stacked': False},
+                {'kind': 'thumbnail', 'seek': 0, 'width': 320},
+            ]
+            for recipe in recipes:
+                kind = recipe['kind']
+                target = Path(temporary) / (kind + ('.jpg' if kind == 'thumbnail' else '.mp4'))
+                if kind == 'hls':
+                    target.mkdir()
+                inputs = [source, source] if kind in ('comparison', 'comparison_export') else source
+                try:
+                    run = subprocess.run(build_command(inputs, target, recipe, device),
+                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=6)
+                    output = target / 'master.m3u8' if kind == 'hls' else target
+                    capabilities[kind] = run.returncode == 0 and output.is_file() and output.stat().st_size > 0
+                except (OSError, subprocess.SubprocessError):
+                    pass
+            result['encoding'] = any(value for kind, value in capabilities.items() if kind != 'thumbnail')
+            result['thumbnails'] = capabilities['thumbnail']
+            if all(capabilities.values()):
+                result['message'] = 'All preview checks passed. Unsupported source formats still use CPU.'
+            elif result['encoding']:
+                result['message'] = 'Some preview checks passed. Other tasks will use CPU automatically.'
+    except (OSError, ValueError, subprocess.SubprocessError):
         pass
     return result
 
@@ -355,6 +405,8 @@ class NativeMedia:
     def check(self):
         if sys.platform != 'darwin':
             raise ValueError('Native media processing is available on Mac only.')
+        if any(job['finished'] is None for job in self.jobs.values()):
+            raise ValueError('Wait for current native media jobs before checking hardware.')
         self.devices = [check_device(device) for device in hardware_devices()]
         return {'devices': self.devices}
 
@@ -398,7 +450,7 @@ class NativeMedia:
         if len(self.jobs) >= 16 or sum(job['process'].poll() is None for job in self.jobs.values()) >= 4:
             raise ValueError('Native media processing is busy.')
         recipe = validate_recipe(payload['recipe'])
-        if not self.devices or not self.devices[0]['encoding'] or (recipe['kind'] == 'thumbnail' and not self.devices[0]['thumbnails']):
+        if not self.devices or not self.devices[0].get('capabilities', {}).get(recipe['kind'], False):
             raise ValueError('Check the Mac hardware before using it.')
         output = payload['output']
         if not isinstance(output, str) or len(output) > 4096 or not output.startswith('/app/data/cache/'):

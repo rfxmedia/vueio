@@ -8,6 +8,7 @@ src/**/*.spec.js
 src/test
 scripts/*
 !scripts/generate-third-party-notices.mjs
+!scripts/model-decoder-notices.txt
 eslint.config.js
 jsconfig.json
 vitest.config.js

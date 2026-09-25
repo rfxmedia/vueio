@@ -45,6 +45,7 @@ from app.services.project_content_gateway import (
 )
 from app.services.share_access import normalize_virtual_path, require_path_within_shared_root, resolve_shared_media_target, validate_share
 from app.services.zip_utils import ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget
+from app.services.model_preview import serve_model
 from app.services.comparison import comparison_file, comparison_status, resolve_comparison
 from app.services.comparison_export import cancel_export, read_export_request, resolve_export, start_export
 
@@ -461,3 +462,23 @@ def download_shared_zip(share_id: str, data: ZipDownloadRequest, background_task
 def get_shared_thumbnail(share_id: str, path: str = '', share_token: str | None = None, cached_only: bool = False, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, db: Session = Depends(get_db)):
     share = _validate_shared_media_share(share_id, share_token, db)
     return thumbnail_content(SharedMediaPolicy(db, share), _shared_media_ref(share, path, media_asset_id or horizons_media_asset_id), db, cached_only=cached_only)
+
+
+@router.api_route('/api/projects/shared/{share_id}/media-assets/{asset_id}/model', methods=['GET', 'POST'])
+@router.api_route('/api/projects/shared/{share_id}/shot-versions/{version_id}/model', methods=['GET', 'POST'])
+def model_shared_object(share_id: str, request: Request, asset_id: str | None = None, version_id: str | None = None,
+                        resource: str = 'manifest', name: str = '', frame: int = 0, generation: str = '',
+                        share_token: str | None = None, db: Session = Depends(get_db)):
+    share = _validate_shared_horizons_object_share(share_id, share_token, db)
+    target = resolve_horizons_object_share(share, db, asset_id=asset_id, version_id=version_id)
+    return serve_model(target.full_path, target.cache_identity, db, resource=resource, name=name, frame=frame,
+                       generation=generation, retry=request.method == 'POST')
+
+
+@router.api_route('/api/projects/shared/{share_id}/model', methods=['GET', 'POST'])
+def model_shared_file(share_id: str, path: str, request: Request, resource: str = 'manifest', name: str = '',
+                      frame: int = 0, generation: str = '', share_token: str | None = None, db: Session = Depends(get_db)):
+    share = _validate_shared_media_share(share_id, share_token, db)
+    full_path, identity = resolve_shared_media_target(share, path, db=db)
+    return serve_model(full_path, identity, db, resource=resource, name=name, frame=frame,
+                       generation=generation, retry=request.method == 'POST')

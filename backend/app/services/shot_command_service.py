@@ -29,7 +29,7 @@ from app.services.horizons.version_publication import (
     version_is_published,
     version_media_is_publishable,
 )
-from app.services.media import get_safe_path, is_image, is_video
+from app.services.media import MODEL_EXTENSIONS, get_safe_path, is_image, is_video
 from app.services.media_assets import register_media_asset
 from app.services.media_resolution import resolve_media_target
 from app.services.shot_command_base import ShotCommandBase
@@ -568,7 +568,7 @@ class ShotCommandService(ShotCommandBase):
         stem_to_mtime: dict[str, float] = {}
         for entry in folder_fs.iterdir():
             try:
-                if not entry.is_file() or entry.name.startswith('.') or (not is_video(entry) and not is_image(entry)):
+                if not entry.is_file() or entry.name.startswith('.') or (not is_video(entry) and not is_image(entry) and entry.suffix.lower() not in MODEL_EXTENSIONS):
                     continue
                 stem = entry.stem.strip().lower()
                 mtime = entry.stat().st_mtime

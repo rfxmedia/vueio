@@ -1,5 +1,5 @@
 <template>
-  <header class="settings-view-header" :class="{ 'is-compact': !eyebrow && !description }">
+  <header class="settings-view-header">
     <div class="settings-view-heading">
       <div class="settings-view-icon" aria-hidden="true">
         <svg class="icon"><use :href="icon" /></svg>
@@ -28,36 +28,34 @@ defineProps({
 <style scoped>
 .settings-view-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: var(--v-space-6);
+  gap: var(--v-space-4) var(--v-space-6);
   min-width: 0;
-  padding: 0 0 var(--v-space-4);
-  border-bottom: 1px solid var(--v-divider-subtle);
+  padding: 2px 0 var(--v-space-2);
 }
 
 .settings-view-heading {
   display: grid;
-  grid-template-columns: var(--v-control-pill-height) minmax(0, 1fr);
-  align-items: start;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
   gap: var(--v-space-3);
   min-width: 0;
 }
 
 .settings-view-icon {
-  width: var(--v-control-pill-height);
-  height: var(--v-control-pill-height);
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   border-radius: var(--v-radius-md);
   color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 8%, var(--v-surface-tint));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 16%, transparent);
+  background: var(--v-accent-muted);
 }
 
 .settings-view-icon .icon {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
 }
 
 .settings-view-copy {
@@ -65,21 +63,21 @@ defineProps({
 }
 
 .settings-eyebrow {
-  margin-bottom: 4px;
+  margin-bottom: 2px;
 }
 
 .settings-view-title {
   margin: 0;
   color: var(--v-text);
-  font-size: var(--v-text-2xl);
-  font-weight: 740;
-  letter-spacing: -0.018em;
-  line-height: 1.15;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
 }
 
 .settings-view-description {
-  max-width: 680px;
-  margin: 6px 0 0;
+  max-width: 640px;
+  margin: 2px 0 0;
   color: var(--v-text-muted);
   font-size: var(--v-text-base);
   line-height: 1.45;
@@ -92,57 +90,36 @@ defineProps({
   flex-wrap: wrap;
   gap: var(--v-space-2);
   flex: 0 0 auto;
-  padding-top: 3px;
-}
-
-.settings-view-header.is-compact,
-.is-compact .settings-view-heading {
-  align-items: center;
 }
 
 @media (max-width: 768px) {
   .settings-view-header {
-    align-items: flex-start;
+    align-items: stretch;
     flex-direction: column;
     gap: var(--v-space-3);
-    padding: 0 0 var(--v-space-3);
   }
 
   .settings-view-heading {
-    grid-template-columns: 30px minmax(0, 1fr);
-    gap: var(--v-space-3);
+    grid-template-columns: 32px minmax(0, 1fr);
+    align-items: start;
   }
 
   .settings-view-icon {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
   }
 
   .settings-view-icon .icon {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
   }
 
   .settings-view-title {
     font-size: var(--v-text-2xl);
   }
 
-  .settings-view-description {
-    font-size: var(--v-text-base);
-  }
-
   .settings-view-actions {
-    width: 100%;
     justify-content: flex-start;
-    padding-top: 0;
-  }
-
-  .settings-view-header.is-compact {
-    flex-direction: row;
-  }
-
-  .is-compact .settings-view-actions {
-    width: auto;
   }
 
   .settings-view-actions :deep(.v-btn) {

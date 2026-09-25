@@ -283,12 +283,12 @@ Failed installation stages show the private diagnostic-log location.
 
 ## Preview processing
 
-Open **Settings → Storage → Preview processing** as an administrator.
+Open **Settings → Previews → Media processing** as an administrator.
 CPU is the default for an installation without a saved GPU selection.
 An update retains a saved processing preference; it does not reset a selected GPU to CPU.
 
-1. Select **Check hardware**.
-2. Inspect the encode and thumbnail-check results.
+1. Open the page. Vueio checks available hardware automatically.
+2. Inspect the device name and task results. Use **Check again** after changing host settings.
 3. To enable acceleration, select **GPU** and a verified device.
 4. Save the selection.
 5. Inspect recent processing results after a new preview job.
@@ -301,7 +301,36 @@ A canceled job is not a request to retry on CPU.
 Linux AMD hardware uses VA-API. NVIDIA uses NVENC and needs a working host driver and NVIDIA Container Toolkit.
 Support depends on the device, codec, driver, and FFmpeg build.
 A product name or detected GPU is not proof of a successful encode.
-Video decoding and scaling can still use CPU. Thumbnail decoding is checked separately.
+Vueio checks the actual thumbnail, MP4, multi-resolution streaming, comparison,
+and comparison-export recipes. Tasks that fail their check use CPU without
+changing the saved GPU selection. A short check cannot guarantee that every
+source format, resolution, or concurrent workload will work on that device.
+Video decoding, scaling, compositing, image compression, and audio can still use CPU.
+Thumbnail hardware decoding depends on the source format.
+The GPU option does not move the entire application or every processing stage to the GPU.
+
+The same selection covers all five preview tasks. New Linux selections retain
+the device's PCI location, so a changed GPU index does not select another card.
+If the selected card is missing, new jobs use CPU. Existing selections from older
+releases keep their previous identifier until saved again.
+
+### Prepare graphics access
+
+- **Apple Silicon:** The Mac installer prepares the native helper and FFmpeg.
+  Docker Desktop alone cannot expose Apple's video hardware to a Linux container.
+- **AMD Radeon on Linux:** Enable the host graphics driver. The managed installer
+  exposes available render devices and their access groups to Vueio.
+- **NVIDIA GTX or RTX on Linux:** Install the host's supported NVIDIA driver and
+  [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html).
+  The managed installer connects the GPU when Docker's NVIDIA runtime is ready.
+- **TrueNAS:** Use TrueNAS settings to install supported NVIDIA drivers. A GPU
+  reserved for a virtual machine must first be released for apps. This can need
+  a server reboot. Do not install generic Linux driver packages on the appliance.
+
+Vueio identifies visible cards even when driver or container access is missing.
+It does not install host drivers, take GPUs from virtual machines, or restart
+other applications without an operator's action. After preparing host access,
+restart Vueio and use **Check again**. Native Windows installation remains unsupported.
 
 The Linux controller prepares available render-device mappings when starting Vue.io.
 Custom installations need appropriate Compose device mappings.

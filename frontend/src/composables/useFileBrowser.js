@@ -1,3 +1,4 @@
+import { MODEL_EXTENSIONS } from '../lib/mediaEntity'
 import { computed, getCurrentInstance, getCurrentScope, onScopeDispose, onUnmounted, ref, shallowRef, watch } from 'vue'
 import api, { buildShareCredentialQuery, getApiErrorMessage } from '../lib/api'
 
@@ -359,7 +360,7 @@ export function useFileBrowser(ctx) {
         ctx.openImage({ ...sharedMedia, is_image: true })
       } else if (SHARED_PDF_EXTS.includes(fileExt)) {
         ctx.openPdf({ ...sharedMedia, is_pdf: true })
-      } else if (SHARED_VIDEO_EXTS.includes(fileExt)) {
+      } else if (SHARED_VIDEO_EXTS.includes(fileExt) || MODEL_EXTENSIONS.has(fileExt)) {
         ctx.openVideo({
           ...sharedMedia,
           type: 'video',
@@ -474,7 +475,7 @@ export function useFileBrowser(ctx) {
           ...sharedProjectMedia,
           is_pdf: true,
         })
-      } else if (SHARED_PROJECT_VIDEO_EXTS.includes(fileExt)) {
+      } else if (SHARED_PROJECT_VIDEO_EXTS.includes(fileExt) || MODEL_EXTENSIONS.has(fileExt)) {
         ctx.openVideo({
           ...sharedProjectMedia,
           type: 'video',

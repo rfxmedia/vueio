@@ -3366,3 +3366,9 @@ button.v-overlay-pill:hover {
 @media (prefers-reduced-motion: reduce) {
   .connection-recovery__spinner { animation-duration: 1600ms; }
 }
+
+/* A 3D review needs space for orbiting as well as its contextual toolbar. */
+.player-view.model-mode .video-container { align-items: stretch; }
+@media (max-width: 768px) {
+  .player-view.model-mode .video-container { aspect-ratio: auto; height: min(58vh, 500px); min-height: 300px; }
+}

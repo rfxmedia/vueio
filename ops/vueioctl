@@ -388,7 +388,7 @@ require_data_mount() {
 render_gpu_access() {
   # Device access does not enable GPU processing. CPU remains the app default.
   [[ $(uname -s) == Linux ]] || return 0
-  python3 - "$GPU_COMPOSE_FILE" <<'PY'
+  python3 - "$GPU_COMPOSE_FILE" "${VUEIO_INSTALL_IN_PROGRESS:-false}" <<'PY'
 import json, os, pathlib, re, subprocess, sys, tempfile
 target = pathlib.Path(sys.argv[1])
 if target.exists():
@@ -411,6 +411,18 @@ try:
             service['environment'] = {'NVIDIA_DRIVER_CAPABILITIES': 'video,compute,utility'}
 except (OSError, ValueError, subprocess.SubprocessError):
     pass
+if sys.argv[2] == 'true':
+    installed_gpu = False
+    for vendor in pathlib.Path('/sys/bus/pci/devices').glob('*/vendor'):
+        try:
+            installed_gpu |= (vendor.read_text().strip() in {'0x1002', '0x10de', '0x8086'}
+                              and vendor.with_name('class').read_text().strip().startswith('0x03'))
+        except OSError:
+            pass
+    if service:
+        print('Graphics access is prepared. Choose your GPU in Settings > Previews.')
+    elif installed_gpu:
+        print('Graphics hardware needs host setup. Vueio will use CPU. See Settings > Previews.')
 if service or target.exists():
     # Refresh generated access when a GPU is removed. Missing hardware must not
     # leave a stale device mount that prevents CPU-only startup.

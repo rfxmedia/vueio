@@ -25,26 +25,28 @@
       </button>
     </div>
 
-    <label class="v-file-sort-select" title="Sort files">
-      <svg class="icon" aria-hidden="true"><use href="#icon-sort" /></svg>
-      <span class="v-sr-only">Sort files by</span>
-      <select :value="sortKey" aria-label="Sort files by" @change="$emit('choose-sort', $event.target.value)">
-        <option v-for="option in sortOptions" :key="option.value" :value="option.value">
-          {{ option.label }}
-        </option>
-      </select>
-      <svg class="icon v-file-sort-select-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
-    </label>
+    <div class="v-file-sort-group">
+      <label class="v-file-sort-select" title="Sort files">
+        <svg class="icon" aria-hidden="true"><use href="#icon-sort" /></svg>
+        <span class="v-sr-only">Sort files by</span>
+        <select :value="sortKey" aria-label="Sort files by" @change="$emit('choose-sort', $event.target.value)">
+          <option v-for="option in sortOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </option>
+        </select>
+        <svg class="icon v-file-sort-select-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+      </label>
 
-    <button
-      type="button"
-      class="v-icon-action v-file-sort-direction"
-      :aria-label="sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'"
-      :title="sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'"
-      @click="$emit('toggle-direction')"
-    >
-      <svg class="icon"><use :href="sortDirection === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" /></svg>
-    </button>
+      <button
+        type="button"
+        class="v-icon-action v-file-sort-direction"
+        :aria-label="sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'"
+        :title="sortDirection === 'asc' ? 'Sort ascending' : 'Sort descending'"
+        @click="$emit('toggle-direction')"
+      >
+        <svg class="icon"><use :href="sortDirection === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" /></svg>
+      </button>
+    </div>
   </div>
 </template>
 

@@ -292,10 +292,11 @@ def all_transcode_identities_for_source(source_identity: str, *, db: Session | N
     source_hash = get_file_hash(source_identity)
     session = db if db is not None else SessionLocal()
     try:
-        from sqlalchemy import or_
+        from sqlalchemy import and_, or_
         identities.extend(row.file_path for row in session.query(TranscodeJob).filter(or_(
             TranscodeJob.file_path.like(f'artifact:comparison:%:{source_hash}:%:%'),
             TranscodeJob.file_path.like(f'artifact:comparison:%:%:{source_hash}:%'),
+            and_(TranscodeJob.file_path.startswith('artifact:model:'), TranscodeJob.file_path.endswith(f':{source_identity}', autoescape=True)),
         )).all())
     finally:
         if db is None:
@@ -310,6 +311,9 @@ def _remove_transcode_artifact_files(job_key: str) -> None:
         transcode_cache_path_for_identity(job_key).unlink(missing_ok=True)
     except OSError:
         pass
+
+    if job_key.startswith('artifact:model:'):
+        shutil.rmtree(transcode_cache_path_for_identity(job_key).with_suffix('.model'), ignore_errors=True)
 
     hls_dir = hls_package_dir_for_identity(job_key)
     hls_parent = hls_dir.parent
@@ -414,6 +418,8 @@ def _contained_transcode_output(job: TranscodeJob) -> Path | None:
         # never turn automatic cleanup into deletion/accounting of other data.
         if declared.is_symlink():
             return None
+        if job.file_path.startswith('artifact:model:') and relative.parts == (f'{key_hash}.model', 'manifest.json') and not declared.parent.is_symlink():
+            return output.parent
         if output.suffix.lower() == '.m3u8':
             if len(relative.parts) != 2 or declared.parent.is_symlink():
                 return None

@@ -466,7 +466,7 @@ const latestCommentCount = computed(() => {
 <style scoped>
 /* ─── Card shell ─────────────────────────────────────────── */
 .tracker-row-card {
-  --tracker-row-thumb-width: calc(192px * 1.728);
+  --tracker-row-thumb-width: 296px;
   --trc-mobile-brief-height: 48px;
   --trc-mobile-note-height: 54px;
   --trc-mobile-copy-line-height: 16px;
@@ -474,7 +474,7 @@ const latestCommentCount = computed(() => {
   --tracker-row-status-border-hover: color-mix(in srgb, var(--tracker-row-status-surface) 88%, white);
   --tracker-row-status-surface: var(--v-surface-canvas);
   --tracker-row-status-surface-hover: color-mix(in srgb, var(--v-surface-canvas) 86%, var(--v-surface-inline));
-  --tracker-row-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset, 0 10px 24px rgba(0, 0, 0, 0.08);
+  --tracker-row-shadow: 0 1px 0 rgba(255, 255, 255, 0.035) inset;
   --tracker-row-shadow-hover: 0 1px 0 rgba(255, 255, 255, 0.045) inset;
   position: relative;
   display: grid;
@@ -870,8 +870,8 @@ const latestCommentCount = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 14px 14px 14px 18px;
+  gap: 10px;
+  padding: 12px 12px 12px 16px;
 }
 
 .tracker-row-card.has-open-picker .tracker-row-card__body {
@@ -942,10 +942,10 @@ const latestCommentCount = computed(() => {
 
 /* ─── Combined Brief + Latest notes panel ────────────────── */
 .trc-copy {
-  --trc-lead-width: 40px;
-  /* Fits the longest label ("Latest notes" measures 80px at 9px/800/0.15em)
+  --trc-lead-width: 36px;
+  /* Fits the longest label ("Latest notes" measures about 66px at 11px/600)
      with a little air, so nothing silently clips. */
-  --trc-label-width: 84px;
+  --trc-label-width: 76px;
   display: flex;
   flex-direction: column;
   min-width: 0;

@@ -31,7 +31,7 @@
                   :title="formatCommentPostedTitle(comment.created_at)"
                 >{{ formatRelativeTime(comment.created_at) }}</time>
                 <span v-if="isViewingPdf && pdfPageLabel(comment)" class="comment-timecode">{{ pdfPageLabel(comment) }}</span>
-                <span v-else-if="!isViewingImage && !isViewingPdf && comment.timestamp != null" class="comment-timecode">{{ formatTimecode(comment.timestamp) }}</span>
+                <span v-else-if="!isViewingImage && !isViewingPdf && (!isViewingModel || modelAnimated) && comment.timestamp != null" class="comment-timecode">{{ formatTimecode(comment.timestamp) }}</span>
                 <span v-if="comment.annotation_data" class="comment-annotation-chip" title="Has drawing annotation" aria-label="Has drawing annotation">
                   <svg class="icon"><use href="#icon-pen"/></svg>
                 </span>
@@ -270,7 +270,7 @@
               <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
                 <svg class="icon"><use href="#icon-link"/></svg>
               </button>
-              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode" title="Add Drawing">
+              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add Drawing">
                 <svg class="icon"><use href="#icon-pen"/></svg>
               </button>
               <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote" aria-label="Record voice note" title="Record voice note">
@@ -396,7 +396,7 @@
           <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
             <svg class="icon"><use href="#icon-link"/></svg>
           </button>
-          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode" title="Add Drawing">
+          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add Drawing">
             <svg class="icon"><use href="#icon-pen"/></svg>
           </button>
           <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote || !!replyTarget" aria-label="Record voice note" title="Record voice note">
@@ -472,6 +472,9 @@ const props = defineProps({
   isViewingImage: { type: Boolean, default: false },
   isViewingPdf: { type: Boolean, default: false },
   isViewingVideo: { type: Boolean, default: false },
+  isViewingModel: { type: Boolean, default: false },
+  modelReady: { type: Boolean, default: false },
+  modelAnimated: { type: Boolean, default: false },
   activityFocusCommentId: { type: [String, Number], default: null },
   isAdmin: { type: Boolean, default: false },
   maxAttachments: { type: Number, default: 3 },
@@ -566,7 +569,7 @@ const projectDragTitle = computed(() => {
   if (projectDragItemCount.value > 1) return `Mention ${projectDragItemCount.value} items`
   return 'Mention project items'
 })
-const drawingHint = computed(() => `Drawing on ${props.isViewingVideo ? 'frame' : props.isViewingImage ? 'image' : 'document'} • Post to save`)
+const drawingHint = computed(() => `Drawing on ${props.isViewingModel ? 'saved 3D view' : props.isViewingVideo ? 'frame' : props.isViewingImage ? 'image' : 'document'} • Post to save`)
 function commentWithSegments(comment) {
   const inlineReferences = (comment.attachments || []).filter(attachment => (
     attachment?.attachment_type === 'reference' && attachment?.marker

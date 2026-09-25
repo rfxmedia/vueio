@@ -638,7 +638,8 @@ export function useMediaComments(ctx) {
     const projectId = getCommentProjectId(ctx)
     const commentPath = getCommentPath(ctx)
     const targetRefs = getCommentTargetRefs(ctx)
-    const annotationTarget = getOptionalRefValue(ctx.pendingAnnotationTarget)
+    const modelView = ctx.getModelView?.()
+    const annotationTarget = getOptionalRefValue(ctx.pendingAnnotationTarget) || (modelView ? JSON.stringify(modelView) : null)
     const parentCommentId = replyTarget.value?.id || null
     if (commentPosting.value) return
     commentPosting.value = true
@@ -646,7 +647,7 @@ export function useMediaComments(ctx) {
       if (hasAttachments) {
         const voiceNote = voiceRecorder.pendingVoiceNote.value
         if (!hasText && !hasAnnotation && !pendingCommentAttachments.value.length && !voiceNote) return
-        const commentTimestamp = resolveCommentTimestamp(ctx, { hasAnnotation })
+        const commentTimestamp = modelView && !hasAnnotation ? (modelView.time || 0) : resolveCommentTimestamp(ctx, { hasAnnotation })
         const formData = new FormData()
         formData.append('path', commentPath)
         formData.append('user_name', name)
@@ -705,7 +706,7 @@ export function useMediaComments(ctx) {
 
         await api.post(`/api/comments/with-attachments${query}`, formData)
       } else {
-        const commentTimestamp = resolveCommentTimestamp(ctx, { hasAnnotation })
+        const commentTimestamp = modelView && !hasAnnotation ? (modelView.time || 0) : resolveCommentTimestamp(ctx, { hasAnnotation })
         await api.post(`/api/comments${query}`, {
           path: commentPath,
           project_id: projectId || undefined,

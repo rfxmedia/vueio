@@ -102,6 +102,8 @@ export function useMediaViewerController({
   const videoEl = ref(null)
   const videoContainer = ref(null)
   const imageStage = ref(null)
+  const modelViewer = shallowRef(null)
+  const modelReady = ref(false)
   const suppressViewerAutoplay = ref(false)
   const viewerAutoplayPending = ref(false)
   const videoInfo = ref(emptyMediaInfo())
@@ -318,7 +320,7 @@ export function useMediaViewerController({
         _projectId: projectId,
         _projectFile: true,
       })
-      if (item?.is_image || item?.is_pdf || item?.is_video) {
+      if (item?.is_image || item?.is_pdf || item?.is_video || item?.is_model) {
         rememberCommentReferenceOrigin(createCommentReferenceOrigin(comment))
         if (item.is_image) openImage(item)
         else if (item.is_pdf) openPdf(item)
@@ -340,6 +342,10 @@ export function useMediaViewerController({
     isViewingVideo: media.isViewingVideo,
     isViewingImage: media.isViewingImage,
     isViewingPdf: media.isViewingPdf,
+    isViewingModel: media.isViewingModel,
+    getModelView: () => modelViewer.value?.captureView(),
+    getModelRect: () => modelViewer.value?.getViewportRect(),
+    onAnnotationStart: () => modelViewer.value?.pause(),
     videoInfo,
     onAnnotationPreviewVisibilityChange: visible => {
       if (mediaComments) mediaComments.showAnnotationPreview.value = visible
@@ -356,6 +362,10 @@ export function useMediaViewerController({
       return
     }
 
+    if (media.isViewingModel.value) {
+      void modelViewer.value?.focusComment(comment)
+      return
+    }
     const video = videoEl.value
     if (!video) return
     transport.disableLoopForUserSeek()
@@ -383,6 +393,7 @@ export function useMediaViewerController({
     pendingAnnotation: annotations.pendingAnnotation,
     pendingAnnotationTimestamp: annotations.pendingAnnotationTimestamp,
     pendingAnnotationTarget: annotations.pendingAnnotationTarget,
+    getModelView: () => media.isViewingModel.value ? modelViewer.value?.captureView() : null,
     currentProject: () => readRef(currentProject),
     currentTracker: () => readRef(currentTracker),
     currentUser: () => readRef(currentUser),
@@ -505,7 +516,7 @@ export function useMediaViewerController({
   }
 
   async function openVideo(item) {
-    const viewerItem = enrichProjectMedia(item, 'video', { normalize: true })
+    const viewerItem = enrichProjectMedia(item, getMediaKind(item), { normalize: true })
     if (!viewerItem?.path) {
       console.error('openVideo called with an invalid item')
       return
@@ -516,11 +527,13 @@ export function useMediaViewerController({
     transport.resetForMediaOpen()
     currentVideo.value = viewerItem
     media.streamProgress.value = 0
-    viewerAutoplayPending.value = true
+    viewerAutoplayPending.value = !viewerItem.is_model
+    modelReady.value = false
+    videoInfo.value = emptyMediaInfo()
 
     await Promise.all([
       media.checkStreamStatus(viewerItem),
-      loadMediaInfo(viewerItem),
+      viewerItem.is_model ? Promise.resolve() : loadMediaInfo(viewerItem),
       mediaComments.loadComments(),
     ])
   }
@@ -583,7 +596,7 @@ export function useMediaViewerController({
       const kind = getMediaKind(origin.media)
       if (kind === 'image') openImage(origin.media)
       else if (kind === 'pdf') openPdf(origin.media)
-      else if (kind === 'video') await openVideo(origin.media)
+      else if (kind === 'video' || kind === 'model') await openVideo(origin.media)
       else throw new Error('The original media can no longer be opened')
 
       sidebarTab.value = 'comments'
@@ -752,6 +765,8 @@ export function useMediaViewerController({
       videoEl,
       videoContainer,
       imageStage,
+      modelViewer,
+      modelReady,
       currentFrame,
       mediaUnavailable,
       sidebarTab,
@@ -765,6 +780,7 @@ export function useMediaViewerController({
     media: Object.freeze({
       isViewingImage: media.isViewingImage,
       isViewingPdf: media.isViewingPdf,
+      isViewingModel: media.isViewingModel,
       isViewingVideo: media.isViewingVideo,
       mediaStreamUrl: media.mediaStreamUrl,
       videoManifestUrl: media.videoManifestUrl,
@@ -824,6 +840,16 @@ export function useMediaViewerController({
       setVideoElRef,
       setVideoContainerRef,
       setImageStageRef,
+      setModelViewerRef: viewer => { modelViewer.value = viewer },
+      onModelLoaded: info => {
+        modelReady.value = true
+        videoInfo.value = { ...videoInfo.value, ...info }
+      },
+      onModelTime: time => { transport.currentTime.value = time },
+      onModelAnnotation: data => {
+        if (data) mediaComments.showAnnotationFromData(data)
+        else annotations.clearAnnotationPreview()
+      },
       onImageLoaded,
       handleVideoContainerClick,
       handleCommentClick,

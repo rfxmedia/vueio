@@ -325,8 +325,8 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
   );
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0 16px;
-  min-height: 80px;
-  padding: 12px var(--tracker-page-gutter, 18px);
+  min-height: 72px;
+  padding: 10px var(--tracker-page-gutter, 18px);
   border-bottom-color: var(--v-tracker-masthead-divider, var(--v-divider));
   background: var(--project-header-surface);
   box-shadow: none;

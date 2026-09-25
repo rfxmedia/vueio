@@ -1,43 +1,67 @@
 <template>
-  <section class="admin-section luts-settings-section">
+  <section class="admin-section settings-stack">
     <AdminSettingsHeader
       title="Preview LUTs"
-      description="Shared preview LUTs for your team and share visitors."
+      description="Color looks that your team and share visitors can apply while they review. Source files and downloads do not change."
       icon="#icon-color"
     >
-      <button class="v-btn v-btn-ghost v-btn-sm" type="button" :disabled="busy || loading" @click="loadLuts">Refresh</button>
       <button class="v-btn v-btn-primary v-btn-sm" type="button" :disabled="busy || loading" aria-describedby="luts-file-hint" @click="fileInput?.click()">
+        <svg class="icon"><use href="#icon-upload" /></svg>
         {{ uploading ? 'Uploading…' : 'Upload LUTs' }}
       </button>
     </AdminSettingsHeader>
     <input ref="fileInput" type="file" accept=".cube" multiple hidden @change="uploadFiles" />
 
-    <div class="luts-body">
-      <div class="luts-help">
-        <p id="luts-file-hint">32 MiB per file · 3D .cube, 2–65 points</p>
-        <p>Source downloads stay unchanged. LUTs loaded directly in a viewer are temporary.</p>
-      </div>
-      <p v-if="uploadProgress || message" class="luts-message" role="status">{{ uploadProgress || message }}</p>
-      <p v-if="loadError" class="luts-error" role="alert">{{ loadError }}</p>
-      <div v-if="failures.length" class="luts-errors" role="alert">
-        <p>These files could not be uploaded:</p>
-        <ul><li v-for="(failure, index) in failures" :key="index"><strong>{{ failure.name }}</strong>: {{ failure.reason }}</li></ul>
-      </div>
-      <p v-if="removeError" class="luts-error" role="alert">{{ removeError }}</p>
-      <p v-if="loading && !luts.length" class="luts-empty" role="status">Loading saved LUTs…</p>
-      <p v-else-if="!luts.length && !loadError" class="luts-empty">No saved LUTs yet. Upload .cube files to make them available in Color preview.</p>
-      <ul v-if="luts.length" class="luts-list" aria-label="Saved LUTs">
-        <li v-for="lut in luts" :key="lut.id" class="luts-row">
-          <div class="luts-copy">
-            <strong>{{ lut.name }}</strong>
-            <span>{{ lut.size }}-point 3D LUT · {{ formatSizeBytes(lut.byte_size) }}</span>
-          </div>
-          <button class="v-btn v-btn-ghost v-btn-sm luts-remove" type="button" :disabled="busy || loading" :aria-label="`Remove ${lut.name}`" @click="removeLut(lut)">
-            {{ removingId === lut.id ? 'Removing…' : 'Remove' }}
+    <section class="settings-card">
+      <header class="settings-card-head">
+        <div>
+          <h3>Saved LUTs <span v-if="luts.length" class="settings-count-pill">{{ luts.length }}</span></h3>
+          <p id="luts-file-hint">3D .cube files with 2 to 65 points, up to 32 MiB each. A LUT loaded in a viewer is temporary.</p>
+        </div>
+        <div class="settings-card-head-actions">
+          <button class="v-btn v-btn-ghost v-btn-sm" type="button" :disabled="busy || loading" @click="loadLuts">
+            <svg class="icon" :class="{ spinning: loading }"><use href="#icon-refresh" /></svg>
+            Refresh
           </button>
+        </div>
+      </header>
+
+      <div v-if="loadError || failures.length || removeError" class="settings-card-body luts-alerts" role="alert">
+        <p v-if="loadError">{{ loadError }}</p>
+        <div v-if="failures.length">
+          <p>These files could not be uploaded:</p>
+          <ul><li v-for="(failure, index) in failures" :key="index"><strong>{{ failure.name }}</strong>: {{ failure.reason }}</li></ul>
+        </div>
+        <p v-if="removeError">{{ removeError }}</p>
+      </div>
+
+      <p v-if="loading && !luts.length" class="settings-empty" role="status">Loading saved LUTs…</p>
+      <div v-else-if="!luts.length && !loadError" class="settings-empty">
+        <strong>No LUTs yet</strong>
+        <span>Upload .cube files to make them available in Color preview.</span>
+      </div>
+      <ul v-if="luts.length" class="settings-list" aria-label="Saved LUTs">
+        <li v-for="lut in luts" :key="lut.id" class="settings-list-row">
+          <span class="settings-list-mark" aria-hidden="true"><svg class="icon"><use href="#icon-color" /></svg></span>
+          <div class="settings-list-main">
+            <div class="settings-list-title"><span>{{ lut.name }}</span></div>
+            <div class="settings-list-meta">
+              <span>{{ lut.size }}-point 3D LUT</span>
+              <span>{{ formatSizeBytes(lut.byte_size) }}</span>
+            </div>
+          </div>
+          <div class="settings-list-actions">
+            <button class="v-btn v-btn-ghost v-btn-sm luts-remove" type="button" :disabled="busy || loading" :aria-label="`Remove ${lut.name}`" @click="removeLut(lut)">
+              {{ removingId === lut.id ? 'Removing…' : 'Remove' }}
+            </button>
+          </div>
         </li>
       </ul>
-    </div>
+
+      <footer v-if="uploadProgress || message" class="settings-card-foot">
+        <p role="status">{{ uploadProgress || message }}</p>
+      </footer>
+    </section>
   </section>
 </template>
 
@@ -130,23 +154,30 @@ onUnmounted(() => controller.abort())
 </script>
 
 <style scoped>
-.luts-body { display: grid; gap: var(--v-space-4); padding-top: var(--v-space-4); min-width: 0; }
-.luts-help { display: grid; gap: var(--v-space-1); color: var(--v-text-muted); font-size: var(--v-text-sm); }
-.luts-body p { margin: 0; line-height: 1.5; }
-.luts-message { color: var(--v-text-secondary); overflow-wrap: anywhere; }
-.luts-error,
-.luts-errors { color: var(--v-warning); font-size: var(--v-text-sm); overflow-wrap: anywhere; }
-.luts-errors ul { margin: var(--v-space-2) 0 0; padding-left: var(--v-space-4); list-style: disc; }
-.luts-empty { padding: var(--v-space-6) var(--v-space-4); background: var(--v-surface-canvas); border: 1px solid var(--v-surface-border-soft); border-radius: var(--v-radius-md); color: var(--v-text-muted); }
-.luts-list { margin: 0; padding: 0; list-style: none; }
-.luts-row { display: flex; align-items: center; gap: var(--v-space-4); padding: var(--v-space-4) 0; border-bottom: 1px solid var(--v-surface-border-soft); }
-.luts-row:first-child { padding-top: 0; }
-.luts-copy { display: grid; gap: var(--v-space-1); min-width: 0; flex: 1; }
-.luts-copy strong { font-size: var(--v-text-base); overflow-wrap: anywhere; }
-.luts-copy span { color: var(--v-text-muted); font-size: var(--v-text-sm); }
-.luts-remove { flex: none; color: var(--v-danger-text); }
-@media (max-width: 548px) {
-  .luts-row { gap: var(--v-space-2); }
-  .luts-remove { min-height: var(--v-btn-height-lg); }
+.luts-alerts {
+  gap: var(--v-space-2);
+  border-bottom: 1px solid var(--v-divider-subtle);
+  color: var(--v-warning);
+  font-size: var(--v-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.luts-alerts p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.luts-alerts ul {
+  margin: var(--v-space-2) 0 0;
+  padding-left: var(--v-space-4);
+  list-style: disc;
+}
+
+.luts-remove {
+  color: var(--v-danger-text);
+}
+
+.icon.spinning {
+  animation: v-spin 0.8s linear infinite;
 }
 </style>

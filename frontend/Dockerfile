@@ -6,7 +6,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY index.html vite.config.js ./
-COPY scripts/generate-third-party-notices.mjs ./scripts/generate-third-party-notices.mjs
+COPY scripts/generate-third-party-notices.mjs scripts/model-decoder-notices.txt ./scripts/
 COPY src ./src
 COPY nginx.conf nginx-api-proxy.conf ./
 RUN mkdir -p public && \
@@ -16,6 +16,8 @@ RUN mkdir -p public && \
 
 FROM nginxinc/nginx-unprivileged:1.31.3-alpine3.24@sha256:f972e5322b9797dc2a6b830030094426437b1ae7032e4644496395336ac6fdac
 USER root
+# Each release tag refreshes OS packages instead of reusing a cached upgrade.
+ARG VUEIO_PACKAGE_REFRESH=
 RUN apk upgrade --no-cache
 LABEL org.opencontainers.image.title="Vue.io UI" \
       org.opencontainers.image.licenses="PolyForm-Perimeter-1.0.1" \

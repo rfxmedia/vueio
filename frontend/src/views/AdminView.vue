@@ -1,699 +1,624 @@
 <template>
   <section class="admin-page">
-    <header v-if="!isStorageSetup" class="admin-page-header">
-      <div class="admin-header-copy">
-        <h1 class="admin-title">Settings</h1>
-      </div>
-      <div class="admin-header-overview">
-        <div v-if="isAdmin" class="admin-workspace-summary" aria-label="Workspace summary">
-          <span><strong>{{ users.length }}</strong> members</span>
-          <span><strong>{{ activeShareCount }}</strong> active shares</span>
-          <span><strong>{{ activeKeyCount }}</strong> active keys</span>
-          <span
-            v-if="systemHealth"
-            class="admin-system-summary"
-            :class="{ warn: systemHealth.cpu_percent > 80 || systemHealth.mem_percent > 85 }"
-          >
-            {{ systemHealth.cpu_percent }}% CPU, {{ systemHealth.mem_percent }}% memory
-          </span>
-        </div>
-        <button
-          class="v-btn v-btn-ghost v-btn-icon v-btn-sm admin-refresh"
-          type="button"
-          :aria-label="settingsRefreshing ? 'Refreshing settings' : 'Refresh settings'"
-          :title="settingsRefreshing ? 'Refreshing settings' : 'Refresh settings'"
-          :disabled="settingsRefreshing"
-          @click="refreshAll"
-        >
-          <svg class="icon" :class="{ spinning: settingsRefreshing }"><use href="#icon-refresh"/></svg>
-        </button>
-      </div>
-    </header>
-
-    <div v-if="visibleAgentToken?.token" class="admin-callout">
-      <div>
-        <div class="admin-callout-title">{{ visibleAgentToken.title }}</div>
-        <div class="admin-callout-subtitle">{{ visibleAgentToken.subtitle }}</div>
-      </div>
-      <div class="admin-token-row">
-        <code class="admin-token">{{ visibleAgentToken.token }}</code>
-        <button class="v-btn v-btn-primary v-btn-sm" @click="copyText(visibleAgentToken.token, 'Agent key copied')">Copy</button>
-        <button class="v-btn v-btn-secondary v-btn-sm" @click="copyVisibleAgentSkill">Copy skill</button>
-        <button class="v-btn v-btn-secondary v-btn-sm" @click="visibleAgentToken = null">Dismiss</button>
-      </div>
-    </div>
-
-    <div class="admin-settings-shell" :class="{ 'is-setup': isStorageSetup }">
-      <aside v-if="!isStorageSetup" class="admin-settings-rail" aria-label="Settings navigation">
+    <h1 class="v-sr-only">Settings</h1>
+    <div class="admin-settings-shell" :class="{ 'is-setup': isStorageSetup, 'is-index': showMobileIndex }">
+      <aside v-if="!isStorageSetup" class="admin-settings-rail" aria-label="Settings sections">
         <nav class="admin-settings-nav">
           <section v-for="group in settingsNavGroups" :key="group.label" class="admin-nav-group">
             <h2>{{ group.label }}</h2>
-            <button
-              v-for="tab in group.tabs"
-              :key="tab.value"
-              type="button"
-              class="admin-nav-item"
-              :class="{ active: activeTab === tab.value }"
-              :aria-current="activeTab === tab.value ? 'page' : undefined"
-              @click="activeTab = tab.value"
-            >
-              <svg class="icon" aria-hidden="true"><use :href="tab.icon" /></svg>
-              <span>
-                <strong>{{ tab.label }}</strong>
-              </span>
-              <svg class="icon admin-nav-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
-            </button>
+            <div class="admin-nav-list">
+              <button
+                v-for="tab in group.tabs"
+                :key="tab.value"
+                type="button"
+                class="admin-nav-item"
+                :class="{ active: !showMobileIndex && activeTab === tab.value }"
+                :aria-current="!showMobileIndex && activeTab === tab.value ? 'page' : undefined"
+                @click="selectTab(tab.value)"
+              >
+                <span class="admin-nav-icon" aria-hidden="true"><svg class="icon"><use :href="tab.icon" /></svg></span>
+                <span class="admin-nav-copy">
+                  <strong>{{ tab.label }}</strong>
+                  <small>{{ tab.description }}</small>
+                </span>
+                <span v-if="navBadges[tab.value]" class="admin-nav-badge" :class="navBadges[tab.value].tone">{{ navBadges[tab.value].label }}</span>
+                <svg class="icon admin-nav-chevron" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
+              </button>
+            </div>
           </section>
         </nav>
       </aside>
 
-      <label v-if="!isStorageSetup" class="admin-mobile-nav">
-        <span class="v-sr-only">Settings section</span>
-        <span class="admin-mobile-nav-control">
-          <svg class="icon" aria-hidden="true"><use :href="activeSettingsTab.icon" /></svg>
-          <select :value="activeTab" aria-label="Settings section" @change="activeTab = $event.target.value">
-            <optgroup v-for="group in settingsNavGroups" :key="group.label" :label="group.label">
-              <option v-for="tab in group.tabs" :key="tab.value" :value="tab.value">{{ tab.label }}</option>
-            </optgroup>
-          </select>
-          <svg class="icon admin-mobile-nav-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
-        </span>
-      </label>
-
-      <main class="admin-settings-content" :class="{ 'is-wide': activeSettingsTab.wide }">
-
-    <section v-if="activeTab === 'account'" class="admin-section account-settings-section">
-      <AdminSettingsHeader
-        title="Account"
-        description="Your profile and sign-in password."
-        icon="#icon-user"
-      />
-
-      <div class="account-settings-grid">
-        <section class="account-profile-card">
-          <div class="account-profile-identity">
-            <div class="account-profile-avatar">{{ currentUserInitials }}</div>
-            <div>
-              <p class="settings-eyebrow">Signed in as</p>
-              <h3>{{ currentUser?.display_name || currentUser?.username }}</h3>
-              <p>@{{ currentUser?.username }}</p>
-            </div>
-          </div>
-          <dl class="account-profile-facts">
-            <div>
-              <dt>Role</dt>
-              <dd>{{ currentUser?.role === 'admin' ? 'Administrator' : 'Member' }}</dd>
-            </div>
-            <div>
-              <dt>Access</dt>
-              <dd>{{ currentUser?.role === 'admin' ? 'Full workspace access' : 'Assigned workspace access' }}</dd>
-            </div>
-          </dl>
-        </section>
-
-        <section class="account-password-card">
-          <div class="account-password-head">
-            <div>
-              <p class="settings-eyebrow">Security</p>
-              <h3>Password</h3>
-              <p>Enter your current password. Use at least 8 characters for the new password.</p>
-            </div>
-            <div class="account-password-state" :class="{ 'is-ready': canSavePassword }">
-              <svg class="icon"><use :href="canSavePassword ? '#icon-check' : '#icon-lock'" /></svg>
-              <span>{{ canSavePassword ? 'Ready to save' : 'Complete all fields' }}</span>
-            </div>
-          </div>
-
-          <div class="account-password-fields">
-            <VField label="Current password" class="account-current-password">
-              <input v-model="passwordForm.current" type="password" class="v-input" autocomplete="current-password" />
-            </VField>
-            <VField label="New password">
-              <input v-model="passwordForm.new" type="password" class="v-input" autocomplete="new-password" />
-            </VField>
-            <VField label="Confirm new password">
-              <input v-model="passwordForm.confirm" type="password" class="v-input" autocomplete="new-password" />
-            </VField>
-          </div>
-          <p v-if="passwordMessage" class="v-inline-note admin-note">{{ passwordMessage }}</p>
-          <div class="admin-card-actions">
-            <button class="v-btn v-btn-primary" :disabled="passwordSaving || !canSavePassword" @click="saveMyPassword">
-              {{ passwordSaving ? 'Saving' : 'Update password' }}
-            </button>
-          </div>
-        </section>
-      </div>
-    </section>
-
-    <section v-if="activeTab === 'notifications'" class="admin-section notification-preferences-section">
-      <AdminSettingsHeader
-        title="Notifications"
-        description="Choose delivery channels and activity."
-        icon="#icon-bell"
-      >
-        <button class="v-btn v-btn-primary v-btn-sm" :disabled="notificationSaving" @click="saveNotificationPrefs">
-          {{ notificationSaving ? 'Saving' : 'Save preferences' }}
+      <main v-if="!showMobileIndex" class="admin-settings-content" :class="{ 'is-wide': activeSettingsTab.wide }">
+        <button v-if="isCompact && !isStorageSetup" class="admin-mobile-back" type="button" @click="openMobileIndex">
+          <svg class="icon" aria-hidden="true"><use href="#icon-back" /></svg>
+          Settings
         </button>
-      </AdminSettingsHeader>
 
-      <div class="notification-preferences-body">
-        <section class="notification-preference-card">
-          <div>
-            <h3>Delivery channels</h3>
-          </div>
-          <div class="settings-toggle-grid">
-            <VSwitch
-              v-for="channel in visibleNotificationChannels"
-              :key="channel.value"
-              v-model="notificationPrefs.channels[channel.value]"
-              :label="channel.label"
-              :hint="channel.hint"
-            />
-          </div>
-          <VField v-if="isAdmin" label="Activity scope">
-            <select v-model="notificationPrefs.default_scope" class="v-input">
-              <option value="related_to_me">Only activity related to me</option>
-              <option value="all_visible">Everything I can access</option>
-            </select>
-          </VField>
-          <div v-else class="admin-readonly-field">
-            <span>Activity scope</span>
-            <strong>Only activity related to me</strong>
-          </div>
-          <p class="notification-control-help">
-            {{ notificationPrefs.default_scope === 'all_visible'
-              ? 'You will receive matching activity from every project you can access.'
-              : 'You will receive matching activity when you are assigned, mentioned, or participating.' }}
-          </p>
-        </section>
+        <section v-if="activeTab === 'account'" class="admin-section settings-stack">
+          <AdminSettingsHeader
+            title="Account"
+            description="Your profile and sign-in password."
+            icon="#icon-user"
+          />
 
-        <section class="notification-preference-card">
-          <div>
-            <h3>Activity types</h3>
-          </div>
-          <div class="notification-mode-toggle" role="group" aria-label="Notification activity mode">
-            <button
-              type="button"
-              :class="{ active: notificationEventMode === 'all' }"
-              :aria-pressed="notificationEventMode === 'all'"
-              @click="setNotificationEventMode('all')"
-            >
-              All activity
-            </button>
-            <button
-              type="button"
-              :class="{ active: notificationEventMode === 'selected' }"
-              :aria-pressed="notificationEventMode === 'selected'"
-              @click="setNotificationEventMode('selected')"
-            >
-              Selected types
-            </button>
-          </div>
-          <div v-if="notificationEventMode === 'selected'" class="settings-option-grid notification-event-grid">
-            <VCheckbox
-              v-for="option in notificationEventOptions"
-              :key="option.value"
-              :model-value="notificationPrefs.event_types.includes(option.value)"
-              :label="option.label"
-              :hint="option.hint"
-              @update:modelValue="toggleNotificationEventType(option.value, $event)"
-            />
-          </div>
-          <p class="notification-control-help">
-            {{ notificationEventMode === 'all'
-              ? 'All current and future activity types are included.'
-              : `${notificationPrefs.event_types.length} of ${notificationEventOptions.length} activity types selected.` }}
-          </p>
-        </section>
-        <p v-if="notificationMessage" class="v-inline-note admin-note notification-preferences-message">{{ notificationMessage }}</p>
-      </div>
-    </section>
+          <section class="settings-card">
+            <div class="account-identity">
+              <div class="account-avatar" aria-hidden="true">{{ currentUserInitials }}</div>
+              <div class="account-identity-copy">
+                <strong>{{ currentUser?.display_name || currentUser?.username }}</strong>
+                <span>@{{ currentUser?.username }}</span>
+              </div>
+              <span class="account-role" :class="{ 'is-admin': isAdmin }">{{ isAdmin ? 'Administrator' : 'Member' }}</span>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Your access</strong>
+                <span>{{ isAdmin ? 'You can open every project and change all settings.' : `${summarizeAppAccess(currentUser || {})}. An administrator controls your access.` }}</span>
+              </div>
+            </div>
+          </section>
 
-    <AdminTeamTab
-      v-if="canManageMembers && activeTab === 'team'"
-      :current-user="currentUser"
-      :identity-form="identityForm"
-      :identity-initials="identityInitials"
-      :identity-logo-saving="identityLogoSaving"
-      :identity-logo-url="identityLogoUrl"
-      :identity-message="identityMessage"
-      :identity-saving="identitySaving"
-      :identity-team-name="identityTeamName"
-      :identity-website-url="identityWebsiteUrl"
-      :users="users"
-      :filtered-users="filteredUsers"
-      :user-search="userSearch"
-      :admin-user-count="adminUserCount"
-      :member-user-count="memberUserCount"
-      :show-team-profile="isAdmin"
-      :summarize-app-access="summarizeAppAccess"
-      :user-initials="userInitials"
-      @update:user-search="userSearch = $event"
-      @update-identity-field="updateIdentityField"
-      @identity-logo-change="handleIdentityLogoChange"
-      @remove-identity-logo="removeIdentityLogo"
-      @save-identity="saveIdentity"
-      @open-create-user-modal="openCreateUserModal"
-      @open-edit-user-modal="openEditUserModal"
-      @delete-user="deleteUserConfirm"
-    />
-
-    <AdminAgentKeysTab
-      v-if="activeTab === 'agent-keys'"
-      :agent-key-scope="agentKeyScope"
-      :filtered-visible-agent-keys="filteredVisibleAgentKeys"
-      :format-date-label="formatDateLabel"
-      :grouped-visible-agent-keys="groupedVisibleAgentKeys"
-      :is-admin="isAdmin"
-      :key-search="keySearch"
-      :personal-key-saving="personalKeySaving"
-      @update:agent-key-scope="agentKeyScope = $event"
-      @update:key-search="keySearch = $event"
-      @create-personal-agent-key="createPersonalAgentKey"
-      @delete-unified-agent-key="deleteUnifiedAgentKeyConfirm"
-      @open-create-key-modal="openCreateKeyModal"
-      @open-edit-agent-key="openEditAgentKey"
-      @reissue-agent-key-skill="reissueAndCopyAgentKeySkill"
-      @reissue-unified-agent-key="reissueUnifiedAgentKey"
-      @toggle-unified-agent-key="toggleUnifiedAgentKey"
-    />
-
-    <header v-if="isAdmin && activeTab === 'notifications'" class="settings-admin-heading">
-      <p class="settings-eyebrow">Administration</p>
-      <h2>External delivery</h2>
-      <p>Connect Discord and review recent delivery health for the workspace.</p>
-    </header>
-
-    <details v-if="isAdmin && activeTab === 'notifications'" class="admin-section settings-disclosure discord-settings-section">
-      <summary class="settings-disclosure-summary">
-        <span class="settings-disclosure-icon"><svg class="icon"><use href="#icon-send" /></svg></span>
-        <span class="settings-disclosure-copy">
-          <strong>Discord delivery</strong>
-          <span>Configure the bot and map Vueio activity to Discord channels.</span>
-        </span>
-        <span class="settings-disclosure-meta">
-          <span class="admin-badge" :class="discordProvider.is_configured ? 'success' : 'warn'">
-            {{ discordProvider.is_configured ? 'Configured' : 'Needs setup' }}
-          </span>
-          <span>{{ subscriptions.length }} {{ subscriptions.length === 1 ? 'channel' : 'channels' }}</span>
-        </span>
-        <svg class="icon settings-disclosure-chevron"><use href="#icon-chevron-down" /></svg>
-      </summary>
-
-      <div class="settings-disclosure-body discord-settings-body">
-      <div class="settings-panel settings-form-panel discord-provider-panel">
-        <div>
-          <p class="settings-eyebrow">Discord</p>
-          <h2 class="settings-title">Bot and channels</h2>
-          <p class="settings-copy">Configure the bot once, then map Discord channels to Vueio users.</p>
-        </div>
-        <div class="settings-toggle-grid discord-status-grid">
-          <div class="admin-access-stack">
-            <span class="admin-state" :class="discordProvider.is_configured ? 'success' : 'danger'">
-              {{ discordProvider.is_configured ? 'Token configured' : 'Token missing' }}
-            </span>
-            <span class="admin-access-line">{{ discordProvider.has_saved_token ? 'Saved in Vueio settings' : (discordProvider.uses_env_token ? 'Using server env token' : 'No token source') }}</span>
-          </div>
-          <div class="admin-access-stack">
-            <span class="admin-state">Permissions {{ discordProvider.bot_permissions || 84992 }}</span>
-            <span class="admin-access-line">View Channels, Send Messages, Embed Links, Read Message History</span>
-          </div>
-        </div>
-        <div class="v-form-grid admin-form-grid">
-          <VField label="Application ID">
-            <input v-model="discordProviderForm.application_id" class="v-input" placeholder="123456789012345678" />
-          </VField>
-          <VField label="Public base URL">
-            <input v-model="discordProviderForm.public_base_url" class="v-input" placeholder="https://vue.example.com" />
-          </VField>
-          <VField label="Bot token">
-            <div class="admin-secret-input">
-              <input
-                v-model="discordProviderForm.bot_token"
-                class="v-input"
-                :type="discordTokenVisible ? 'text' : 'password'"
-                autocomplete="off"
-                placeholder="Paste a new token to update"
-              />
-              <button
-                class="v-btn v-btn-ghost v-btn-icon v-btn-sm admin-secret-toggle"
-                type="button"
-                :title="discordTokenVisible ? 'Hide bot token' : 'Reveal bot token'"
-                :aria-label="discordTokenVisible ? 'Hide bot token' : 'Reveal bot token'"
-                @click="discordTokenVisible = !discordTokenVisible"
-              >
-                <svg class="icon"><use :href="discordTokenVisible ? '#icon-eye-off' : '#icon-eye'" /></svg>
+          <form class="settings-card" @submit.prevent="saveMyPassword">
+            <header class="settings-card-head">
+              <div>
+                <h3>Password</h3>
+                <p>Enter your current password, then a new one with at least 8 characters.</p>
+              </div>
+            </header>
+            <div class="settings-card-body account-password-fields">
+              <input type="text" class="v-sr-only" autocomplete="username" :value="currentUser?.username || ''" tabindex="-1" aria-hidden="true" readonly />
+              <VField label="Current password">
+                <input v-model="passwordForm.current" type="password" class="v-input" autocomplete="current-password" />
+              </VField>
+              <VField label="New password" :error="passwordTooShort ? 'Use at least 8 characters.' : ''">
+                <input v-model="passwordForm.new" type="password" class="v-input" autocomplete="new-password" />
+              </VField>
+              <VField label="Confirm new password" :error="passwordMismatch ? 'The passwords do not match.' : ''">
+                <input v-model="passwordForm.confirm" type="password" class="v-input" autocomplete="new-password" />
+              </VField>
+            </div>
+            <footer class="settings-card-foot">
+              <p v-if="passwordMessage" role="status">{{ passwordMessage }}</p>
+              <button class="v-btn v-btn-primary v-btn-sm" type="submit" :disabled="passwordSaving || !canSavePassword">
+                {{ passwordSaving ? 'Saving' : 'Change password' }}
               </button>
-            </div>
-          </VField>
-        </div>
-        <div v-if="discordProvider.invite_url" class="admin-token-callout discord-invite-callout">
-          <div>
-            <strong>Invite URL</strong>
-            <p class="admin-note">Use this to add the configured bot to a Discord server. Private channels still need the bot role added inside Discord.</p>
-          </div>
-          <a class="v-btn v-btn-secondary v-btn-sm" :href="discordProvider.invite_url" target="_blank" rel="noreferrer">Open invite</a>
-        </div>
-        <p v-if="discordProviderMessage" class="v-inline-note admin-note">{{ discordProviderMessage }}</p>
-        <div class="admin-form-actions">
-          <button class="v-btn v-btn-primary" :disabled="discordProviderSaving" @click="saveDiscordProvider">
-            {{ discordProviderSaving ? 'Saving' : 'Save Discord setup' }}
-          </button>
-          <button
-            v-if="discordProvider.has_saved_token"
-            class="v-btn v-btn-danger"
-            :disabled="discordProviderSaving"
-            @click="clearDiscordProviderToken"
+            </footer>
+          </form>
+        </section>
+
+        <section v-if="activeTab === 'notifications'" class="admin-section settings-stack">
+          <AdminSettingsHeader
+            title="Notifications"
+            description="Choose where Vueio tells you about activity, and which activity. Changes save automatically."
+            icon="#icon-bell"
           >
-            Clear Saved Token
-          </button>
-        </div>
-      </div>
+            <span v-if="notificationSaving || notificationMessage" class="settings-save-state" :class="{ 'is-error': notificationError }" role="status">
+              <svg v-if="!notificationSaving && !notificationError" class="icon" aria-hidden="true"><use href="#icon-check" /></svg>
+              {{ notificationSaving ? 'Saving…' : notificationMessage }}
+            </span>
+          </AdminSettingsHeader>
 
-      <div class="settings-panel discord-channel-panel">
-        <div class="admin-toolbar discord-channel-toolbar">
-          <div>
-            <strong>Discord channels</strong>
-            <p class="admin-note">Map each channel to the Vueio user whose related activity should be delivered there.</p>
-          </div>
-          <button class="v-btn v-btn-primary v-btn-sm" @click="openCreateSubscriptionModal">
-            <svg class="icon"><use href="#icon-plus" /></svg>
-            New channel
-          </button>
-        </div>
+          <section class="settings-card">
+            <header class="settings-card-head">
+              <div>
+                <h3>Where</h3>
+                <p>Turn on each place you want to see activity.</p>
+              </div>
+            </header>
+            <VSwitch
+              class="settings-switch-row"
+              :model-value="notificationPrefs.channels.in_app"
+              label="Notification tray"
+              hint="Show activity in the bell at the top of Vueio."
+              @update:modelValue="setNotificationChannel('in_app', $event)"
+            />
+            <VSwitch
+              class="settings-switch-row"
+              :model-value="notificationPrefs.channels.discord"
+              label="Discord"
+              :hint="isAdmin ? 'Send activity to the Discord channels connected to you in Discord settings.' : 'Send activity to your Discord channel. An administrator connects the channel.'"
+              @update:modelValue="setNotificationChannel('discord', $event)"
+            />
+          </section>
 
-        <div v-if="subscriptions.length === 0" class="v-empty-state v-empty-state-compact admin-empty">No notification channels configured.</div>
-        <div v-else class="admin-list">
-          <div class="v-column-header admin-list-header admin-subscription-grid">
-            <span>Recipient</span>
-            <span>Destination</span>
-            <span>Rules</span>
-            <span>Actions</span>
-          </div>
-          <article v-for="subscription in subscriptions" :key="subscription.id" class="admin-card subscription-card" :class="{ inactive: !subscription.is_enabled }">
-            <div class="admin-card-main">
-              <div class="admin-card-title-row">
-                <h3 class="admin-card-title">{{ subscription.recipient_display_name }}</h3>
-                <div class="admin-badge-row">
-                  <span class="admin-badge" :class="subscription.is_enabled ? 'success' : 'danger'">{{ subscription.is_enabled ? 'Enabled' : 'Disabled' }}</span>
-                  <span class="admin-badge">{{ subscription.provider }}</span>
+          <section class="settings-card">
+            <header class="settings-card-head">
+              <div>
+                <h3>What</h3>
+                <p>Choose which activity you get.</p>
+              </div>
+            </header>
+            <div class="settings-row">
+              <div class="settings-row-copy">
+                <strong>Projects</strong>
+                <span>
+                  {{ notificationPrefs.default_scope === 'all_visible'
+                    ? 'Activity from every project you can open.'
+                    : 'Activity where you are assigned, mentioned or taking part.' }}
+                </span>
+              </div>
+              <div class="settings-row-control">
+                <div v-if="isAdmin" class="settings-segmented" role="group" aria-label="Activity from">
+                  <button type="button" :aria-pressed="notificationPrefs.default_scope === 'related_to_me'" @click="setNotificationScope('related_to_me')">Related to me</button>
+                  <button type="button" :aria-pressed="notificationPrefs.default_scope === 'all_visible'" @click="setNotificationScope('all_visible')">All projects</button>
+                </div>
+                <span v-else class="settings-count-pill">Related to me</span>
+              </div>
+            </div>
+            <div class="settings-row is-stacked">
+              <div class="notification-types-head">
+                <div class="settings-row-copy">
+                  <strong>Activity types</strong>
+                  <span>
+                    {{ notificationEventMode === 'all'
+                      ? 'All types, including types that Vueio adds later.'
+                      : `${notificationPrefs.event_types.length} of ${notificationEventOptions.length} types.` }}
+                  </span>
+                </div>
+                <div class="settings-row-control">
+                  <div class="settings-segmented" role="group" aria-label="Activity types">
+                    <button type="button" :aria-pressed="notificationEventMode === 'all'" @click="setNotificationEventMode('all')">All types</button>
+                    <button type="button" :aria-pressed="notificationEventMode === 'selected'" @click="setNotificationEventMode('selected')">Choose</button>
+                  </div>
                 </div>
               </div>
-              <div class="admin-card-subtitle">
-                <span>{{ subscription.scope === 'all_visible' ? 'Everything visible' : 'Related to user' }}</span>
-                <span>•</span>
-                <span>{{ formatDateLabel(subscription.updated_at || subscription.created_at) }}</span>
+              <div v-if="notificationEventMode === 'selected'" class="notification-event-grid">
+                <VCheckbox
+                  v-for="option in notificationEventOptions"
+                  :key="option.value"
+                  :model-value="notificationPrefs.event_types.includes(option.value)"
+                  :disabled="isLastNotificationType(option.value)"
+                  :label="option.label"
+                  :hint="option.hint"
+                  @update:modelValue="toggleNotificationEventType(option.value, $event)"
+                />
               </div>
             </div>
-            <div class="admin-access-stack">
-              <span class="admin-state">#{{ subscription.destination }}</span>
-              <span class="admin-access-line">{{ formatSubscriptionFilters(subscription) }}</span>
-            </div>
-            <div class="admin-access-stack">
-              <span class="admin-state">{{ subscription.event_filters?.length ? subscription.event_filters.join(', ') : 'All activity' }}</span>
-              <span class="admin-access-line">{{ subscription.project_filters?.length ? `${subscription.project_filters.length} project filters` : 'All projects' }}</span>
-            </div>
-            <div class="admin-card-actions">
-              <button class="v-btn v-btn-ghost v-btn-sm" @click="testSubscription(subscription)">Test</button>
-              <button class="v-btn v-btn-ghost v-btn-sm" @click="openEditSubscriptionModal(subscription)">Edit</button>
-              <button class="v-btn v-btn-ghost v-btn-sm" @click="toggleSubscription(subscription)">{{ subscription.is_enabled ? 'Disable' : 'Enable' }}</button>
-              <button class="v-btn v-btn-danger v-btn-sm" @click="deleteSubscriptionConfirm(subscription)">Delete</button>
-            </div>
-          </article>
-        </div>
-      </div>
-      </div>
-    </details>
+          </section>
+        </section>
 
-    <details v-if="isAdmin && activeTab === 'notifications'" class="admin-section settings-disclosure delivery-health-section">
-      <summary class="settings-disclosure-summary">
-        <span class="settings-disclosure-icon"><svg class="icon"><use href="#icon-activity" /></svg></span>
-        <span class="settings-disclosure-copy">
-          <strong>Delivery history</strong>
-          <span>Inspect recent external notification attempts and failures.</span>
-        </span>
-        <span class="settings-disclosure-meta">
-          <span>{{ deliveries.length }} recent</span>
-          <span v-if="failedDeliveryCount" class="admin-badge danger">{{ failedDeliveryCount }} failed</span>
-          <span v-else class="admin-badge success">Healthy</span>
-        </span>
-        <svg class="icon settings-disclosure-chevron"><use href="#icon-chevron-down" /></svg>
-      </summary>
+        <AdminAgentKeysTab
+          v-if="activeTab === 'agent-keys'"
+          :agent-key-scope="agentKeyScope"
+          :filtered-visible-agent-keys="filteredVisibleAgentKeys"
+          :format-date-label="formatDateLabel"
+          :grouped-visible-agent-keys="groupedVisibleAgentKeys"
+          :is-admin="isAdmin"
+          :key-search="keySearch"
+          :visible-token="visibleAgentToken"
+          @update:agent-key-scope="agentKeyScope = $event"
+          @update:key-search="keySearch = $event"
+          @copy-token="copyText(visibleAgentToken.token, 'Token copied')"
+          @copy-token-skill="copyVisibleAgentSkill"
+          @dismiss-token="visibleAgentToken = null"
+          @delete-unified-agent-key="deleteUnifiedAgentKeyConfirm"
+          @open-create-key-modal="openCreateKeyModal"
+          @open-edit-agent-key="openEditAgentKey"
+          @reissue-agent-key-skill="reissueAndCopyAgentKeySkill"
+          @reissue-unified-agent-key="reissueUnifiedAgentKey"
+          @toggle-unified-agent-key="toggleUnifiedAgentKey"
+        />
 
-      <div class="settings-disclosure-body">
-        <div class="delivery-health-toolbar">
-          <span>Showing {{ displayedDeliveries.length }} of {{ deliveries.length }} recent attempts</span>
-          <button class="v-btn v-btn-secondary v-btn-sm" @click="loadDeliveries">Refresh</button>
-        </div>
+        <AdminMembersTab
+          v-if="canManageMembers && activeTab === 'members'"
+          :current-user="currentUser"
+          :filtered-users="filteredUsers"
+          :user-search="userSearch"
+          :admin-user-count="adminUserCount"
+          :member-user-count="memberUserCount"
+          :summarize-app-access="summarizeAppAccess"
+          :user-initials="userInitials"
+          @update:user-search="userSearch = $event"
+          @open-create-user-modal="openCreateUserModal"
+          @open-edit-user-modal="openEditUserModal"
+          @delete-user="deleteUserConfirm"
+        />
 
-        <div v-if="deliveries.length === 0" class="v-empty-state v-empty-state-compact admin-empty">No notification deliveries yet.</div>
-        <div v-else class="admin-list">
-          <div class="v-column-header admin-list-header admin-delivery-grid">
-            <span>Delivery</span>
-            <span>Status</span>
-            <span>Details</span>
+        <AdminBrandingTab
+          v-if="isAdmin && activeTab === 'branding'"
+          :identity-form="identityForm"
+          :identity-initials="identityInitials"
+          :identity-logo-saving="identityLogoSaving"
+          :identity-logo-url="identityLogoUrl"
+          :identity-message="identityMessage"
+          :identity-saving="identitySaving"
+          :identity-team-name="identityTeamName"
+          :identity-website-url="identityWebsiteUrl"
+          @update-identity-field="updateIdentityField"
+          @identity-logo-change="handleIdentityLogoChange"
+          @remove-identity-logo="removeIdentityLogo"
+          @save-identity="saveIdentity"
+        />
+
+        <section v-if="isAdmin && activeTab === 'discord'" class="admin-section settings-stack">
+          <AdminSettingsHeader
+            title="Discord"
+            description="Post Vueio activity in Discord. Set up the bot once, then connect a channel for each person."
+            icon="#icon-send"
+          >
+            <span class="settings-status-pill" :class="discordProvider.is_configured ? 'is-good' : 'is-warn'">
+              <i aria-hidden="true"></i>
+              {{ discordProvider.is_configured ? 'Connected' : 'Not set up' }}
+            </span>
+          </AdminSettingsHeader>
+
+          <form class="settings-card" @submit.prevent="saveDiscordProvider">
+            <header class="settings-card-head">
+              <div>
+                <h3>Bot</h3>
+                <p>
+                  {{ discordProvider.has_saved_token
+                    ? 'A bot token is saved in Vueio.'
+                    : discordProvider.uses_env_token
+                      ? 'Vueio uses the bot token from the server configuration.'
+                      : 'Create a bot in the Discord Developer Portal, then paste its details here.' }}
+                </p>
+              </div>
+            </header>
+            <div class="settings-card-body discord-bot-fields">
+              <VField label="Application ID" hint="On the General Information page of your Discord app.">
+                <input v-model="discordProviderForm.application_id" class="v-input" inputmode="numeric" placeholder="123456789012345678" />
+              </VField>
+              <VField label="Vueio address" hint="Links in Discord messages open this address.">
+                <input v-model="discordProviderForm.public_base_url" class="v-input" type="url" placeholder="https://vue.example.com" />
+              </VField>
+              <VField class="discord-token-field" label="Bot token" :hint="discordProvider.has_saved_token ? 'Leave empty to keep the saved token.' : 'On the Bot page of your Discord app.'">
+                <div class="admin-secret-input">
+                  <input
+                    v-model="discordProviderForm.bot_token"
+                    class="v-input"
+                    :type="discordTokenVisible ? 'text' : 'password'"
+                    autocomplete="off"
+                    :placeholder="discordProvider.has_saved_token ? 'Saved' : 'Paste the bot token'"
+                  />
+                  <button
+                    class="v-btn v-btn-ghost v-btn-icon v-btn-sm admin-secret-toggle"
+                    type="button"
+                    :title="discordTokenVisible ? 'Hide bot token' : 'Show bot token'"
+                    :aria-label="discordTokenVisible ? 'Hide bot token' : 'Show bot token'"
+                    @click="discordTokenVisible = !discordTokenVisible"
+                  >
+                    <svg class="icon"><use :href="discordTokenVisible ? '#icon-eye-off' : '#icon-eye'" /></svg>
+                  </button>
+                </div>
+              </VField>
+            </div>
+            <div v-if="discordProvider.invite_url" class="settings-row discord-invite-row">
+              <div class="settings-row-copy">
+                <strong>Add the bot to your server</strong>
+                <span>The bot needs to view channels, send messages, embed links and read message history. For a private channel, also add the bot role to it in Discord.</span>
+              </div>
+              <div class="settings-row-control">
+                <a class="v-btn v-btn-secondary v-btn-sm" :href="discordProvider.invite_url" target="_blank" rel="noreferrer">
+                  Open invite
+                  <svg class="icon" aria-hidden="true"><use href="#icon-external-link" /></svg>
+                </a>
+              </div>
+            </div>
+            <footer class="settings-card-foot">
+              <p v-if="discordProviderMessage" role="status">{{ discordProviderMessage }}</p>
+              <button
+                v-if="discordProvider.has_saved_token"
+                class="v-btn v-btn-ghost v-btn-sm discord-clear-token"
+                type="button"
+                :disabled="discordProviderSaving"
+                @click="clearDiscordProviderToken"
+              >
+                Remove saved token
+              </button>
+              <button class="v-btn v-btn-primary v-btn-sm" type="submit" :disabled="discordProviderSaving">
+                {{ discordProviderSaving ? 'Saving' : 'Save' }}
+              </button>
+            </footer>
+          </form>
+
+          <section class="settings-card">
+            <header class="settings-card-head">
+              <div>
+                <h3>Channels <span v-if="subscriptions.length" class="settings-count-pill">{{ subscriptions.length }}</span></h3>
+                <p>Each channel gets the activity of one person. Vueio sends only what that person can see.</p>
+              </div>
+              <div class="settings-card-head-actions">
+                <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="openCreateSubscriptionModal">
+                  <svg class="icon"><use href="#icon-plus" /></svg>
+                  Connect channel
+                </button>
+              </div>
+            </header>
+            <div v-if="subscriptions.length === 0" class="settings-empty">
+              <strong>No channels connected</strong>
+              <span>Connect a channel to start sending activity to Discord.</span>
+            </div>
+            <ul v-else class="settings-list">
+              <li v-for="subscription in subscriptions" :key="subscription.id" class="settings-list-row" :class="{ 'is-muted': !subscription.is_enabled }">
+                <span class="settings-list-mark" aria-hidden="true">#</span>
+                <div class="settings-list-main">
+                  <div class="settings-list-title">
+                    <span>{{ subscription.recipient_display_name }}</span>
+                    <span v-if="!subscription.is_enabled" class="settings-count-pill">Paused</span>
+                  </div>
+                  <div class="settings-list-meta">
+                    <span>Channel {{ subscription.destination }}</span>
+                    <span>{{ subscription.scope === 'all_visible' ? 'All projects' : 'Related to them' }}</span>
+                    <span>{{ subscription.event_filters?.length ? subscription.event_filters.map(formatEventType).join(', ') : 'All types' }}</span>
+                  </div>
+                </div>
+                <div class="settings-list-actions">
+                  <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="testSubscription(subscription)">Send test</button>
+                  <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="openEditSubscriptionModal(subscription)">Edit</button>
+                  <VMenu
+                    :open="subscriptionMenuOpen === subscription.id"
+                    align="end"
+                    :min-width="180"
+                    teleport
+                    @update:open="subscriptionMenuOpen = $event ? subscription.id : ''"
+                  >
+                    <template #trigger="{ triggerProps }">
+                      <VOverflowButton
+                        v-bind="triggerProps"
+                        :active="subscriptionMenuOpen === subscription.id"
+                        :label="`More actions for ${subscription.recipient_display_name}`"
+                        @click="subscriptionMenuOpen = subscriptionMenuOpen === subscription.id ? '' : subscription.id"
+                      />
+                    </template>
+                    <VMenuActionList :actions="subscriptionMenuActions(subscription)" />
+                  </VMenu>
+                </div>
+              </li>
+            </ul>
+          </section>
+
+          <section class="settings-card">
+            <header class="settings-card-head">
+              <div>
+                <h3>
+                  Recent deliveries
+                  <span v-if="failedDeliveryCount" class="settings-status-pill is-bad"><i aria-hidden="true"></i>{{ failedDeliveryCount }} failed</span>
+                  <span v-else-if="deliveries.length" class="settings-status-pill is-good"><i aria-hidden="true"></i>All sent</span>
+                </h3>
+                <p>The last {{ deliveries.length || 100 }} messages Vueio tried to send.</p>
+              </div>
+              <div class="settings-card-head-actions">
+                <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="loadDeliveries">
+                  <svg class="icon"><use href="#icon-refresh" /></svg>
+                  Refresh
+                </button>
+              </div>
+            </header>
+            <div v-if="deliveries.length === 0" class="settings-empty">
+              <strong>Nothing sent yet</strong>
+              <span>Messages appear here after Vueio sends activity to Discord.</span>
+            </div>
+            <ul v-else class="settings-list">
+              <li v-for="delivery in displayedDeliveries" :key="delivery.id" class="settings-list-row delivery-row" :class="`is-${deliveryStateClass(delivery.status) || 'waiting'}`">
+                <span class="settings-list-mark" aria-hidden="true">
+                  <svg class="icon"><use :href="deliveryStateIcon(delivery.status)" /></svg>
+                </span>
+                <div class="settings-list-main">
+                  <div class="settings-list-title">
+                    <span>{{ delivery.payload?.event?.summary || `Event ${delivery.tracker_event_id}` }}</span>
+                  </div>
+                  <div class="settings-list-meta">
+                    <span class="delivery-status">{{ formatDeliveryStatus(delivery.status) }}</span>
+                    <span>{{ userLabel(delivery.recipient_user_id) }}</span>
+                    <span>{{ formatDateLabel(delivery.created_at) }}</span>
+                    <span v-if="(delivery.attempts || 0) > 1">{{ delivery.attempts }} attempts</span>
+                  </div>
+                  <p v-if="delivery.last_error" class="delivery-error">{{ delivery.last_error }}</p>
+                </div>
+              </li>
+            </ul>
+            <footer v-if="displayedDeliveries.length < deliveries.length" class="settings-card-foot">
+              <p>Showing {{ displayedDeliveries.length }} of {{ deliveries.length }}</p>
+              <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="deliveryVisibleLimit += 10">Show more</button>
+            </footer>
+          </section>
+        </section>
+
+        <AdminThemeManager v-if="isAdmin && activeTab === 'theme'" />
+
+        <AdminLutsTab v-if="isAdmin && activeTab === 'luts'" />
+
+        <AdminUpdatesTab v-if="isAdmin && activeTab === 'updates'" />
+
+        <AdminStorageTab
+          v-if="isAdmin && activeTab === 'storage'"
+          :storage-roots="storageRoots"
+          :storage-roots-error="storageRootsError"
+          :storage-roots-loading="storageRootsLoading"
+          @refresh-storage-roots="loadStorageRoots"
+        />
+
+        <AdminPreviewsTab
+          v-if="isAdmin && activeTab === 'previews'"
+          :transcodes-resetting="transcodesResetting"
+          @reset-transcodes="resetTranscodes"
+        />
+
+        <section v-if="isAdmin && activeTab === 'downloads'" class="admin-section settings-stack">
+          <AdminSettingsHeader
+            title="Download history"
+            description="See who downloaded files and when. Vueio keeps up to 180 days and 10,000 downloads."
+            icon="#icon-download"
+          >
+            <button class="v-btn v-btn-ghost v-btn-sm" type="button" :disabled="downloadEventsLoading" @click="loadDownloadEvents">
+              <svg class="icon" :class="{ spinning: downloadEventsLoading }"><use href="#icon-refresh" /></svg>
+              {{ downloadEventsLoading ? 'Refreshing' : 'Refresh' }}
+            </button>
+          </AdminSettingsHeader>
+
+          <section class="settings-card">
+            <div class="settings-list-toolbar">
+              <div class="v-search-shell admin-search-wrap">
+                <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
+                <input v-model="downloadSearch" class="v-search-input admin-search-input" placeholder="Search files and people" aria-label="Search downloads" />
+              </div>
+              <div class="settings-segmented" role="group" aria-label="Downloaded by">
+                <button type="button" :aria-pressed="downloadSourceFilter === 'all'" @click="downloadSourceFilter = 'all'">All <span class="settings-segmented-count">{{ downloadEvents.length }}</span></button>
+                <button type="button" :aria-pressed="downloadSourceFilter === 'team'" @click="downloadSourceFilter = 'team'">Team <span class="settings-segmented-count">{{ downloadEvents.length - sharedDownloadCount }}</span></button>
+                <button type="button" :aria-pressed="downloadSourceFilter === 'share'" @click="downloadSourceFilter = 'share'">Shared links <span class="settings-segmented-count">{{ sharedDownloadCount }}</span></button>
+              </div>
+            </div>
+
+            <div v-if="downloadEventsLoading && !downloadEvents.length" class="settings-empty" role="status">Loading download history…</div>
+            <div v-else-if="downloadEventsError" class="settings-empty" role="alert">{{ downloadEventsError }}</div>
+            <div v-else-if="filteredDownloadEvents.length === 0" class="settings-empty">
+              <strong>{{ downloadEvents.length ? 'No downloads found' : 'No downloads yet' }}</strong>
+              <span>{{ downloadEvents.length ? 'Try a different search or filter.' : 'Downloads appear here after someone saves a file.' }}</span>
+            </div>
+            <ul v-else class="settings-list">
+              <li v-for="event in displayedDownloadEvents" :key="event.id" class="download-row" :class="{ 'is-open': expandedDownloadId === event.id }">
+                <div class="settings-list-row">
+                  <span class="settings-list-mark download-mark" :class="downloadEventClass(event)" aria-hidden="true">
+                    <svg class="icon"><use :href="downloadEventIcon(event)" /></svg>
+                  </span>
+                  <div class="settings-list-main">
+                    <div class="settings-list-title">
+                      <span>{{ downloadEventTitle(event) }}</span>
+                      <span v-if="downloadEventLabel(event) !== 'File'" class="settings-count-pill">{{ downloadEventLabel(event) }}</span>
+                    </div>
+                    <div class="settings-list-meta">
+                      <span>{{ event.user_name || (event.source === 'share' ? 'Shared link visitor' : 'Unknown person') }}</span>
+                      <span>{{ formatDateLabel(event.created_at) }}</span>
+                      <span>{{ event.source === 'share' ? 'Shared link' : 'Team' }}</span>
+                      <span v-if="event.size_bytes">{{ formatSizeBytes(event.size_bytes, { compact: true }) }}</span>
+                      <span v-if="event.status && event.status !== 'completed'">{{ event.status }}</span>
+                    </div>
+                  </div>
+                  <div class="settings-list-actions">
+                    <button
+                      class="v-btn v-btn-ghost v-btn-sm"
+                      type="button"
+                      :aria-expanded="expandedDownloadId === event.id"
+                      @click="expandedDownloadId = expandedDownloadId === event.id ? '' : event.id"
+                    >
+                      Details
+                      <svg class="icon download-details-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+                    </button>
+                  </div>
+                </div>
+                <dl v-if="expandedDownloadId === event.id" class="download-detail-grid">
+                  <div><dt>Event ID</dt><dd>{{ event.id }}</dd></div>
+                  <div><dt>Project</dt><dd>{{ event.project_id || 'None' }}</dd></div>
+                  <div><dt>Tracker</dt><dd>{{ event.tracker_id || 'None' }}</dd></div>
+                  <div><dt>File name</dt><dd>{{ event.filename || 'None' }}</dd></div>
+                  <div><dt>Size</dt><dd>{{ formatSizeBytes(event.size_bytes, { zeroLabel: 'Unknown', compact: true }) }}</dd></div>
+                  <div><dt>Resource</dt><dd>{{ event.resource_type || 'Unknown' }}</dd></div>
+                  <div><dt>Sign-in</dt><dd>{{ event.source === 'share' ? `Shared link ${event.share_id || ''}` : (event.auth_mode || 'session') }}</dd></div>
+                  <div><dt>Status</dt><dd>{{ event.status || 'started' }}</dd></div>
+                  <div class="download-detail-wide"><dt>Context</dt><dd>{{ compactJson(event.metadata) }}</dd></div>
+                </dl>
+              </li>
+            </ul>
+            <footer v-if="displayedDownloadEvents.length < filteredDownloadEvents.length" class="settings-card-foot">
+              <p>Showing {{ displayedDownloadEvents.length }} of {{ filteredDownloadEvents.length }}</p>
+              <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="downloadVisibleLimit += 15">Show more</button>
+            </footer>
+          </section>
+        </section>
+
+        <section v-if="isAdmin && activeTab === 'shares'" class="admin-section settings-stack share-settings-section">
+          <AdminSettingsHeader
+            title="Shared links"
+            description="Links that let people outside your team open projects and files. Turn a link off to stop access at once."
+            icon="#icon-share"
+          />
+
+          <div class="share-toolbar">
+            <div class="v-search-shell admin-search-wrap">
+              <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
+              <input v-model="shareSearch" class="v-search-input admin-search-input" placeholder="Search links" aria-label="Search shared links" />
+            </div>
+            <div class="settings-segmented" role="group" aria-label="Link status">
+              <button type="button" :aria-pressed="shareStatusFilter === 'all'" @click="shareStatusFilter = 'all'">All</button>
+              <button type="button" :aria-pressed="shareStatusFilter === 'active'" @click="shareStatusFilter = 'active'">Active</button>
+              <button type="button" :aria-pressed="shareStatusFilter === 'expired'" @click="shareStatusFilter = 'expired'">Expired</button>
+              <button type="button" :aria-pressed="shareStatusFilter === 'inactive'" @click="shareStatusFilter = 'inactive'">Off</button>
+            </div>
+            <span class="settings-list-count">{{ filteredShares.length }} {{ filteredShares.length === 1 ? 'link' : 'links' }}</span>
           </div>
-          <article v-for="delivery in displayedDeliveries" :key="delivery.id" class="admin-card delivery-card">
-            <div class="admin-card-main">
-              <div class="admin-card-title-row">
-                <h3 class="admin-card-title">{{ delivery.payload?.event?.summary || `Event ${delivery.tracker_event_id}` }}</h3>
-                <span class="admin-badge">{{ delivery.provider }}</span>
-              </div>
-              <div class="admin-card-subtitle">
-                <span>{{ delivery.recipient_user_id }}</span>
-                <span>•</span>
-                <span>{{ formatDateLabel(delivery.created_at) }}</span>
-              </div>
-            </div>
-            <div class="admin-access-stack">
-              <span class="admin-state" :class="deliveryStateClass(delivery.status)">{{ delivery.status }}</span>
-              <span class="admin-access-line">{{ delivery.attempts || 0 }} attempts</span>
-            </div>
-            <div class="admin-access-stack">
-              <span class="admin-access-line">{{ delivery.last_error || (delivery.sent_at ? `Sent ${formatDateLabel(delivery.sent_at)}` : 'Waiting for worker') }}</span>
-            </div>
-          </article>
-        </div>
-        <button
-          v-if="displayedDeliveries.length < deliveries.length"
-          class="v-btn v-btn-secondary admin-show-more"
-          type="button"
-          @click="deliveryVisibleLimit += 10"
-        >
-          Show 10 more
-        </button>
-      </div>
-    </details>
 
-    <AdminThemeManager v-if="isAdmin && activeTab === 'theme'" />
+          <section v-if="filteredShares.length === 0" class="settings-card settings-empty">
+            <strong>{{ shares.length ? 'No links found' : 'No shared links yet' }}</strong>
+            <span>{{ shares.length ? 'Try a different search or filter.' : 'Links appear here after someone shares a project or file.' }}</span>
+          </section>
+          <div v-else class="share-project-list">
+            <details
+              v-for="group in displayedShareGroups"
+              :key="group.key"
+              class="share-project-group"
+              :open="Boolean(shareSearch.trim()) || groupedShares.length === 1"
+            >
+              <summary class="share-project-header">
+                <div class="share-project-thumb" :class="{ 'is-empty': !group.thumbnailUrl }">
+                  <img v-if="group.thumbnailUrl" :src="group.thumbnailUrl" alt="" @error="hideBrokenShareThumbnail" />
+                  <span v-else>{{ group.initials }}</span>
+                </div>
+                <div class="share-project-heading">
+                  <h3>{{ group.title }}</h3>
+                  <p>{{ group.subtitle }} · {{ group.summary }}</p>
+                </div>
+                <div class="share-project-counts">
+                  <span v-if="group.activeCount" class="settings-status-pill is-good"><i aria-hidden="true"></i>{{ group.activeCount }} active</span>
+                  <span v-if="group.expiredCount" class="settings-status-pill is-warn"><i aria-hidden="true"></i>{{ group.expiredCount }} expired</span>
+                  <span v-if="group.revokedCount" class="settings-status-pill"><i aria-hidden="true"></i>{{ group.revokedCount }} off</span>
+                </div>
+                <svg class="icon share-project-chevron" aria-hidden="true"><use href="#icon-chevron-down" /></svg>
+              </summary>
 
-    <AdminLutsTab v-if="isAdmin && activeTab === 'luts'" />
-
-    <AdminUpdatesTab v-if="isAdmin && activeTab === 'updates'" />
-
-    <AdminStorageTab
-      v-if="isAdmin && activeTab === 'storage'"
-      :storage-roots="storageRoots"
-      :storage-roots-error="storageRootsError"
-      :storage-roots-loading="storageRootsLoading"
-      :transcodes-resetting="transcodesResetting"
-      @refresh-storage-roots="loadStorageRoots"
-      @reset-transcodes="resetTranscodes"
-    />
-
-    <section v-if="isAdmin && activeTab === 'downloads'" class="admin-section download-audit-section">
-      <AdminSettingsHeader
-        title="Download history"
-        description="Review file and package downloads."
-        icon="#icon-download"
-      >
-        <div class="admin-toolbar-actions">
-          <div class="v-search-shell admin-search-wrap">
-            <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
-            <input v-model="downloadSearch" class="v-search-input admin-search-input" placeholder="Search downloads..." />
+              <ul class="settings-list">
+                <li v-for="share in group.shares" :key="share.id" class="settings-list-row share-item" :class="{ 'is-muted': !share.is_active || isShareExpired(share) }">
+                  <span class="settings-list-mark" aria-hidden="true"><svg class="icon"><use :href="shareTypeIcon(share)" /></svg></span>
+                  <div class="settings-list-main">
+                    <div class="settings-list-title">
+                      <span>{{ shareDisplayName(share) }}</span>
+                      <span class="settings-status-pill" :class="shareStateTone(share)"><i aria-hidden="true"></i>{{ shareStateLabel(share) }}</span>
+                    </div>
+                    <div class="settings-list-meta">
+                      <span>{{ formatShareAccess(share) }}</span>
+                      <span>{{ share.expires_at ? `${isShareExpired(share) ? 'Expired' : 'Expires'} ${formatDateLabel(share.expires_at)}` : 'No end date' }}</span>
+                      <span>{{ share.access_count || 0 }} {{ share.access_count === 1 ? 'view' : 'views' }}</span>
+                      <span>By {{ share.created_by || 'unknown' }} · {{ formatDateLabel(share.created_at) }}</span>
+                    </div>
+                  </div>
+                  <div class="settings-list-actions">
+                    <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="copyShareToClipboard(share)">
+                      <svg class="icon"><use href="#icon-link" /></svg>
+                      Copy link
+                    </button>
+                    <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="openShareEditor(share)">Edit</button>
+                    <VMenu
+                      :open="shareActionMenuOpen === share.id"
+                      align="end"
+                      :min-width="190"
+                      teleport
+                      @update:open="shareActionMenuOpen = $event ? share.id : ''"
+                    >
+                      <template #trigger="{ triggerProps }">
+                        <VOverflowButton
+                          v-bind="triggerProps"
+                          :active="shareActionMenuOpen === share.id"
+                          :label="`More actions for ${shareDisplayName(share)}`"
+                          @click="shareActionMenuOpen = shareActionMenuOpen === share.id ? '' : share.id"
+                        />
+                      </template>
+                      <VMenuActionList :actions="shareMenuActions(share)" />
+                    </VMenu>
+                  </div>
+                </li>
+              </ul>
+            </details>
           </div>
-          <button class="v-btn v-btn-secondary v-btn-sm" :disabled="downloadEventsLoading" @click="loadDownloadEvents">
-            {{ downloadEventsLoading ? 'Refreshing' : 'Refresh' }}
+          <button
+            v-if="displayedShareGroups.length < groupedShares.length"
+            class="v-btn v-btn-secondary admin-show-more"
+            type="button"
+            @click="shareGroupVisibleLimit += 12"
+          >
+            Show more projects
           </button>
-        </div>
-      </AdminSettingsHeader>
-
-      <div class="download-audit-summary">
-        <div class="download-audit-stat">
-          <span class="v-eyebrow">Total loaded</span>
-          <strong>{{ downloadEvents.length }}</strong>
-        </div>
-        <div class="download-audit-stat">
-          <span class="v-eyebrow">Shared links</span>
-          <strong>{{ sharedDownloadCount }}</strong>
-        </div>
-        <div class="download-audit-stat">
-          <span class="v-eyebrow">Packages</span>
-          <strong>{{ packageDownloadCount }}</strong>
-        </div>
-      </div>
-
-      <div v-if="downloadEventsLoading && !downloadEvents.length" class="v-empty-state v-empty-state-compact admin-empty">Loading download history.</div>
-      <div v-else-if="downloadEventsError" class="v-empty-state v-empty-state-compact admin-empty">{{ downloadEventsError }}</div>
-      <div v-else-if="filteredDownloadEvents.length === 0" class="v-empty-state v-empty-state-compact admin-empty">No downloads match your filters.</div>
-      <template v-else>
-        <div class="download-audit-list-head">
-          <span>Showing {{ displayedDownloadEvents.length }} of {{ filteredDownloadEvents.length }} matching events</span>
-          <span>History is limited to 180 days and 10,000 events.</span>
-        </div>
-        <div class="download-audit-list">
-        <article v-for="event in displayedDownloadEvents" :key="event.id" class="download-audit-row">
-          <div class="download-audit-main">
-            <div class="download-audit-title-row">
-              <span class="download-audit-type" :class="downloadEventClass(event)">{{ downloadEventLabel(event) }}</span>
-              <h3>{{ downloadEventTitle(event) }}</h3>
-            </div>
-            <div class="download-audit-meta">
-              <span>{{ event.user_name || 'Unknown downloader' }}</span>
-              <span>{{ formatDateLabel(event.created_at) }}</span>
-              <span>{{ event.source === 'share' ? `Share ${event.share_id || 'link'}` : (event.auth_mode || 'session') }}</span>
-            </div>
-          </div>
-
-          <div class="download-audit-signal">
-            <span class="v-eyebrow">Source</span>
-            <strong>{{ event.source === 'share' ? 'Shared link' : 'Team' }}</strong>
-            <span>{{ event.share_id || event.auth_mode || 'session' }}</span>
-          </div>
-
-          <div class="download-audit-signal">
-            <span class="v-eyebrow">Transfer</span>
-            <strong>{{ formatSizeBytes(event.size_bytes, { zeroLabel: 'Size unknown', compact: true }) }}</strong>
-            <span>{{ event.status || 'started' }}</span>
-          </div>
-
-          <details class="download-audit-details">
-            <summary>Details</summary>
-            <div class="download-detail-grid">
-              <div><span class="v-eyebrow">Event ID</span><code>{{ event.id }}</code></div>
-              <div><span class="v-eyebrow">Project</span><code>{{ event.project_id || 'none' }}</code></div>
-              <div><span class="v-eyebrow">Tracker</span><code>{{ event.tracker_id || 'none' }}</code></div>
-              <div><span class="v-eyebrow">Filename</span><code>{{ event.filename || 'none' }}</code></div>
-              <div><span class="v-eyebrow">Bytes</span><code>{{ formatSizeBytes(event.size_bytes, { zeroLabel: 'unknown', compact: true }) }}</code></div>
-              <div><span class="v-eyebrow">Resource</span><code>{{ event.resource_type || 'unknown' }}</code></div>
-              <div><span class="v-eyebrow">Share</span><code>{{ event.share_id || 'none' }}</code></div>
-              <div class="download-detail-wide"><span class="v-eyebrow">Context</span><code>{{ compactJson(event.metadata) }}</code></div>
-            </div>
-          </details>
-        </article>
-        </div>
-        <button
-          v-if="displayedDownloadEvents.length < filteredDownloadEvents.length"
-          class="v-btn v-btn-secondary admin-show-more"
-          type="button"
-          @click="downloadVisibleLimit += 15"
-        >
-          Show 15 more
-        </button>
-      </template>
-    </section>
-
-    <section v-if="isAdmin && activeTab === 'shares'" class="admin-section share-settings-section">
-      <AdminSettingsHeader
-        title="Shared links"
-        description="Manage access through shared links."
-        icon="#icon-share"
-      />
-      <div class="admin-toolbar">
-        <div class="v-search-shell admin-search-wrap">
-          <svg class="icon admin-search-icon"><use href="#icon-search" /></svg>
-          <input v-model="shareSearch" class="v-search-input admin-search-input" placeholder="Search links..." />
-        </div>
-        <div class="admin-filter-row">
-          <button class="v-chip admin-chip" :class="{ active: shareStatusFilter === 'all' }" @click="shareStatusFilter = 'all'">All</button>
-          <button class="v-chip admin-chip" :class="{ active: shareStatusFilter === 'active' }" @click="shareStatusFilter = 'active'">Active</button>
-          <button class="v-chip admin-chip" :class="{ active: shareStatusFilter === 'expired' }" @click="shareStatusFilter = 'expired'">Expired</button>
-          <button class="v-chip admin-chip" :class="{ active: shareStatusFilter === 'inactive' }" @click="shareStatusFilter = 'inactive'">Revoked</button>
-        </div>
-        <span class="share-filter-count">{{ filteredShares.length }} links in {{ groupedShares.length }} groups</span>
-      </div>
-
-      <div v-if="filteredShares.length === 0" class="v-empty-state v-empty-state-compact admin-empty">No shares match your filters.</div>
-      <div v-else class="share-project-list">
-        <details
-          v-for="group in displayedShareGroups"
-          :key="group.key"
-          class="share-project-group"
-          :open="Boolean(shareSearch.trim())"
-        >
-          <summary class="share-project-header">
-            <div class="share-project-identity">
-              <div class="share-project-thumb" :class="{ 'is-empty': !group.thumbnailUrl }">
-                <img v-if="group.thumbnailUrl" :src="group.thumbnailUrl" :alt="group.title" @error="hideBrokenShareThumbnail" />
-                <span v-else>{{ group.initials }}</span>
-              </div>
-              <div class="share-project-heading">
-                <div class="v-eyebrow share-project-kicker">{{ group.subtitle }}</div>
-                <h3>{{ group.title }}</h3>
-                <p>{{ group.summary }}</p>
-              </div>
-            </div>
-            <div class="share-project-counts">
-              <span class="share-count-pill is-active">{{ group.activeCount }} active</span>
-              <span v-if="group.expiredCount" class="share-count-pill is-expired">{{ group.expiredCount }} expired</span>
-              <span v-if="group.revokedCount" class="share-count-pill is-revoked">{{ group.revokedCount }} revoked</span>
-              <svg class="icon share-project-chevron"><use href="#icon-chevron-down" /></svg>
-            </div>
-          </summary>
-
-          <ol class="share-item-list">
-            <li v-for="share in group.shares" :key="share.id" class="share-item" :class="{ 'is-disabled': !share.is_active || isShareExpired(share) }">
-              <div class="share-item-main">
-                <div class="share-item-title-row">
-                  <h4>{{ shareDisplayName(share) }}</h4>
-                  <span class="share-status-pill" :class="shareStateClass(share)">{{ shareStateLabel(share) }}</span>
-                </div>
-                <div class="share-item-meta">
-                  <span>{{ share.created_by || 'Unknown creator' }}</span>
-                  <span>{{ formatDateLabel(share.created_at) }}</span>
-                  <span>{{ share.access_count || 0 }} views</span>
-                  <span>ID {{ share.id }}</span>
-                </div>
-              </div>
-              <div class="share-item-access">
-                <span>{{ formatShareAccess(share) }}</span>
-                <span v-if="share.expires_at">Expires {{ formatDateLabel(share.expires_at) }}</span>
-                <span v-else>No expiration</span>
-              </div>
-              <div class="share-item-actions">
-                <button class="v-btn v-btn-ghost v-btn-sm" @click="copyShareToClipboard(share)">Copy link</button>
-                <button class="v-btn v-btn-ghost v-btn-sm" @click="openShareEditor(share)">Edit</button>
-                <VMenu
-                  :open="shareActionMenuOpen === share.id"
-                  align="end"
-                  :min-width="190"
-                  teleport
-                  @update:open="shareActionMenuOpen = $event ? share.id : ''"
-                >
-                  <template #trigger="{ triggerProps }">
-                    <VOverflowButton
-                      v-bind="triggerProps"
-                      :active="shareActionMenuOpen === share.id"
-                      :label="`More actions for ${shareDisplayName(share)}`"
-                      @click="shareActionMenuOpen = shareActionMenuOpen === share.id ? '' : share.id"
-                    />
-                  </template>
-                  <VMenuActionList :actions="shareMenuActions(share)" />
-                </VMenu>
-              </div>
-            </li>
-          </ol>
-        </details>
-      </div>
-      <button
-        v-if="displayedShareGroups.length < groupedShares.length"
-        class="v-btn v-btn-secondary admin-show-more"
-        type="button"
-        @click="shareGroupVisibleLimit += 12"
-      >
-        Show 12 more groups
-      </button>
-    </section>
+        </section>
       </main>
     </div>
 
@@ -702,18 +627,18 @@
         <VModalHeader title="Edit shared link" @close="closeShareEditor" />
       </template>
       <div class="v-form-grid admin-form-grid">
-        <VField label="Expiration" hint="Leave blank to keep the link available until it is revoked.">
+        <VField label="End date" hint="Leave empty to keep the link open until you turn it off.">
           <input v-model="shareEditForm.expiresDate" type="date" class="v-input" />
         </VField>
-        <VField label="Password" hint="Leave blank to remove password protection.">
-          <input v-model="shareEditForm.password" type="password" class="v-input" placeholder="Leave blank to remove" />
+        <VField label="Password" hint="Leave empty to remove the password.">
+          <input v-model="shareEditForm.password" type="password" class="v-input" autocomplete="new-password" placeholder="No password" />
         </VField>
-        <VSwitch v-model="shareEditForm.allowDownload" label="Allow downloads" hint="Viewers can save the shared files to their device." />
+        <VSwitch v-model="shareEditForm.allowDownload" label="Allow downloads" hint="Visitors can save the shared files to their device." />
         <VSwitch
           v-if="editingShare?.share_type === 'folder'"
           v-model="shareEditForm.allowUpload"
-          label="Allow file uploads"
-          hint="Viewers can add files to the shared folder."
+          label="Allow uploads"
+          hint="Visitors can add files to the shared folder."
         />
       </div>
       <template #footer>
@@ -727,7 +652,7 @@
         <VModalHeader :title="editingUser ? 'Edit team member' : 'Add team member'" @close="closeUserModal" />
       </template>
       <div class="v-form-grid admin-form-grid">
-        <VField label="Username" hint="Used to sign in. A username cannot be changed later." :required="!editingUser">
+        <VField label="Username" hint="Used to sign in. You cannot change it later." :required="!editingUser">
           <input v-model="userForm.username" class="v-input" :disabled="!!editingUser" />
         </VField>
         <VField label="Display name" hint="Shown on comments, approvals, and activity.">
@@ -740,13 +665,13 @@
         >
           <input v-model="userForm.password" type="password" class="v-input" :placeholder="editingUser ? 'Leave blank to keep current' : 'Required'" />
         </VField>
-        <VField label="Account type" hint="Administrators control the workspace. Members receive only the access you choose.">
+        <VField label="Role" hint="Administrators can open every project and change all settings. Members get only the access you choose below.">
           <select v-if="canEditUserRole" v-model="userForm.role" class="v-input">
             <option value="member">Member</option>
-            <option value="admin">Admin</option>
+            <option value="admin">Administrator</option>
           </select>
           <div v-else class="admin-readonly-field">
-            <span>Account type</span>
+            <span>Role</span>
             <strong>Member</strong>
           </div>
         </VField>
@@ -755,11 +680,11 @@
           <p v-if="!isAdmin" class="v-inline-note admin-note">
             You can grant only access that your own account has.
           </p>
-          <div class="v-section-label v-section-label--ruled">Workspace areas</div>
+          <div class="v-section-label v-section-label--ruled">Can open</div>
           <VCheckbox
             :model-value="userForm.app_access.project_manager"
             label="Projects"
-            hint="Open projects that have been assigned to this Member."
+            hint="Open the projects this member is added to."
             :disabled="!canGrantMemberAccess('project_manager')"
             @update:modelValue="setUserAccess('project_manager', $event)"
           />
@@ -770,7 +695,7 @@
             :disabled="!canGrantMemberAccess('file_browser')"
             @update:modelValue="setUserAccess('file_browser', $event)"
           />
-          <div class="v-section-label v-section-label--ruled member-access-divider">Management</div>
+          <div class="v-section-label v-section-label--ruled member-access-divider">Can manage</div>
           <VCheckbox
             :model-value="userForm.app_access.manage_project_content"
             label="Manage project content"
@@ -800,57 +725,57 @@
             @update:modelValue="setUserAccess('manage_members', $event)"
           />
           <p class="v-inline-note admin-note">
-            Project roles still control scope: Can view, Can edit, or Can manage. Account access never grants entry to an unassigned project.
+            Project roles still apply: Can view, Can edit or Can manage. These options never open a project that the member is not added to.
           </p>
         </div>
       </div>
       <template #footer>
         <button class="v-btn v-btn-secondary" @click="closeUserModal">Cancel</button>
-        <button class="v-btn v-btn-primary" @click="saveUser">{{ editingUser ? 'Save changes' : 'Add member' }}</button>
+        <button class="v-btn v-btn-primary" @click="saveUser">{{ editingUser ? 'Save' : 'Add member' }}</button>
       </template>
     </VModal>
 
     <VModal :modelValue="showKeyModal" size="md" @update:modelValue="closeKeyModal">
       <template #header>
-        <VModalHeader :title="editingKey ? 'Edit agent key' : 'New managed agent key'" @close="closeKeyModal" />
+        <VModalHeader :title="editingKey ? 'Rename agent key' : 'New agent key'" @close="closeKeyModal" />
       </template>
-      <div class="v-form-grid admin-form-grid">
-        <VField label="Label" hint="Use a name that identifies the agent or automation using this key.">
-          <input v-model="keyForm.name" class="v-input" placeholder="Agent key" />
+      <form id="agent-key-form" class="v-form-grid admin-form-grid" @submit.prevent="saveAgentKey">
+        <VField label="Name" hint="Use a name that says which agent or script uses this key.">
+          <input v-model="keyForm.name" class="v-input" :placeholder="`${currentUserName()} agent`" />
         </VField>
         <p class="v-inline-note admin-note">{{ keyModalNote }}</p>
-        <VSwitch v-if="editingKey" v-model="keyForm.is_active" label="Key is active" />
-      </div>
+        <VSwitch v-if="editingKey" v-model="keyForm.is_active" label="Key is on" hint="When off, the key stops working until you turn it on again." />
+      </form>
       <template #footer>
-        <button class="v-btn v-btn-secondary" @click="closeKeyModal">Cancel</button>
-        <button class="v-btn v-btn-primary" @click="saveAgentKey">{{ editingKey ? 'Save changes' : 'Create key' }}</button>
+        <button class="v-btn v-btn-secondary" type="button" @click="closeKeyModal">Cancel</button>
+        <button class="v-btn v-btn-primary" type="submit" form="agent-key-form">{{ editingKey ? 'Save' : 'Make key' }}</button>
       </template>
     </VModal>
 
     <VModal :modelValue="showSubscriptionModal" size="md" @update:modelValue="closeSubscriptionModal">
       <template #header>
-        <VModalHeader :title="editingSubscription ? 'Edit Discord channel' : 'Connect Discord channel'" @close="closeSubscriptionModal" />
+        <VModalHeader :title="editingSubscription ? 'Edit Discord channel' : 'Connect a Discord channel'" @close="closeSubscriptionModal" />
       </template>
       <div class="v-form-grid admin-form-grid">
-        <VField label="Recipient" hint="Vueio evaluates visibility and preferences as this person.">
+        <VField label="Person" hint="The channel gets this person's activity. Vueio sends only what this person can see.">
           <select v-model="subscriptionForm.recipient_user_id" class="v-input">
-            <option value="" disabled>Select a user</option>
+            <option value="" disabled>Choose a person</option>
             <option v-for="user in users" :key="user.id" :value="user.id">{{ user.display_name }} (@{{ user.username }})</option>
           </select>
         </VField>
-        <VField label="Discord channel ID" hint="Copy the numeric channel ID from Discord developer mode.">
+        <VField label="Discord channel ID" hint="In Discord, turn on Developer Mode, then right-click the channel and select Copy Channel ID.">
           <input v-model="subscriptionForm.destination" class="v-input" placeholder="123456789012345678" />
         </VField>
-        <VField label="Scope" hint="Controls how broadly activity is selected before filters are applied.">
+        <VField label="Projects" hint="Which projects the activity comes from.">
           <select v-model="subscriptionForm.scope" class="v-input">
-            <option value="related_to_me">Related to recipient</option>
-            <option value="all_visible">Everything recipient can access</option>
+            <option value="related_to_me">Where this person is assigned, mentioned or taking part</option>
+            <option value="all_visible">Every project this person can open</option>
           </select>
         </VField>
-        <VSwitch v-model="subscriptionForm.is_enabled" label="Channel is enabled" hint="Pause delivery without deleting this mapping." />
+        <VSwitch v-model="subscriptionForm.is_enabled" label="Send messages" hint="Turn off to pause this channel without removing it." />
         <VSwitch v-model="subscriptionForm.config.mention_everyone" label="Mention @everyone" hint="Add an @everyone mention to every delivered message." />
         <div class="v-subsection admin-subsection">
-          <div class="v-section-label v-section-label--ruled">Activity filters</div>
+          <div class="v-section-label v-section-label--ruled">Activity types</div>
           <div class="settings-option-grid">
             <VCheckbox
               v-for="option in notificationEventOptions"
@@ -860,13 +785,13 @@
               @update:modelValue="toggleSubscriptionEventFilter(option.value, $event)"
             />
           </div>
-          <p class="v-inline-note admin-note">No filters means the channel receives every matching event allowed by the recipient scope and preferences.</p>
+          <p class="v-inline-note admin-note">Select none to send every type.</p>
         </div>
       </div>
       <template #footer>
         <button class="v-btn v-btn-secondary" @click="closeSubscriptionModal">Cancel</button>
         <button class="v-btn v-btn-primary" :disabled="subscriptionSaving" @click="saveSubscription">
-          {{ subscriptionSaving ? 'Saving' : 'Save channel' }}
+          {{ subscriptionSaving ? 'Saving' : editingSubscription ? 'Save' : 'Connect channel' }}
         </button>
       </template>
     </VModal>
@@ -874,7 +799,7 @@
 </template>
 
 <script setup>
-import { computed, defineAsyncComponent, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api, { getApiErrorMessage } from '../lib/api'
 import {
@@ -893,12 +818,15 @@ import { notify } from '../utils/toasts'
 import { buildVueioAgentSkill, resolveVueioApiBaseUrl } from '../utils/vueioAgentSkill'
 import { useAppIdentityStore } from '../ownership/appIdentity'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
+import { useUpdateStatusStore } from '../ownership/updateStatus'
 import { hasAppAccess, isAdminUser } from '../utils/accountAccess'
 
 const AdminAgentKeysTab = defineAsyncComponent(() => import('../components/admin/AdminAgentKeysTab.vue'))
+const AdminBrandingTab = defineAsyncComponent(() => import('../components/admin/AdminBrandingTab.vue'))
 const AdminLutsTab = defineAsyncComponent(() => import('../components/admin/AdminLutsTab.vue'))
+const AdminMembersTab = defineAsyncComponent(() => import('../components/admin/AdminMembersTab.vue'))
+const AdminPreviewsTab = defineAsyncComponent(() => import('../components/admin/AdminPreviewsTab.vue'))
 const AdminStorageTab = defineAsyncComponent(() => import('../components/admin/AdminStorageTab.vue'))
-const AdminTeamTab = defineAsyncComponent(() => import('../components/admin/AdminTeamTab.vue'))
 const AdminThemeManager = defineAsyncComponent(() => import('../components/admin/AdminThemeManager.vue'))
 const AdminUpdatesTab = defineAsyncComponent(() => import('../components/admin/AdminUpdatesTab.vue'))
 
@@ -906,48 +834,83 @@ const route = useRoute()
 const router = useRouter()
 const { currentUser, canManageMembers } = useSessionAuthStore()
 const { identity: appIdentity, update: updateAppIdentity } = useAppIdentityStore()
+const { status: updateStatus } = useUpdateStatusStore()
 const isAdmin = computed(() => isAdminUser(currentUser.value))
-const userTabs = [
-  { value: 'account', label: 'Account', icon: '#icon-user' },
-  { value: 'notifications', label: 'Notifications', icon: '#icon-bell', wide: true },
-  { value: 'agent-keys', label: 'Agent keys', icon: '#icon-zap', wide: true },
+
+// Settings sections, grouped by who they affect: you, your team, the
+// workspace everyone sees, and the Vueio installation itself.
+const personalTabs = [
+  { value: 'account', label: 'Account', icon: '#icon-user', description: 'Profile and password' },
+  { value: 'notifications', label: 'Notifications', icon: '#icon-bell', description: 'Where and what you hear about' },
+  { value: 'agent-keys', label: 'Agent keys', icon: '#icon-zap', description: 'Access for AI agents and scripts', wide: true },
 ]
-const teamTab = { value: 'team', label: 'Team', icon: '#icon-users', wide: true }
-const adminOnlyTabs = [
-  { value: 'shares', label: 'Shared links', icon: '#icon-share', wide: true },
-  { value: 'theme', label: 'Theme', icon: '#icon-pen', wide: true },
-  { value: 'luts', label: 'Preview LUTs', icon: '#icon-color' },
-  { value: 'storage', label: 'Storage', icon: '#icon-package' },
-  { value: 'downloads', label: 'Download history', icon: '#icon-download', wide: true },
-  { value: 'updates', label: 'Updates', icon: '#icon-refresh' },
+const membersTab = { value: 'members', label: 'Members', icon: '#icon-users', description: 'People and their access', wide: true }
+const teamAdminTabs = [
+  { value: 'shares', label: 'Shared links', icon: '#icon-share', description: 'Links for people outside your team', wide: true },
+  { value: 'downloads', label: 'Download history', icon: '#icon-download', description: 'Who downloaded which files', wide: true },
 ]
+const workspaceTabs = [
+  { value: 'branding', label: 'Branding', icon: '#icon-briefcase', description: 'Name and logo on delivery pages', wide: true },
+  { value: 'theme', label: 'Theme', icon: '#icon-pen', description: 'Workspace colors', wide: true },
+  { value: 'luts', label: 'Preview LUTs', icon: '#icon-color', description: 'Color looks for review' },
+  { value: 'discord', label: 'Discord', icon: '#icon-send', description: 'Post activity in Discord', wide: true },
+]
+const systemTabs = [
+  { value: 'storage', label: 'Storage', icon: '#icon-package', description: 'Drives and Vueio data' },
+  { value: 'previews', label: 'Previews', icon: '#icon-video', description: 'Video processing and cache' },
+  { value: 'updates', label: 'Updates', icon: '#icon-refresh', description: 'Version and release channel' },
+]
+// Old links and bookmarks still open the section that now holds the setting.
+const TAB_ALIASES = {
+  team: 'members',
+  users: 'members',
+  identity: 'branding',
+  channels: 'discord',
+  deliveries: 'discord',
+  keys: 'agent-keys',
+  'personal-keys': 'agent-keys',
+}
 const activeTab = ref('account')
 const isStorageSetup = computed(() => activeTab.value === 'storage' && route.query.setup === 'storage')
-const systemHealth = ref(null)
 const settingsRefreshing = ref(false)
 const storageRoots = ref([])
 const storageRootsError = ref('')
 const storageRootsLoading = ref(false)
 const transcodesResetting = ref(false)
-const adminTabs = computed(() => [
-  ...userTabs,
-  ...(canManageMembers.value ? [teamTab] : []),
-  ...(isAdmin.value ? adminOnlyTabs : []),
-])
 const settingsNavGroups = computed(() => [
-  { label: 'Personal', tabs: userTabs },
+  { label: 'Personal', tabs: personalTabs },
   ...((canManageMembers.value || isAdmin.value) ? [{
-    label: 'Workspace',
+    label: 'Team',
     tabs: [
-      ...(canManageMembers.value ? [teamTab] : []),
-      ...(isAdmin.value ? adminOnlyTabs.slice(0, 3) : []),
+      ...(canManageMembers.value ? [membersTab] : []),
+      ...(isAdmin.value ? teamAdminTabs : []),
     ],
   }] : []),
-  ...(isAdmin.value ? [{ label: 'System', tabs: adminOnlyTabs.slice(3) }] : []),
+  ...(isAdmin.value ? [
+    { label: 'Workspace', tabs: workspaceTabs },
+    { label: 'System', tabs: systemTabs },
+  ] : []),
 ])
+const adminTabs = computed(() => settingsNavGroups.value.flatMap(group => group.tabs))
 const activeSettingsTab = computed(() => (
-  adminTabs.value.find(tab => tab.value === activeTab.value) || userTabs[0]
+  adminTabs.value.find(tab => tab.value === activeTab.value) || personalTabs[0]
 ))
+
+// Narrow screens show the section list first, then one section at a time.
+const compactQuery = window.matchMedia('(max-width: 900px)')
+const isCompact = ref(compactQuery.matches)
+const syncCompact = event => { isCompact.value = event.matches }
+const showMobileIndex = computed(() => isCompact.value && !isStorageSetup.value && !route.query.tab)
+
+function selectTab(tab) {
+  if (isCompact.value) router.push({ path: '/settings', query: { tab } })
+  else activeTab.value = tab
+}
+
+function openMobileIndex() {
+  if (window.history.state?.back === '/settings') router.back()
+  else router.replace({ path: '/settings' })
+}
 
 const defaultNotificationPrefs = () => ({
   default_scope: currentUser.value?.role === 'admin' ? 'all_visible' : 'related_to_me',
@@ -968,13 +931,11 @@ const notificationEventOptions = [
   { value: 'downloads', label: 'Downloads', hint: 'File and package download activity' },
   { value: 'updates', label: 'General updates', hint: 'Other project and tracker changes' },
 ]
-const visibleNotificationChannels = [
-  { value: 'in_app', label: 'In-app bell', hint: 'Keep activity in Vueio’s notification tray' },
-  { value: 'discord', label: 'Discord', hint: 'Send matching activity to your mapped channel' },
-]
 const notificationPrefs = ref(defaultNotificationPrefs())
 const notificationSaving = ref(false)
 const notificationMessage = ref('')
+const notificationError = ref(false)
+let notificationSaveRequest = 0
 
 const passwordForm = ref({ current: '', new: '', confirm: '' })
 const passwordSaving = ref(false)
@@ -985,13 +946,13 @@ const identityLogoSaving = ref(false)
 const identityMessage = ref('')
 
 const myAgentKeys = ref([])
-const personalKeySaving = ref(false)
 
 const shares = ref([])
 const shareSearch = ref('')
 const shareStatusFilter = ref('all')
 const shareGroupVisibleLimit = ref(12)
 const shareActionMenuOpen = ref('')
+const subscriptionMenuOpen = ref('')
 const editingShare = ref(null)
 const shareEditForm = ref({ expiresDate: '', password: '', allowDownload: false, allowUpload: false })
 
@@ -1033,6 +994,8 @@ const downloadEventsLoading = ref(false)
 const downloadEventsError = ref('')
 const downloadSearch = ref('')
 const downloadVisibleLimit = ref(15)
+const downloadSourceFilter = ref('all')
+const expandedDownloadId = ref('')
 const defaultDiscordProvider = () => ({
   provider: 'discord',
   is_configured: false,
@@ -1064,14 +1027,20 @@ const defaultSubscriptionForm = () => ({
 const subscriptionForm = ref(defaultSubscriptionForm())
 
 const activeShareCount = computed(() => shares.value.filter(share => share.is_active && (!share.expires_at || share.expires_at >= Date.now() / 1000)).length)
-const activeKeyCount = computed(() => agentKeys.value.filter(key => key.is_active).length)
 const sharedDownloadCount = computed(() => downloadEvents.value.filter(event => event.source === 'share').length)
-const packageDownloadCount = computed(() => downloadEvents.value.filter(event => (
-  ['download_all', 'download_folder_zip', 'download_zip'].includes(event.event_type)
-)).length)
+const navBadges = computed(() => {
+  const badges = {}
+  if (users.value.length) badges.members = { label: users.value.length }
+  if (activeShareCount.value) badges.shares = { label: activeShareCount.value }
+  if (storageRoots.value.some(root => !root.available)) badges.storage = { label: 'Offline', tone: 'is-warn' }
+  if (updateStatus.value?.update_available) badges.updates = { label: 'New', tone: 'is-accent' }
+  return badges
+})
 const failedDeliveryCount = computed(() => deliveries.value.filter(delivery => ['failed', 'error', 'dead'].includes(String(delivery.status || '').toLowerCase())).length)
 const displayedDeliveries = computed(() => deliveries.value.slice(0, deliveryVisibleLimit.value))
 const notificationEventMode = computed(() => notificationPrefs.value.event_types.length ? 'selected' : 'all')
+const passwordTooShort = computed(() => Boolean(passwordForm.value.new) && passwordForm.value.new.length < 8)
+const passwordMismatch = computed(() => Boolean(passwordForm.value.confirm) && passwordForm.value.new !== passwordForm.value.confirm)
 const canSavePassword = computed(() => {
   return Boolean(
     passwordForm.value.current &&
@@ -1089,11 +1058,11 @@ const identityInitials = computed(() => {
   const parts = identityTeamName.value.trim().split(/\s+/).slice(0, 2)
   return parts.map(part => part.charAt(0).toUpperCase()).join('') || 'V'
 })
-const keyModalNote = computed(() => {
-  if (editingKey.value) return 'This key continues to inherit its owner’s current Vueio permissions.'
-  if (isAdmin.value) return 'This managed key acts as your current administrator identity. You can deactivate or delete it at any time.'
-  return 'This key acts as your account and cannot see anything you cannot see.'
-})
+const keyModalNote = computed(() => (
+  editingKey.value
+    ? 'The key keeps its token. It can see and do only what its owner can.'
+    : 'The key acts as you. It can see and do only what you can. Vueio shows the token once, after you make the key.'
+))
 
 watch(appIdentity, (identity) => {
   identityForm.value = {
@@ -1141,7 +1110,7 @@ const groupedShares = computed(() => {
       activeCount,
       expiredCount,
       revokedCount,
-      summary: `${shares.length} ${shares.length === 1 ? 'share' : 'shares'} · ${viewCount} ${viewCount === 1 ? 'view' : 'views'}`,
+      summary: `${shares.length} ${shares.length === 1 ? 'link' : 'links'} · ${viewCount} ${viewCount === 1 ? 'view' : 'views'}`,
     }
   })
 })
@@ -1154,11 +1123,11 @@ watch([shareSearch, shareStatusFilter], () => {
 function createShareGroup(key, share) {
   const projectTitle = share.project_title || inferProjectTitle(share)
   const hasProject = Boolean(share.project_id)
-  const title = projectTitle || 'Standalone shares'
+  const title = projectTitle || 'Other files'
   return {
     key,
     title,
-    subtitle: hasProject ? 'Project shares' : 'Files and legacy links',
+    subtitle: hasProject ? 'Project' : 'Files',
     initials: initialsForText(title),
     thumbnailUrl: hasProject ? projectThumbnailUrl(share) : '',
     shares: [],
@@ -1232,8 +1201,12 @@ const groupedVisibleAgentKeys = computed(() => {
 
 const filteredDownloadEvents = computed(() => {
   const query = downloadSearch.value.trim().toLowerCase()
-  if (!query) return downloadEvents.value
-  return downloadEvents.value.filter(event => [
+  const source = downloadSourceFilter.value
+  const events = source === 'all'
+    ? downloadEvents.value
+    : downloadEvents.value.filter(event => (event.source === 'share') === (source === 'share'))
+  if (!query) return events
+  return events.filter(event => [
     event.user_name,
     event.user_id,
     event.filename,
@@ -1246,7 +1219,7 @@ const filteredDownloadEvents = computed(() => {
 })
 const displayedDownloadEvents = computed(() => filteredDownloadEvents.value.slice(0, downloadVisibleLimit.value))
 
-watch(downloadSearch, () => {
+watch([downloadSearch, downloadSourceFilter], () => {
   downloadVisibleLimit.value = 15
 })
 
@@ -1316,15 +1289,22 @@ function initialsForText(value) {
 }
 
 function shareStateLabel(share) {
-  if (!share.is_active) return 'Revoked'
+  if (!share.is_active) return 'Off'
   if (isShareExpired(share)) return 'Expired'
   return 'Active'
 }
 
-function shareStateClass(share) {
-  if (!share.is_active) return 'danger'
-  if (isShareExpired(share)) return 'warn'
-  return 'success'
+function shareStateTone(share) {
+  if (!share.is_active) return ''
+  if (isShareExpired(share)) return 'is-warn'
+  return 'is-good'
+}
+
+function shareTypeIcon(share) {
+  if (share.share_type === 'project') return '#icon-project'
+  if (share.share_type === 'tracker') return '#icon-list'
+  if (['folder', 'project-folder'].includes(share.share_type)) return '#icon-folder'
+  return '#icon-file'
 }
 
 function canDeleteShare(share) {
@@ -1335,7 +1315,7 @@ function shareMenuActions(share) {
   const canRevoke = share.is_active && !isShareExpired(share)
   return [
     {
-      label: canRevoke ? 'Revoke link' : 'Restore link',
+      label: canRevoke ? 'Turn off link' : 'Turn on link',
       icon: canRevoke ? '#icon-lock' : '#icon-refresh',
       danger: canRevoke,
       run: () => canRevoke ? revokeShare(share) : reactivateShare(share),
@@ -1351,12 +1331,21 @@ function shareMenuActions(share) {
   ]
 }
 
+const SHARE_TYPE_LABELS = {
+  project: 'Project',
+  tracker: 'Tracker',
+  folder: 'Folder',
+  'project-folder': 'Folder',
+  'project-file': 'File',
+  file: 'File',
+}
+
 function formatShareAccess(share) {
-  const parts = [share.share_type || 'share']
+  const parts = [SHARE_TYPE_LABELS[share.share_type] || 'Link']
   if (share.has_password) parts.push('password')
-  if (share.allow_download) parts.push('download')
-  if (share.allow_upload) parts.push('upload')
-  return parts.join(' · ')
+  if (share.allow_download) parts.push('downloads on')
+  if (share.allow_upload) parts.push('uploads on')
+  return parts.join(', ')
 }
 
 function downloadEventLabel(event) {
@@ -1364,6 +1353,12 @@ function downloadEventLabel(event) {
   if (event.event_type === 'download_folder_zip') return 'Folder zip'
   if (event.event_type === 'download_zip') return 'Zip'
   return 'File'
+}
+
+function downloadEventIcon(event) {
+  if (event.source === 'share') return '#icon-share'
+  if (event.event_type === 'download_all' || event.event_type?.endsWith('zip')) return '#icon-package'
+  return '#icon-download'
 }
 
 function downloadEventClass(event) {
@@ -1436,11 +1431,6 @@ async function loadShares() {
   shares.value = data.shares || []
 }
 
-async function loadSystemHealth() {
-  const { data } = await api.get('/api/admin/system-health')
-  systemHealth.value = data
-}
-
 async function loadStorageRoots() {
   storageRootsLoading.value = true
   storageRootsError.value = ''
@@ -1456,13 +1446,13 @@ async function loadStorageRoots() {
 }
 
 async function resetTranscodes() {
-  if (!confirm('Reset all generated transcodes? Source files will not be changed, but previews must regenerate when opened again.')) return
+  if (!confirm('Reset all previews? Original files do not change. Each preview is rebuilt the next time someone opens it.')) return
   transcodesResetting.value = true
   try {
     await api.delete('/api/admin/transcodes')
-    notify('All transcode previews were reset.')
+    notify('All previews were reset.')
   } catch (error) {
-    notify(getApiErrorMessage(error, 'Failed to reset transcodes.'), { tone: 'error' })
+    notify(getApiErrorMessage(error, 'Could not reset previews.'), { tone: 'error' })
   } finally {
     transcodesResetting.value = false
   }
@@ -1505,34 +1495,61 @@ async function loadNotificationPrefs() {
 }
 
 function setNotificationEventMode(mode) {
+  if (mode === notificationEventMode.value) return
   notificationPrefs.value.event_types = mode === 'selected'
     ? notificationEventOptions.map(option => option.value)
     : []
+  saveNotificationPrefs()
+}
+
+// An empty list means every type, so the last chosen type cannot be cleared.
+function isLastNotificationType(value) {
+  const selected = notificationPrefs.value.event_types
+  return selected.length === 1 && selected[0] === value
 }
 
 function toggleNotificationEventType(value, checked) {
   if (checked) {
     notificationPrefs.value.event_types = [...new Set([...notificationPrefs.value.event_types, value])]
-    return
+  } else if (!isLastNotificationType(value)) {
+    notificationPrefs.value.event_types = notificationPrefs.value.event_types.filter(entry => entry !== value)
   }
-  notificationPrefs.value.event_types = notificationPrefs.value.event_types.filter(entry => entry !== value)
+  saveNotificationPrefs()
 }
 
+function setNotificationChannel(channel, enabled) {
+  notificationPrefs.value.channels[channel] = enabled
+  saveNotificationPrefs()
+}
+
+function setNotificationScope(scope) {
+  if (notificationPrefs.value.default_scope === scope) return
+  notificationPrefs.value.default_scope = scope
+  saveNotificationPrefs()
+}
+
+// Each change saves at once. Only the newest reply updates the form, so a
+// slow earlier save cannot undo a later change.
 async function saveNotificationPrefs() {
+  const request = ++notificationSaveRequest
   notificationSaving.value = true
-  notificationMessage.value = ''
+  notificationError.value = false
   try {
     const payload = {
       ...notificationPrefs.value,
       default_scope: isAdmin.value ? notificationPrefs.value.default_scope : 'related_to_me',
     }
     const { data } = await api.put('/api/me/notification-preferences', payload)
+    if (request !== notificationSaveRequest) return
     notificationPrefs.value = normalizeNotificationPrefs(data)
-    notificationMessage.value = 'Notification preferences saved.'
+    notificationMessage.value = 'Saved'
   } catch (error) {
-    notificationMessage.value = getApiErrorMessage(error, 'Failed to save notification preferences.')
+    if (request !== notificationSaveRequest) return
+    notificationError.value = true
+    notificationMessage.value = getApiErrorMessage(error, 'Could not save. Try again.')
+    loadNotificationPrefs().catch(() => {})
   } finally {
-    notificationSaving.value = false
+    if (request === notificationSaveRequest) notificationSaving.value = false
   }
 }
 
@@ -1586,7 +1603,7 @@ async function saveIdentity() {
       website_url: identityForm.value.website_url,
     })
     applyIdentity(data)
-    identityMessage.value = 'Identity saved.'
+    identityMessage.value = 'Saved.'
   } catch (error) {
     identityMessage.value = getApiErrorMessage(error, 'Failed to save identity.')
   } finally {
@@ -1664,7 +1681,7 @@ async function saveDiscordProvider() {
       bot_token: '',
     }
     discordTokenVisible.value = false
-    discordProviderMessage.value = 'Discord setup saved.'
+    discordProviderMessage.value = 'Saved.'
   } catch (error) {
     discordProviderMessage.value = getApiErrorMessage(error, 'Failed to save Discord setup.')
   } finally {
@@ -1673,7 +1690,7 @@ async function saveDiscordProvider() {
 }
 
 async function clearDiscordProviderToken() {
-  if (!confirm('Clear the saved Discord bot token? Existing env token fallback, if any, will still be used.')) return
+  if (!confirm('Remove the saved bot token? If the server configuration has a token, Vueio uses that one.')) return
   discordProviderSaving.value = true
   discordProviderMessage.value = ''
   try {
@@ -1681,7 +1698,7 @@ async function clearDiscordProviderToken() {
     discordProvider.value = normalizeDiscordProvider(data)
     discordProviderForm.value.bot_token = ''
     discordTokenVisible.value = false
-    discordProviderMessage.value = 'Saved Discord token cleared.'
+    discordProviderMessage.value = 'Saved token removed.'
   } catch (error) {
     discordProviderMessage.value = getApiErrorMessage(error, 'Failed to clear Discord token.')
   } finally {
@@ -1719,7 +1736,7 @@ async function refreshAll() {
     const tasks = [loadNotificationPrefs(), loadMyAgentKeys()]
     if (canManageMembers.value) tasks.push(loadUsers())
     if (isAdmin.value) {
-      tasks.push(loadIdentity(), loadShares(), loadSystemHealth(), loadStorageRoots(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
+      tasks.push(loadIdentity(), loadShares(), loadStorageRoots(), loadAgentKeys(), loadDiscordProvider(), loadSubscriptions(), loadDeliveries(), loadDownloadEvents())
     }
     const results = await Promise.allSettled(tasks)
     const failedCount = results.filter(result => result.status === 'rejected').length
@@ -1760,7 +1777,7 @@ async function saveShareEdit() {
 }
 
 async function revokeShare(share) {
-  if (!confirm(`Revoke share link for "${share.target_name || share.path || share.id}"?`)) return
+  if (!confirm(`Turn off the link to "${share.target_name || share.path || share.id}"? People with the link lose access at once.`)) return
   try {
     await api.put(`/api/admin/shares/${share.id}`, { is_active: false })
     await loadShares()
@@ -1881,7 +1898,7 @@ async function saveUser() {
 }
 
 async function deleteUserConfirm(user) {
-  if (!confirm(`Delete user "${user.display_name}"?`)) return
+  if (!confirm(`Remove ${user.display_name}? They can no longer sign in. Their comments and history stay.`)) return
   try {
     await api.delete(`/api/users/${user.id}`)
     await loadUsers()
@@ -1892,7 +1909,7 @@ async function deleteUserConfirm(user) {
 
 function openCreateKeyModal() {
   editingKey.value = null
-  editingKeyKind.value = 'managed'
+  editingKeyKind.value = 'personal'
   keyForm.value = defaultKeyForm()
   showKeyModal.value = true
 }
@@ -1925,12 +1942,13 @@ async function saveAgentKey() {
         is_active: keyForm.value.is_active,
       })
     } else {
-      const { data } = await api.post('/api/admin/agent-keys', {
-        name: keyForm.value.name,
+      const { data } = await api.post('/api/me/agent-keys', {
+        name: keyForm.value.name.trim() || `${currentUserName()} agent`,
       })
+      agentKeyScope.value = 'mine'
       visibleAgentToken.value = {
-        title: 'Agent key ready',
-        subtitle: 'Copy this token and hand it to the agent.',
+        title: `${data.key?.name || 'Agent key'} is ready`,
+        subtitle: 'Give it to your agent, or copy the skill for setup text that includes it.',
         token: data.token || '',
         key: data.key,
       }
@@ -1943,12 +1961,12 @@ async function saveAgentKey() {
 }
 
 async function reissueAgentKey(key) {
-  if (!confirm(`Reissue agent key "${key.name}"? The old token will stop working immediately.`)) return
+  if (!confirm(`Make a new token for "${key.name}"? The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/admin/agent-keys/${key.id}/reissue`)
     visibleAgentToken.value = {
-      title: `${key.name} reissued`,
-      subtitle: 'This is the new live token. The previous token is now dead.',
+      title: `New token for ${key.name}`,
+      subtitle: 'The old token no longer works.',
       token: data.token || '',
       key: data.key || key,
     }
@@ -1959,7 +1977,7 @@ async function reissueAgentKey(key) {
 }
 
 async function reissueAndCopyManagedAgentSkill(key) {
-  if (!confirm(`Reissue agent key "${key.name}" so the skill can include a visible token? The old token will stop working immediately.`)) return
+  if (!confirm(`Copy the skill for "${key.name}"? Vueio makes a new token for the skill. The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/admin/agent-keys/${key.id}/reissue`)
     await copyAgentSkillWithToken(data.key || key, data.token || '')
@@ -2011,7 +2029,7 @@ async function toggleAgentKeyActive(key) {
 }
 
 async function deleteAgentKeyConfirm(key) {
-  if (!confirm(`Delete agent key "${key.name}" permanently? This cannot be undone.`)) return
+  if (!confirm(`Delete "${key.name}"? Agents that use it lose access. You cannot undo this.`)) return
   try {
     await api.delete(`/api/admin/agent-keys/${key.id}`)
     await reloadAgentKeys()
@@ -2020,37 +2038,17 @@ async function deleteAgentKeyConfirm(key) {
   }
 }
 
-async function createPersonalAgentKey() {
-  personalKeySaving.value = true
-  try {
-    const { data } = await api.post('/api/me/agent-keys', {
-      name: `${currentUserName()} Agent Key`,
-    })
-    visibleAgentToken.value = {
-      title: 'Personal agent key ready',
-      subtitle: 'This key acts as your account and cannot see anything you cannot see.',
-      token: data.token || '',
-      key: data.key,
-    }
-    await reloadAgentKeys()
-  } catch (error) {
-    notify(`Failed to create personal key: ${getApiErrorMessage(error)}`)
-  } finally {
-    personalKeySaving.value = false
-  }
-}
-
 function currentUserName() {
   return currentUser.value?.display_name || currentUser.value?.username || 'Personal'
 }
 
 async function reissuePersonalAgentKey(key) {
-  if (!confirm(`Reissue personal agent key "${key.name}"? The old token will stop working immediately.`)) return
+  if (!confirm(`Make a new token for "${key.name}"? The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/me/agent-keys/${key.id}/reissue`)
     visibleAgentToken.value = {
-      title: `${key.name} reissued`,
-      subtitle: 'This is the new token. The previous token is now dead.',
+      title: `New token for ${key.name}`,
+      subtitle: 'The old token no longer works.',
       token: data.token || '',
       key: data.key || key,
     }
@@ -2061,7 +2059,7 @@ async function reissuePersonalAgentKey(key) {
 }
 
 async function reissueAndCopyPersonalAgentSkill(key) {
-  if (!confirm(`Reissue personal agent key "${key.name}" so the skill can include a visible token? The old token will stop working immediately.`)) return
+  if (!confirm(`Copy the skill for "${key.name}"? Vueio makes a new token for the skill. The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/me/agent-keys/${key.id}/reissue`)
     await copyAgentSkillWithToken(data.key || key, data.token || '')
@@ -2081,7 +2079,7 @@ async function togglePersonalAgentKey(key) {
 }
 
 async function deletePersonalAgentKeyConfirm(key) {
-  if (!confirm(`Delete personal agent key "${key.name}" permanently? This cannot be undone.`)) return
+  if (!confirm(`Delete "${key.name}"? Agents that use it lose access. You cannot undo this.`)) return
   try {
     await api.delete(`/api/me/agent-keys/${key.id}`)
     await reloadAgentKeys()
@@ -2090,10 +2088,40 @@ async function deletePersonalAgentKeyConfirm(key) {
   }
 }
 
-function formatSubscriptionFilters(subscription) {
-  const scope = subscription.scope === 'all_visible' ? 'all visible activity' : 'related activity'
-  const eventFilters = subscription.event_filters?.length ? subscription.event_filters.join(', ') : 'all types'
-  return `${scope} · ${eventFilters}`
+function subscriptionMenuActions(subscription) {
+  return [
+    {
+      label: subscription.is_enabled ? 'Pause' : 'Resume',
+      icon: subscription.is_enabled ? '#icon-pause' : '#icon-play',
+      run: () => toggleSubscription(subscription),
+    },
+    { divider: true },
+    { label: 'Remove channel', icon: '#icon-trash', danger: true, run: () => deleteSubscriptionConfirm(subscription) },
+  ]
+}
+
+function formatEventType(value) {
+  return notificationEventOptions.find(option => option.value === value)?.label || value
+}
+
+function userLabel(userId) {
+  const user = users.value.find(entry => entry.id === userId || entry.username === userId)
+  return user?.display_name || userId || 'Unknown person'
+}
+
+function formatDeliveryStatus(status) {
+  return {
+    sent: 'Sent',
+    failed: 'Failed',
+    sending: 'Sending',
+    pending: 'Waiting',
+  }[status] || (status ? `${status.charAt(0).toUpperCase()}${status.slice(1)}` : 'Waiting')
+}
+
+function deliveryStateIcon(status) {
+  if (status === 'sent') return '#icon-check'
+  if (status === 'failed') return '#icon-alert'
+  return '#icon-clock'
 }
 
 function deliveryStateClass(status) {
@@ -2180,14 +2208,14 @@ async function toggleSubscription(subscription) {
 async function testSubscription(subscription) {
   try {
     await api.post(`/api/admin/notification-subscriptions/${subscription.id}/test`)
-    notify('Test delivery sent.')
+    notify('Test message sent.')
   } catch (error) {
-    notify(`Test delivery failed: ${getApiErrorMessage(error)}`)
+    notify(`Test message failed: ${getApiErrorMessage(error)}`)
   }
 }
 
 async function deleteSubscriptionConfirm(subscription) {
-  if (!confirm(`Delete Discord channel for "${subscription.recipient_display_name}"?`)) return
+  if (!confirm(`Remove the Discord channel for ${subscription.recipient_display_name}? Vueio stops sending messages to it.`)) return
   try {
     await api.delete(`/api/admin/notification-subscriptions/${subscription.id}`)
     await loadSubscriptions()
@@ -2197,172 +2225,52 @@ async function deleteSubscriptionConfirm(subscription) {
 }
 
 watch(adminTabs, tabs => {
-  if (activeTab.value === 'channels' || activeTab.value === 'discord' || activeTab.value === 'deliveries') {
-    activeTab.value = 'notifications'
-    return
-  }
-  if (activeTab.value === 'personal-keys' || activeTab.value === 'keys') {
-    activeTab.value = 'agent-keys'
-    return
-  }
-  if (activeTab.value === 'identity' || activeTab.value === 'users') {
-    activeTab.value = 'team'
-    return
-  }
-  if (!tabs.some(tab => tab.value === activeTab.value)) {
-    activeTab.value = 'account'
-  }
+  if (!tabs.some(tab => tab.value === activeTab.value)) activeTab.value = 'account'
 }, { immediate: true })
 
 watch(() => route.query.tab, tab => {
-  if (typeof tab === 'string' && adminTabs.value.some(item => item.value === tab)) {
-    activeTab.value = tab
+  const resolved = TAB_ALIASES[tab] || tab
+  if (typeof resolved === 'string' && adminTabs.value.some(item => item.value === resolved)) {
+    activeTab.value = resolved
   }
 }, { immediate: true })
 
 watch(activeTab, tab => {
-  const query = tab === 'account' ? {} : { tab }
+  if (showMobileIndex.value) return
+  const query = tab === 'account' && !isCompact.value ? {} : { tab }
   if ((route.query.tab || '') !== (query.tab || '')) {
     router.replace({ path: '/settings', query })
   }
 })
 
-onMounted(refreshAll)
+onMounted(() => {
+  compactQuery.addEventListener('change', syncCompact)
+  refreshAll()
+})
+onBeforeUnmount(() => compactQuery.removeEventListener('change', syncCompact))
 </script>
 
 <style scoped>
 .admin-page {
   flex: 1;
   min-height: 0;
-  padding: 24px clamp(20px, 3vw, 44px) 40px;
-  overflow-y: auto;
+  padding: 28px clamp(20px, 3vw, 44px) 48px;
   overflow-x: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-6);
-}
-
-.admin-page-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--v-space-6);
-  width: min(100%, 1440px);
-  margin-inline: auto;
-  flex-shrink: 0;
-}
-
-.admin-header-copy {
-  min-width: 0;
-}
-
-.admin-title {
-  margin: 0;
-  color: var(--v-text);
-  font-size: clamp(24px, 2.2vw, 30px);
-  font-weight: 760;
-  letter-spacing: -0.025em;
-  line-height: 1.08;
-}
-
-.admin-header-overview {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-3);
-  min-width: 0;
-}
-
-.admin-refresh .icon.spinning {
-  animation: v-spin 0.8s linear infinite;
-}
-
-.admin-workspace-summary {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px 16px;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  font-variant-numeric: tabular-nums;
-}
-
-.admin-workspace-summary span {
-  white-space: nowrap;
-}
-
-.admin-workspace-summary strong {
-  color: var(--v-text-secondary);
-  font-weight: 760;
-}
-
-.admin-system-summary.warn {
-  color: var(--v-warning);
 }
 
 .admin-section {
   min-width: 0;
-  flex: 0 0 auto;
-}
-
-.admin-callout {
-  width: min(100%, 1440px);
-  margin-inline: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  flex-shrink: 0;
-  border: 1px solid color-mix(in srgb, var(--v-accent) 22%, var(--v-surface-border-soft));
-  border-radius: var(--v-radius-lg);
-  background: color-mix(in srgb, var(--v-accent) 6%, var(--v-surface-panel));
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.admin-callout-title {
-  font-weight: 600;
-}
-
-.admin-callout-subtitle {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  margin-top: var(--v-space-1);
-}
-
-.admin-token-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--v-space-2);
-  align-items: center;
-}
-
-.admin-token {
-  flex: 1;
-  min-width: 220px;
-  background: var(--v-bg-field);
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-md);
-  padding: 10px 12px;
-  white-space: nowrap;
-  overflow: auto;
 }
 
 .admin-settings-shell {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 216px minmax(0, 1fr);
   align-items: start;
-  gap: clamp(22px, 3vw, 42px);
-  width: min(100%, 1440px);
+  gap: clamp(24px, 3.2vw, 48px);
+  width: min(100%, 1320px);
   margin-inline: auto;
-}
-
-.admin-settings-rail {
-  position: sticky;
-  top: 20px;
-  min-width: 0;
-  padding-right: var(--v-space-5);
-  border-right: 1px solid var(--v-divider-subtle);
 }
 
 .admin-settings-shell.is-setup {
@@ -2370,464 +2278,268 @@ onMounted(refreshAll)
   max-width: 860px;
 }
 
+/* Section rail */
+.admin-settings-rail {
+  position: sticky;
+  top: 0;
+  min-width: 0;
+}
+
 .admin-settings-nav {
   display: grid;
-  gap: var(--v-space-5);
+  gap: 18px;
 }
 
 .admin-nav-group {
   display: grid;
-  gap: 5px;
+  gap: 4px;
 }
 
 .admin-nav-group h2 {
-  margin: 0 0 3px;
-  padding: 0 9px;
+  margin: 0;
+  padding: 0 10px 2px;
   color: var(--v-text-muted);
-  font-size: var(--v-text-2xs);
-  font-weight: 760;
-  letter-spacing: 0.12em;
-  line-height: 1.2;
-  text-transform: uppercase;
+  font-size: var(--v-text-sm);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.admin-nav-list {
+  display: grid;
+  gap: 1px;
 }
 
 .admin-nav-item {
-  position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) 12px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  padding: var(--v-space-2) var(--v-space-3);
-  border: 1px solid transparent;
-  border-radius: var(--v-radius-md);
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 8px;
   background: transparent;
-  color: var(--v-text-muted);
+  color: var(--v-text-dim);
   font-family: var(--v-font);
   text-align: left;
   cursor: pointer;
-  transition:
-    background-color var(--v-duration-fast) var(--v-ease-emphasized),
-    border-color var(--v-duration-fast) var(--v-ease-emphasized),
-    color var(--v-duration-fast) var(--v-ease-emphasized);
+  transition: background-color var(--v-transition-fast), color var(--v-transition-fast);
 }
 
 .admin-nav-item:hover {
-  border-color: color-mix(in srgb, var(--v-border) 56%, transparent);
-  background: var(--v-surface-tint);
-  color: var(--v-text-secondary);
+  background: color-mix(in srgb, var(--v-text) 4%, transparent);
+  color: var(--v-text);
 }
 
 .admin-nav-item.active {
-  border-color: color-mix(in srgb, var(--v-accent) 18%, var(--v-border));
-  background: color-mix(in srgb, var(--v-accent) 7%, var(--v-surface-tint));
-  color: var(--v-accent);
-}
-
-.admin-nav-item > .icon:first-child {
-  width: 16px;
-  height: 16px;
-}
-
-.admin-nav-item > span {
-  min-width: 0;
-}
-
-.admin-nav-item strong {
-  overflow: hidden;
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-base);
-  font-weight: 720;
-  line-height: 1.25;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.admin-nav-item.active strong {
+  background: var(--v-surface-inline-strong);
   color: var(--v-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-text) 6%, transparent);
 }
 
-.admin-nav-chevron {
-  width: 11px;
-  height: 11px;
-  opacity: 0;
-  transform: translateX(-3px);
-  transition:
-    opacity var(--v-duration-fast) var(--v-ease-emphasized),
-    transform var(--v-duration-fast) var(--v-ease-emphasized);
+.admin-nav-item:focus-visible {
+  outline: 2px solid var(--v-border-focus);
+  outline-offset: -2px;
 }
 
-.admin-nav-item.active .admin-nav-chevron {
-  opacity: 0.8;
-  transform: translateX(0);
-}
-
-.admin-mobile-nav {
-  display: none;
-}
-
-.admin-settings-content {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-4);
-  width: min(100%, 920px);
-  min-width: 0;
-}
-
-.admin-settings-content.is-wide {
-  width: min(100%, 1180px);
-}
-
-.account-settings-section,
-.notification-preferences-section {
-  overflow: hidden;
-}
-
-.account-settings-grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.62fr) minmax(520px, 1.38fr);
-  gap: var(--v-space-4);
-  padding-top: var(--v-space-4);
-}
-
-.account-profile-card,
-.account-password-card,
-.notification-preference-card {
-  min-width: 0;
-  padding: var(--v-space-4);
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.account-profile-card {
-  align-self: start;
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-4);
-}
-
-.account-profile-identity {
-  display: grid;
-  grid-template-columns: 48px minmax(0, 1fr);
-  align-items: center;
-  gap: var(--v-space-3);
-}
-
-.account-profile-avatar {
-  width: 48px;
-  height: 48px;
+.admin-nav-icon {
   display: grid;
   place-items: center;
-  border-radius: var(--v-radius-md);
-  color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 12%, var(--v-surface-inline));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--v-accent) 24%, transparent);
-  font-size: var(--v-text-lg);
-  font-weight: 800;
 }
 
-.account-profile-identity h3,
-.account-password-head h3,
-.notification-preference-card h3 {
-  margin: 0;
-  color: var(--v-text);
-  font-size: var(--v-text-lg);
-  line-height: 1.25;
-}
-
-.account-profile-identity p:last-child,
-.account-password-head p,
-.notification-preference-card > div:first-child > p:last-child {
-  margin: 4px 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-base);
-  line-height: 1.45;
-}
-
-.account-profile-facts {
-  display: grid;
-  gap: 1px;
-  margin: 0;
-  overflow: hidden;
-  border-radius: var(--v-radius-md);
-  background: var(--v-divider-subtle);
-}
-
-.account-profile-facts div {
-  display: grid;
-  gap: 4px;
-  padding: 11px 12px;
-  background: var(--v-surface-well);
-}
-
-.account-profile-facts dt {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.account-profile-facts dd {
-  margin: 0;
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-base);
-}
-
-.account-password-card {
-  display: grid;
-  gap: var(--v-space-4);
-}
-
-.account-password-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--v-space-4);
-}
-
-.account-password-state {
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 0 auto;
-  padding: 0 9px;
-  border-radius: var(--v-button-radius);
-  color: var(--v-text-muted);
-  background: var(--v-surface-well);
-  font-size: var(--v-text-xs);
-  font-weight: 700;
-}
-
-.account-password-state.is-ready {
-  color: var(--v-accent-hover);
-  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-inline));
-}
-
-.account-password-state .icon {
-  width: 12px;
-  height: 12px;
-}
-
-.account-password-fields {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--v-space-3);
-}
-
-.account-current-password {
-  grid-column: 1 / -1;
-}
-
-.notification-preferences-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--v-space-4);
-  padding-top: var(--v-space-4);
-}
-
-.notification-preference-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-4);
-}
-
-.settings-toggle-grid,
-.settings-option-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: var(--v-space-2);
-}
-
-.notification-preference-card .settings-toggle-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.notification-preference-card :deep(.v-switch),
-.notification-event-grid :deep(.v-checkbox) {
-  align-items: flex-start;
-  min-height: 62px;
-  padding: 11px;
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
-}
-
-.notification-mode-toggle {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-button-radius);
-  background: var(--v-surface-inset);
-  box-shadow: var(--v-surface-shadow-inset);
-}
-
-.notification-mode-toggle button {
-  min-height: 34px;
-  border: 1px solid transparent;
-  border-radius: var(--v-button-radius);
-  background: transparent;
-  color: var(--v-text-muted);
-  font: 650 var(--v-text-base)/1 var(--v-font);
-  cursor: pointer;
-}
-
-.notification-mode-toggle button:hover,
-.notification-mode-toggle button.active {
-  color: var(--v-text);
-  background: var(--v-control-bg-active);
-}
-
-.notification-control-help {
-  margin: auto 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.45;
-}
-
-.notification-preferences-message {
-  grid-column: 1 / -1;
-}
-
-.settings-disclosure {
-  overflow: hidden;
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.settings-admin-heading {
-  padding: var(--v-space-3) 2px 0;
-}
-
-.settings-admin-heading h2 {
-  margin: 0;
-  color: var(--v-text);
-  font-size: var(--v-text-xl);
-  line-height: 1.25;
-}
-
-.settings-admin-heading > p:last-child {
-  margin: 5px 0 0;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-base);
-  line-height: 1.45;
-}
-
-.settings-disclosure-summary {
-  display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) auto 16px;
-  align-items: center;
-  gap: var(--v-space-3);
-  min-height: 68px;
-  padding: 12px 16px;
-  list-style: none;
-  cursor: pointer;
-  transition: background-color var(--v-transition-fast);
-}
-
-.settings-disclosure-summary::-webkit-details-marker {
-  display: none;
-}
-
-.settings-disclosure-summary:hover {
-  background: var(--v-surface-tint-hover);
-}
-
-.settings-disclosure-icon {
-  width: 36px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  border-radius: var(--v-radius-md);
-  color: var(--v-accent);
-  background: color-mix(in srgb, var(--v-accent) 9%, var(--v-surface-inline));
-}
-
-.settings-disclosure-icon .icon {
+.admin-nav-icon .icon {
   width: 15px;
   height: 15px;
 }
 
-.settings-disclosure-copy {
+.admin-nav-item.active .admin-nav-icon {
+  color: var(--v-accent);
+}
+
+.admin-nav-copy {
   min-width: 0;
+}
+
+.admin-nav-copy strong {
+  display: block;
+  overflow: hidden;
+  font-size: var(--v-text-base);
+  font-weight: 550;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.admin-nav-item.active .admin-nav-copy strong {
+  font-weight: 650;
+}
+
+.admin-nav-copy small,
+.admin-nav-chevron {
+  display: none;
+}
+
+.admin-nav-badge {
+  min-width: 18px;
+  padding: 1px 6px;
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+.admin-nav-badge.is-accent {
+  background: var(--v-accent-muted);
+  color: var(--v-accent-hover);
+  font-weight: 600;
+}
+
+.admin-nav-badge.is-warn {
+  background: var(--v-warning-bg);
+  color: var(--v-warning);
+  font-weight: 600;
+}
+
+.admin-mobile-back {
+  display: none;
+}
+
+/* Section content */
+.admin-settings-content {
   display: grid;
-  gap: 3px;
+  gap: var(--v-space-4);
+  width: min(100%, 860px);
+  min-width: 0;
 }
 
-.settings-disclosure-copy strong {
-  color: var(--v-text);
-  font-size: var(--v-text-md);
+.admin-settings-content.is-wide {
+  width: min(100%, 1060px);
 }
 
-.settings-disclosure-copy > span {
+.settings-save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
 }
 
-.settings-disclosure-meta {
+.settings-save-state .icon {
+  width: 12px;
+  height: 12px;
+  color: var(--v-accent);
+}
+
+.settings-save-state.is-error {
+  color: var(--v-danger-text);
+}
+
+/* Account */
+.account-identity {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--v-space-3);
+  padding: 16px;
+  border-bottom: 1px solid var(--v-divider-subtle);
+}
+
+.account-avatar {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--v-accent-muted);
+  color: var(--v-accent-hover);
+  font-size: var(--v-text-md);
+  font-weight: 700;
+}
+
+.account-identity-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.account-identity-copy strong {
+  overflow: hidden;
+  color: var(--v-text);
+  font-size: var(--v-text-lg);
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-identity-copy span {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+}
+
+.account-role {
+  padding: 2px 9px;
+  border-radius: var(--v-radius-full);
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 600;
+}
+
+.account-role.is-admin {
+  background: var(--v-accent-muted);
+  color: var(--v-accent-hover);
+}
+
+.account-password-fields {
+  max-width: 440px;
+  gap: var(--v-space-3);
+}
+
+/* Notifications */
+.notification-types-head {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--v-space-2);
-  color: var(--v-text-muted);
+  justify-content: space-between;
+  gap: var(--v-space-4);
+}
+
+.notification-event-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+
+.notification-event-grid :deep(.v-checkbox) {
+  padding: 10px 12px;
+  border-radius: var(--v-radius-md);
+  background: var(--v-surface-inset);
+}
+
+.notification-event-grid :deep(.v-checkbox-hint) {
   font-size: var(--v-text-sm);
 }
 
-.settings-disclosure-chevron {
-  width: 14px;
-  height: 14px;
-  color: var(--v-text-muted);
-  transition: transform var(--v-transition-fast);
+/* Discord */
+.discord-bot-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--v-space-3) var(--v-space-4);
 }
 
-.settings-disclosure[open] .settings-disclosure-chevron {
-  transform: rotate(180deg);
+.discord-token-field {
+  grid-column: 1 / -1;
 }
 
-.settings-disclosure-body {
+.discord-invite-row {
   border-top: 1px solid var(--v-divider-subtle);
 }
 
-.discord-settings-body {
-  display: grid;
-  gap: var(--v-space-4);
-  padding: var(--v-space-4);
-}
-
-.discord-provider-panel {
-  width: 100%;
-  max-width: none;
-}
-
-.discord-provider-panel .admin-form-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.discord-channel-panel {
-  width: 100%;
-  max-width: none;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-tint);
-}
-
-.discord-channel-toolbar {
-  padding: 12px 14px;
-}
-
-.discord-status-grid {
-  align-items: stretch;
+.discord-clear-token {
+  color: var(--v-danger-text);
 }
 
 .admin-secret-input {
@@ -2841,286 +2553,127 @@ onMounted(refreshAll)
 .admin-secret-toggle {
   position: absolute;
   top: 50%;
-  right: 6px;
+  right: 5px;
   width: 30px;
+  min-width: 30px;
   height: 30px;
-  transform: translateY(-50%);
+  min-height: 30px;
   color: var(--v-text-muted);
+  transform: translateY(-50%);
 }
 
 .admin-secret-toggle:hover {
   color: var(--v-text);
 }
 
-.discord-invite-callout,
-.admin-form-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-3);
-  flex-wrap: wrap;
+.delivery-row {
+  align-items: start;
+  min-height: 0;
 }
 
-.discord-invite-callout {
-  padding: var(--v-space-3);
-  border: 1px solid color-mix(in srgb, var(--v-border) 58%, transparent);
-  border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-bg-field) 42%, transparent);
+.delivery-row .settings-list-mark {
+  width: 28px;
+  height: 28px;
+  margin-top: 1px;
 }
 
-.admin-form-actions {
-  justify-content: flex-start;
+.delivery-row.is-success .settings-list-mark,
+.delivery-row.is-success .delivery-status {
+  color: var(--v-accent);
 }
 
-.admin-readonly-field {
-  display: flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-3);
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-bg-field) 78%, transparent);
-  padding: 0 14px;
+.delivery-row.is-danger .settings-list-mark,
+.delivery-row.is-danger .delivery-status {
+  color: var(--v-danger-text);
 }
 
-.admin-readonly-field span {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  font-weight: 600;
+.delivery-row.is-warn .delivery-status {
+  color: var(--v-warning);
 }
 
-.admin-readonly-field strong {
-  color: var(--v-text-secondary);
+.delivery-row .settings-list-title {
   font-size: var(--v-text-base);
+  font-weight: 550;
 }
 
-.admin-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 10px 10px;
-}
-
-.delivery-health-toolbar,
-.download-audit-list-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-3);
-  padding: 10px 14px;
-  color: var(--v-text-muted);
+.delivery-error {
+  margin: 4px 0 0;
+  color: var(--v-danger-text);
   font-size: var(--v-text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
-.delivery-health-toolbar {
-  border-bottom: 1px solid var(--v-divider-subtle);
+/* Download history */
+.download-row + .download-row {
+  border-top: 1px solid var(--v-divider-subtle);
 }
 
-.admin-show-more {
-  display: flex;
-  width: calc(100% - 28px);
-  margin: 0 14px 14px;
-  justify-content: center;
+.download-row.is-open {
+  background: color-mix(in srgb, var(--v-text) 2%, transparent);
 }
 
-.download-audit-section {
-  overflow: hidden;
-}
-
-.download-audit-section :deep(.settings-view-actions) {
-  flex: 1 1 420px;
-}
-
-.download-audit-section :deep(.settings-view-actions > .admin-toolbar-actions) {
-  width: 100%;
-}
-
-.download-audit-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--v-space-2);
-  padding: 16px 0 4px;
-}
-
-/* Recessed like every other read-only stat surface in the app, rather than
-   an outlined card that reads as something you can click. */
-.download-audit-stat {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: var(--v-radius-md);
-  background: var(--v-surface-well);
-  box-shadow: var(--v-surface-well-ring);
-}
-
-.download-audit-stat strong {
-  color: var(--v-text);
-  font-size: var(--v-text-xl);
-}
-
-.download-audit-list {
-  display: grid;
-  gap: var(--v-space-2);
-  padding: 10px 0 14px;
-}
-
-.download-audit-list-head {
-  padding-bottom: 0;
-}
-
-.download-audit-row {
-  display: grid;
-  grid-template-columns: minmax(260px, 1.35fr) minmax(180px, 0.72fr) minmax(180px, 0.72fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding: var(--v-space-3);
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.download-audit-main,
-.download-audit-signal {
-  min-width: 0;
-}
-
-.download-audit-title-row {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-2);
-  min-width: 0;
-}
-
-.download-audit-title-row h3 {
-  min-width: 0;
-  margin: 0;
-  overflow: hidden;
-  color: var(--v-text);
-  font-size: var(--v-text-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.download-audit-type {
-  flex: 0 0 auto;
-  min-height: 22px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 8px;
-  border-radius: var(--v-radius-full);
-  font-size: var(--v-text-xs);
-  font-weight: 800;
-}
-
-.download-audit-type.is-share {
+.download-mark.is-share {
+  background: var(--v-accent-muted);
   color: var(--v-accent-hover);
-  background: color-mix(in srgb, var(--v-accent-muted) 52%, transparent);
 }
 
-.download-audit-type.is-tracker {
-  color: var(--v-info);
-  background: color-mix(in srgb, var(--v-info) 14%, transparent);
+.download-details-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform var(--v-transition-fast);
 }
 
-.download-audit-type.is-file {
-  color: var(--v-text-secondary);
-  background: color-mix(in srgb, var(--v-bg-field) 70%, transparent);
-}
-
-.download-audit-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 10px;
-  margin-top: 6px;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-}
-
-.download-audit-signal {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.download-audit-signal strong {
-  overflow: hidden;
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-base);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.download-audit-signal span:last-child {
-  overflow: hidden;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.download-audit-details {
-  justify-self: end;
-}
-
-.download-audit-details summary {
-  min-height: 32px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 10px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 54%, transparent);
-  border-radius: var(--v-radius-md);
-  color: var(--v-text-secondary);
-  cursor: pointer;
-  font-size: var(--v-text-sm);
-  font-weight: 700;
-  list-style: none;
-}
-
-.download-audit-details[open] {
-  grid-column: 1 / -1;
-  justify-self: stretch;
+.download-row.is-open .download-details-chevron {
+  transform: rotate(180deg);
 }
 
 .download-detail-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--v-space-2);
-  margin-top: 10px;
-  padding: 10px;
-  border: 1px solid color-mix(in srgb, var(--v-border) 52%, transparent);
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 10px 16px;
+  margin: 0 16px 14px 60px;
+  padding: 12px 14px;
   border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-bg-field) 42%, transparent);
+  background: var(--v-surface-inset);
 }
 
 .download-detail-grid div {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-1);
 }
 
-.download-detail-grid code {
-  overflow: hidden;
-  color: var(--v-text-secondary);
+.download-detail-grid dt {
+  color: var(--v-text-muted);
   font-size: var(--v-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+
+.download-detail-grid dd {
+  margin: 2px 0 0;
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
+  overflow-wrap: anywhere;
 }
 
 .download-detail-wide {
   grid-column: 1 / -1;
 }
 
+/* Shared links */
+.share-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--v-space-2) var(--v-space-3);
+}
+
+.share-toolbar .admin-search-wrap {
+  flex: 1 1 220px;
+  max-width: 320px;
+}
+
 .share-project-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: var(--v-space-3);
-  padding: var(--v-space-4) 0;
+  gap: 10px;
 }
 
 .share-project-group {
@@ -3128,33 +2681,14 @@ onMounted(refreshAll)
   border: 1px solid var(--v-surface-border-soft);
   border-radius: var(--v-radius-lg);
   background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.share-settings-section > .admin-toolbar {
-  margin-top: var(--v-space-4);
-  border: 1px solid var(--v-surface-border-soft);
-  border-radius: var(--v-radius-lg);
-  background: var(--v-surface-canvas);
-  box-shadow: var(--v-surface-shadow-raised);
-}
-
-.share-project-group[open] {
-  grid-column: 1 / -1;
-}
-
-.share-project-group:not([open]) .share-project-header {
-  border-bottom-color: transparent;
 }
 
 .share-project-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) auto 14px;
   align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--v-divider-subtle);
-  background: var(--v-surface-tint-strong);
+  gap: var(--v-space-3);
+  padding: 12px 16px;
   list-style: none;
   cursor: pointer;
   transition: background-color var(--v-transition-fast);
@@ -3165,65 +2699,52 @@ onMounted(refreshAll)
 }
 
 .share-project-header:hover {
-  background: var(--v-surface-tint-hover);
+  background: color-mix(in srgb, var(--v-text) 2.5%, transparent);
 }
 
-.share-project-identity {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: var(--v-space-3);
+.share-project-group[open] .share-project-header {
+  border-bottom: 1px solid var(--v-divider-subtle);
 }
 
 .share-project-thumb {
-  width: 54px;
-  height: 34px;
-  flex: 0 0 auto;
+  width: 52px;
+  height: 32px;
   display: grid;
   place-items: center;
   overflow: hidden;
   border-radius: var(--v-radius-sm);
-  border: 1px solid color-mix(in srgb, var(--v-border) 62%, transparent);
-  background: color-mix(in srgb, var(--v-bg-field) 72%, transparent);
-  color: var(--v-accent-hover);
-  font-size: var(--v-text-sm);
-  font-weight: 800;
+  background: color-mix(in srgb, var(--v-text) 5%, transparent);
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-xs);
+  font-weight: 700;
 }
 
 .share-project-thumb img {
+  display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
-}
-
-.share-project-thumb.is-empty {
-  background: color-mix(in srgb, var(--v-bg-field) 86%, transparent);
 }
 
 .share-project-heading {
   min-width: 0;
 }
 
-/* Truncates rather than wraps: this sits in a fixed-height card header. */
-.share-project-kicker {
+.share-project-heading h3 {
+  margin: 0;
   overflow: hidden;
+  color: var(--v-text);
+  font-size: var(--v-text-md);
+  font-weight: 600;
+  line-height: 1.3;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.share-project-heading h3 {
-  margin: 3px 0 0;
-  color: var(--v-text);
-  font-size: var(--v-text-md);
-  line-height: 1.25;
-}
-
 .share-project-heading p {
-  margin: 3px 0 0;
+  margin: 2px 0 0;
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
-  line-height: 1.25;
 }
 
 .share-project-counts {
@@ -3236,8 +2757,6 @@ onMounted(refreshAll)
 .share-project-chevron {
   width: 14px;
   height: 14px;
-  margin-left: 3px;
-  align-self: center;
   color: var(--v-text-muted);
   transition: transform var(--v-transition-fast);
 }
@@ -3246,178 +2765,36 @@ onMounted(refreshAll)
   transform: rotate(180deg);
 }
 
-.share-filter-count {
-  flex: 0 0 auto;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.share-item-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-1);
-  margin: 0;
-  padding: 8px 10px 10px;
-  list-style: none;
-}
-
-.share-item {
-  display: grid;
-  grid-template-columns: minmax(220px, 1fr) minmax(150px, 0.45fr) auto;
-  gap: var(--v-space-3);
-  align-items: center;
-  padding: 11px 14px;
-  border: 1px solid transparent;
-  border-radius: var(--v-radius-md);
-  background: transparent;
-  transition: background-color 140ms ease, border-color 140ms ease, transform 140ms ease;
-}
-
-.share-item:hover {
-  border-color: color-mix(in srgb, var(--v-border) 64%, transparent);
-  background: var(--v-surface-tint-hover);
-}
-
-.share-item.is-disabled {
-  background: transparent;
-}
-
-.share-item-title-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--v-space-2);
-}
-
-.share-item-title-row h4 {
-  min-width: 0;
-  margin: 0;
-  color: var(--v-text);
+.share-item .settings-list-title {
   font-size: var(--v-text-base);
-  line-height: 1.3;
 }
 
-.share-item-meta,
-.share-item-access {
+.admin-show-more {
+  justify-self: center;
+}
+
+/* Modals */
+.admin-readonly-field {
   display: flex;
-  flex-wrap: wrap;
-  gap: 5px 8px;
-  margin-top: 5px;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  line-height: 1.35;
-}
-
-.share-item-meta span:not(:last-child)::after {
-  content: '·';
-  margin-left: var(--v-space-2);
-  color: color-mix(in srgb, var(--v-text-muted) 58%, transparent);
-}
-
-.share-item-access {
-  margin-top: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.share-item-actions {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 7px;
-}
-
-.admin-list-header {
-  display: grid;
-  gap: 14px;
-  padding: 2px 4px 7px;
-}
-
-.admin-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 10px 14px;
-  padding: 12px 14px;
-  border: 1px solid transparent;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-3);
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--v-control-border);
   border-radius: var(--v-radius-md);
-  background: transparent;
-  transition: background-color 140ms ease, border-color 140ms ease;
+  background: var(--v-surface-inset);
 }
 
-.admin-subscription-grid,
-.subscription-card {
-  grid-template-columns: minmax(190px, 1fr) minmax(180px, 0.8fr) minmax(170px, 0.8fr) minmax(260px, auto);
-}
-
-.admin-delivery-grid,
-.delivery-card {
-  grid-template-columns: minmax(240px, 1fr) minmax(120px, 0.4fr) minmax(240px, 0.9fr);
-}
-
-.admin-card:hover {
-  border-color: color-mix(in srgb, var(--v-border) 58%, transparent);
-  background: var(--v-surface-tint-hover);
-}
-
-.admin-card-main {
-  min-width: 0;
-}
-
-.admin-card-title-row {
-  display: flex;
-  gap: var(--v-space-2);
-  justify-content: flex-start;
-  align-items: flex-start;
-  flex-wrap: wrap;
-}
-
-.admin-card-title {
-  margin: 0;
-  font-size: var(--v-text-md);
-  line-height: 1.3;
-  color: var(--v-text);
-}
-
-.admin-card-subtitle {
-  margin-top: var(--v-space-1);
+.admin-readonly-field span {
   color: var(--v-text-muted);
   font-size: var(--v-text-sm);
-  display: flex;
-  gap: 5px;
-  flex-wrap: wrap;
 }
 
-.admin-access-stack {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-1);
-  min-width: 0;
-  align-self: center;
-}
-
-.admin-state {
+.admin-readonly-field strong {
   color: var(--v-text-secondary);
-  font-size: var(--v-text-sm);
-  font-weight: 700;
-}
-
-.admin-state.success {
-  color: var(--v-accent-hover);
-}
-
-.admin-state.warn {
-  color: var(--v-warning);
-}
-
-.admin-state.danger {
-  color: var(--v-danger-text);
-}
-
-.admin-access-line {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
+  font-size: var(--v-text-base);
+  font-weight: 600;
 }
 
 .admin-subsection {
@@ -3425,90 +2802,118 @@ onMounted(refreshAll)
   flex-direction: column;
   gap: var(--v-space-2);
   padding: var(--v-space-3);
-  border: 1px solid color-mix(in srgb, var(--v-border) 54%, transparent);
+  border: 1px solid var(--v-control-border);
   border-radius: var(--v-radius-md);
-  background: color-mix(in srgb, var(--v-bg-field) 28%, transparent);
+  background: var(--v-surface-inset);
 }
 
-@media (max-width: 1000px) {
-  .account-settings-grid,
-  .notification-preferences-body {
-    grid-template-columns: 1fr;
-  }
-
-  .discord-provider-panel .admin-form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .share-project-list {
-    grid-template-columns: 1fr;
-  }
-
-  .share-project-group[open] {
-    grid-column: auto;
-  }
+.member-access-divider {
+  margin-top: var(--v-space-2);
 }
 
+.settings-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--v-space-2);
+}
+
+/* Narrow screens: a list of sections, then one section with a back link. */
 @media (max-width: 900px) {
   .admin-settings-shell {
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--v-space-4);
+    gap: 0;
   }
 
-  .admin-settings-rail {
+  .admin-settings-shell:not(.is-index) .admin-settings-rail {
     display: none;
   }
 
-  .admin-mobile-nav {
-    display: grid;
-    gap: 7px;
-    position: sticky;
-    top: 0;
-    z-index: var(--v-z-sticky);
-    margin-inline: -2px;
-    padding: 10px 2px 12px;
-    background: color-mix(in srgb, var(--v-bg-base) 96%, transparent);
+  .admin-settings-rail {
+    position: static;
   }
 
-  .admin-mobile-nav-control {
-    position: relative;
-    display: grid;
-    grid-template-columns: 18px minmax(0, 1fr) 14px;
-    align-items: center;
-    gap: 10px;
-    min-height: 46px;
-    padding: 0 13px;
-    border: 1px solid var(--v-control-border);
-    border-radius: var(--v-radius-md);
-    background: var(--v-control-bg);
-    box-shadow: var(--v-surface-shadow-inset);
+  .admin-settings-nav {
+    gap: 22px;
+  }
+
+  .admin-nav-group h2 {
+    padding: 0 4px 4px;
+  }
+
+  .admin-nav-list {
+    overflow: hidden;
+    border: 1px solid var(--v-surface-border-soft);
+    border-radius: var(--v-radius-lg);
+    background: var(--v-surface-canvas);
+    gap: 0;
+  }
+
+  .admin-nav-item {
+    grid-template-columns: 32px minmax(0, 1fr) auto 14px;
+    gap: 12px;
+    min-height: 60px;
+    padding: 10px 14px;
+    border-radius: 0;
+    color: var(--v-text);
+  }
+
+  .admin-nav-item + .admin-nav-item {
+    border-top: 1px solid var(--v-divider-subtle);
+  }
+
+  .admin-nav-item:hover {
+    background: color-mix(in srgb, var(--v-text) 3%, transparent);
+  }
+
+  .admin-nav-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--v-radius-sm);
+    background: var(--v-accent-muted);
     color: var(--v-accent);
   }
 
-  .admin-mobile-nav-control > .icon:first-child {
-    width: 17px;
-    height: 17px;
+  .admin-nav-copy strong {
+    font-size: var(--v-text-md);
+    font-weight: 600;
   }
 
-  .admin-mobile-nav-control select {
-    width: 100%;
-    min-width: 0;
-    height: 44px;
-    padding: 0;
+  .admin-nav-copy small {
+    display: block;
+    overflow: hidden;
+    margin-top: 2px;
+    color: var(--v-text-muted);
+    font-size: var(--v-text-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .admin-nav-chevron {
+    display: block;
+    width: 13px;
+    height: 13px;
+    color: var(--v-text-dim);
+  }
+
+  .admin-mobile-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    justify-self: start;
+    min-height: 40px;
+    margin: -8px 0 0 -6px;
+    padding: 0 10px 0 6px;
     border: 0;
-    outline: 0;
-    appearance: none;
+    border-radius: var(--v-radius-md);
     background: transparent;
-    color: var(--v-text);
-    font: 720 var(--v-text-md)/1 var(--v-font);
+    color: var(--v-accent-hover);
+    font: 600 var(--v-text-md)/1 var(--v-font);
     cursor: pointer;
   }
 
-  .admin-mobile-nav-chevron {
-    width: 13px;
-    height: 13px;
-    color: var(--v-text-muted);
-    pointer-events: none;
+  .admin-mobile-back .icon {
+    width: 16px;
+    height: 16px;
   }
 
   .admin-settings-content,
@@ -3519,212 +2924,60 @@ onMounted(refreshAll)
 
 @media (max-width: 768px) {
   .admin-page {
-    padding: 14px 14px 80px;
-    gap: var(--v-space-4);
+    padding: 16px 14px 88px;
   }
 
-  .admin-page-header {
-    align-items: center;
-    gap: var(--v-space-3);
-  }
-
-  .admin-workspace-summary {
-    display: none;
-  }
-
-  .admin-title {
-    font-size: 24px;
-  }
-
-  .admin-token {
-    min-width: 0;
-  }
-
-  .account-settings-grid,
-  .notification-preferences-body {
-    grid-template-columns: 1fr;
-    gap: 10px;
-    padding-top: var(--v-space-3);
-  }
-
-  .account-profile-card,
-  .account-password-card,
-  .notification-preference-card {
+  .account-identity {
     padding: 14px;
   }
 
-  .account-password-head {
+  .account-password-fields {
+    max-width: none;
+  }
+
+  .notification-types-head {
+    align-items: stretch;
     flex-direction: column;
     gap: var(--v-space-3);
   }
 
-  .account-password-fields {
-    grid-template-columns: 1fr;
-  }
-
-  .account-current-password {
-    grid-column: auto;
-  }
-
-  .notification-preference-card .settings-toggle-grid,
   .notification-event-grid {
     grid-template-columns: 1fr;
   }
 
-  .settings-disclosure-summary {
-    grid-template-columns: 34px minmax(0, 1fr) 14px;
-    gap: 10px;
-    padding: 11px 12px;
+  .discord-bot-fields {
+    grid-template-columns: 1fr;
   }
 
-  .settings-disclosure-meta {
-    grid-column: 2 / -1;
+  .download-detail-grid {
+    grid-template-columns: 1fr 1fr;
+    margin: 0 14px 14px;
+  }
+
+  .share-toolbar .admin-search-wrap {
+    flex-basis: 100%;
+    max-width: none;
+  }
+
+  .share-project-header {
+    grid-template-columns: 44px minmax(0, 1fr) 14px;
+    padding: 12px 14px;
+  }
+
+  .share-project-thumb {
+    width: 44px;
+    height: 28px;
+  }
+
+  .share-project-counts {
+    grid-column: 2 / 3;
     grid-row: 2;
     justify-content: flex-start;
   }
 
-  .settings-disclosure-chevron {
+  .share-project-chevron {
     grid-column: 3;
     grid-row: 1;
-  }
-
-  .discord-settings-body {
-    padding: var(--v-space-3);
-  }
-
-  .delivery-health-toolbar,
-  .download-audit-list-head {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 5px;
-  }
-
-  .share-project-list {
-    padding: var(--v-space-3) 0;
-    gap: 10px;
-  }
-
-  .download-audit-summary {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .download-audit-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .download-audit-main,
-  .download-audit-details {
-    grid-column: 1 / -1;
-  }
-
-  .download-detail-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .download-audit-section .admin-toolbar-actions,
-  .download-audit-section .admin-search-wrap {
-    width: 100%;
-    max-width: none;
-  }
-
-  .download-audit-section .admin-toolbar-actions {
-    flex-wrap: nowrap;
-  }
-
-  .download-audit-section :deep(.settings-view-actions) {
-    flex: 0 0 auto;
-  }
-
-  .download-audit-section .admin-toolbar-actions .v-btn {
-    flex: 0 0 auto;
-  }
-
-  .download-audit-details {
-    justify-self: stretch;
-  }
-
-  .download-audit-details summary {
-    justify-content: center;
-    width: 100%;
-  }
-
-  .share-project-group {
-    border-radius: var(--v-radius-lg);
-  }
-
-  .share-project-header {
-    padding: var(--v-space-3);
-  }
-
-  .share-project-thumb {
-    width: 48px;
-    height: 30px;
-  }
-
-  .share-filter-count {
-    width: 100%;
-  }
-
-  .share-settings-section > .admin-toolbar {
-    flex-wrap: wrap;
-    overflow-x: visible;
-  }
-
-  .share-settings-section > .admin-toolbar .admin-search-wrap {
-    flex: 1 0 100%;
-    width: 100%;
-    max-width: none;
-  }
-
-  .share-settings-section > .admin-toolbar .admin-filter-row {
-    flex: 1 1 auto;
-  }
-
-  .share-item-list {
-    gap: 7px;
-    padding: var(--v-space-2);
-  }
-
-  .share-item {
-    grid-template-columns: 1fr;
-    gap: var(--v-space-2);
-    padding: 10px;
-  }
-
-  .share-item-actions {
-    justify-content: flex-start;
-    gap: 5px;
-  }
-
-  .share-item-actions .v-btn {
-    min-width: 0;
-  }
-
-  .admin-list-header {
-    display: none;
-  }
-
-  .admin-subscription-grid,
-  .admin-delivery-grid,
-  .subscription-card,
-  .delivery-card,
-  .admin-card {
-    grid-template-columns: 1fr;
-    gap: 8px 0;
-    padding: 10px 12px;
-  }
-
-}
-
-@media (max-width: 480px) {
-  .share-project-header {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .share-project-counts {
-    justify-content: flex-start;
   }
 }
 </style>

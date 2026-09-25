@@ -26,6 +26,9 @@
         </template>
         <template v-else>
           <VMediaThumbnail v-if="isMedia && thumbnailUrl" :src="thumbnailUrl" :alt="item.name" />
+          <VMediaThumbnail v-else-if="isModel && thumbnailUrl" :src="thumbnailUrl" :alt="item.name" model>
+            <template #fallback><VFileTypeGlyph :visual="typeVisual" :compact="viewMode === 'list'" /></template>
+          </VMediaThumbnail>
           <VFileTypeGlyph
             v-else-if="typeVisual"
             :visual="typeVisual"
@@ -78,7 +81,7 @@ import { computed } from 'vue'
 
 import VMediaThumbnail from '../media/VMediaThumbnail.vue'
 import VFileTypeGlyph from './VFileTypeGlyph.vue'
-import { usesGeneratedImagePreview } from '../../lib/mediaEntity'
+import { getMediaKind, usesGeneratedImagePreview } from '../../lib/mediaEntity'
 import { fileCardMetaParts, fileTimestampLabel } from '../../utils/formatters'
 import { fileTypeLabel, fileTypeVisual, fileUploaderLabel } from '../../utils/fileBrowserItems'
 
@@ -102,6 +105,7 @@ const isMedia = computed(() => Boolean(
   || props.item?.type === 'image'
   || usesGeneratedImagePreview(props.item)
 ))
+const isModel = computed(() => getMediaKind(props.item) === 'model')
 const isPdf = computed(() => props.item?.is_pdf || String(props.item?.extension || '').toLowerCase() === 'pdf')
 const typeVisual = computed(() => fileTypeVisual(props.item))
 const cardMetaParts = computed(() => fileCardMetaParts(props.item))

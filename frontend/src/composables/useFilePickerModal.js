@@ -1,6 +1,6 @@
 import { ref, reactive, computed, onMounted, onScopeDispose, watch } from 'vue'
 import api, { getApiErrorMessage } from '../lib/api'
-import { normalizeMediaEntity } from '../lib/mediaEntity'
+import { MODEL_EXTENSIONS, normalizeMediaEntity } from '../lib/mediaEntity'
 import { normalizeProjectContentItems } from '../lib/projectContentItems'
 import { notify } from '../utils/toasts'
 import { formatVersionLabel } from '../utils/versionLabels'
@@ -8,6 +8,7 @@ import { hasAppAccess } from '../utils/accountAccess'
 import { useFolderChanges } from './useFolderChanges'
 
 const TRACKER_IMPORT_MEDIA_EXTS = new Set([
+  ...MODEL_EXTENSIONS,
   'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif',
   'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'mxf', 'r3d', 'braw', 'prores',
 ])
@@ -387,7 +388,7 @@ export function useFilePickerModal({
   }
 
   function requestPickerItemMediaInfo(item) {
-    if (!showFilePicker.value || !item || ['folder', 'tracker', 'page'].includes(item.type)) return
+    if (!showFilePicker.value || !item || ['folder', 'tracker', 'page'].includes(item.type) || normalizeMediaEntity(item)?.is_model) return
     const path = getPickerItemMedia(item)?.path || item.path || ''
     const cached = path ? mediaQuickInfo[path] : null
     if (!path || cached?._loaded || cached?._loading || pendingPickerMediaInfoPaths.has(path)) return
@@ -398,6 +399,7 @@ export function useFilePickerModal({
   async function fetchDetailedMediaInfo(mediaInput) {
     const media = normalizeMediaEntity(mediaInput)
     const path = media?.path || ''
+    if (media?.is_model) return media
     if (!path) return null
     const quick = getQuickMediaInfo(path)
 
@@ -659,7 +661,7 @@ export function useFilePickerModal({
     }
     const candidate = normalizeProjectContentItems([item])[0]
     if (!candidate || candidate.type === 'folder' || !isTrackerImportMediaItem(candidate)) {
-      notify('Drop one image or video file to add it as a version.')
+      notify('Drop one image, video, or 3D model to add it as a version.')
       return false
     }
     return addVersionToShot(shot, candidate, { announce: true })
@@ -677,7 +679,7 @@ export function useFilePickerModal({
         .filter(Boolean)
 
       if (mediaFiles.length === 0) {
-        notify('No image or video files found in this folder')
+        notify('No images, videos, or 3D models found in this folder')
         return
       }
 
@@ -760,7 +762,7 @@ export function useFilePickerModal({
       item.type === 'folder' || !isTrackerImportMediaItem(item)
     )).length
     if (!mediaFiles.length) {
-      notify('Drop image or video files to import them into this tracker.')
+      notify('Drop images, videos, or 3D models to import them into this tracker.')
       return false
     }
     return importShotFiles(mediaFiles, { skippedCount })
@@ -937,7 +939,7 @@ export function useFilePickerModal({
 
     if (pickerMode.value === 'shot-import') {
       if (!isTrackerImportMediaItem(item)) {
-        notify('Choose an image or video file')
+        notify('Choose an image, video, or 3D model')
         return
       }
       togglePickerSelectedItem(item)

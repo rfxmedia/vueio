@@ -24,7 +24,7 @@ from app.models import (
     TrackerViewEvent,
     VersionRegistryEntry,
 )
-from app.services.media import IMAGE_EXTENSIONS, PDF_EXTENSIONS, VIDEO_EXTENSIONS, needs_transcode
+from app.services.media import IMAGE_EXTENSIONS, MODEL_EXTENSIONS, PDF_EXTENSIONS, VIDEO_EXTENSIONS, needs_transcode
 from app.services.media_assets import attach_canonical_media_identity
 from app.services.naming import slugify
 from app.services.project_delivery import delete_delivery_logo_upload
@@ -162,10 +162,11 @@ def serialize_horizon_shot_version_media(version: HorizonShotVersion, asset: Med
         'exists': exists,
         'unavailable_at': asset.unavailable_at if asset else None,
         'unavailable_reason': asset.unavailable_reason if asset else 'deleted',
-        'needs_transcode': bool(file_path and needs_transcode(Path(file_path))),
+        'needs_transcode': bool(file_path and ext not in MODEL_EXTENSIONS and needs_transcode(Path(file_path))),
         'is_video': bool(file_path and ext in VIDEO_EXTENSIONS),
         'is_image': bool(file_path and ext in IMAGE_EXTENSIONS),
         'is_pdf': bool(file_path and ext in PDF_EXTENSIONS),
+        'is_model': bool(file_path and ext in MODEL_EXTENSIONS),
     }, media_asset_id=version.media_asset_id, shot_version_id=version.id)
 
 

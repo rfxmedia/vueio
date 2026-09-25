@@ -1,6 +1,7 @@
 const IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif', 'svg', 'exr', 'dpx'])
 const GENERATED_IMAGE_PREVIEW_EXTENSIONS = new Set(['exr', 'dpx'])
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm', 'm4v', 'mxf', 'prores', 'r3d', 'braw'])
+export const MODEL_EXTENSIONS = new Set(['obj', 'fbx', 'gltf', 'glb', 'abc', 'stl'])
 const PDF_EXTENSIONS = new Set(['pdf'])
 
 function normalizeExtension(value) {
@@ -18,7 +19,8 @@ function extensionFromPath(path) {
 
 function deriveMediaKind(input, extension) {
   const explicitKind = String(input?.media_kind || input?.mediaKind || '').trim().toLowerCase()
-  if (['video', 'image', 'pdf', 'file'].includes(explicitKind)) return explicitKind
+  if (input?.is_model === true || MODEL_EXTENSIONS.has(extension)) return 'model'
+  if (['video', 'image', 'pdf', 'model', 'file'].includes(explicitKind)) return explicitKind
   if (input?.is_pdf === true || PDF_EXTENSIONS.has(extension)) return 'pdf'
   if (input?.is_image === true || input?.type === 'image' || IMAGE_EXTENSIONS.has(extension)) return 'image'
   if (input?.is_video === true || input?.type === 'video' || VIDEO_EXTENSIONS.has(extension)) return 'video'
@@ -36,6 +38,7 @@ export function normalizeMediaEntity(input) {
       extension,
       media_kind: mediaKind,
       is_pdf: mediaKind === 'pdf',
+      is_model: mediaKind === 'model',
       is_image: mediaKind === 'image',
       is_video: mediaKind === 'video',
       media_entity_type: path ? 'path' : null,
@@ -90,6 +93,7 @@ export function normalizeMediaEntity(input) {
     extension: input.extension || extension,
     media_kind: mediaKind,
     is_pdf: mediaKind === 'pdf',
+    is_model: mediaKind === 'model',
     is_image: mediaKind === 'image',
     is_video: mediaKind === 'video',
     media_asset_id: mediaAssetId,

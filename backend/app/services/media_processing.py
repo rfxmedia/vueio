@@ -21,10 +21,11 @@ _devices = None
 _checked_at = None
 _activity = deque(maxlen=12)
 _checking = False
+_check_error = ''
 
 
 def preferences():
-    result = {'mode': 'cpu', 'device': '', 'auto_cleanup_previews': True}
+    result = {'mode': 'cpu', 'device': '', 'device_location': '', 'auto_cleanup_previews': True}
     try:
         path = get_settings().DATA_DIR / 'media-processing.json'
         if path.stat().st_size > 4096:
@@ -32,6 +33,9 @@ def preferences():
         data = json.loads(path.read_text())
         if data.get('mode') in {'cpu', 'gpu'} and isinstance(data.get('device'), str):
             result.update(mode=data['mode'], device=data['device'])
+            location = data.get('device_location', '')
+            if isinstance(location, str) and len(location) <= 80:
+                result['device_location'] = location
         # Older installations have no cleanup preference. Invalid settings must
         # not accidentally enable deletion after an administrator disabled it.
         result['auto_cleanup_previews'] = data.get('auto_cleanup_previews', True) is True
@@ -44,16 +48,45 @@ def preferences():
 
 def processing_status():
     with _lock:
-        return {**preferences(), 'devices': _devices or [], 'checked_at': _checked_at, 'checking': _checking,
-                'activity': list(_activity), 'native_mac': bool(get_settings().VUEIO_UPDATER_URL)}
+        pref = preferences()
+        selected = selected_device(pref)
+        if selected:
+            pref['device'] = selected['id']
+        return {**pref, 'devices': _devices or [], 'checked_at': _checked_at, 'checking': _checking,
+                'check_error': _check_error, 'activity': [dict(item) for item in _activity],
+                'native_mac': bool(get_settings().VUEIO_UPDATER_URL)}
 
 
-def verify_hardware():
-    global _devices, _checked_at, _checking
+def selected_device(pref):
+    if pref['mode'] != 'gpu':
+        return None
+    # Render-node and NVIDIA indices can change after a restart. New selections
+    # retain their PCI location instead of silently choosing a different card.
+    key = 'location' if pref.get('device_location') else 'id'
+    identity = pref.get('device_location') or pref['device']
+    return next((item for item in (_devices or []) if item['encoding'] and item.get(key) == identity), None)
+
+
+def verify_hardware(*, background=False):
+    global _checking, _check_error
     with _lock:
         if _checking:
-            raise HTTPException(409, 'A hardware check is already running.')
+            return processing_status()
         _checking = True
+        _check_error = ''
+    if background:
+        try:
+            threading.Thread(target=_verify_hardware, name='media-hardware-check', daemon=True).start()
+        except RuntimeError:
+            with _lock:
+                _checking = False
+            raise HTTPException(503, 'Hardware check could not start. Try again.') from None
+        return processing_status()
+    return _verify_hardware()
+
+
+def _verify_hardware():
+    global _devices, _checked_at, _checking, _check_error
     try:
         if get_settings().VUEIO_UPDATER_URL:
             result = host_request_json('POST', '/media/check', {}, timeout=45)
@@ -65,12 +98,16 @@ def verify_hardware():
         for device in devices:
             if not isinstance(device, dict) or any(not isinstance(device.get(key), str) for key in ('id', 'name', 'encoder', 'message')) or any(type(device.get(key)) is not bool for key in ('encoding', 'thumbnails')):
                 raise ValueError('Invalid hardware result.')
+            capabilities = device.get('capabilities')
+            if (not isinstance(capabilities, dict) or set(capabilities) != {'thumbnail', 'mp4', 'hls', 'comparison', 'comparison_export'}
+                    or any(type(value) is not bool for value in capabilities.values())):
+                raise ValueError('Update the host helper to check every preview task.')
         with _lock:
             _devices, _checked_at = devices, time.time()
     except Exception:
         with _lock:
             _devices, _checked_at = [], None
-        raise
+            _check_error = 'Hardware could not be checked. Wait for active jobs to finish, then try again. Check that the host helper is up to date.'
     finally:
         with _lock:
             _checking = False
@@ -79,11 +116,13 @@ def verify_hardware():
 
 def save_preferences(mode=None, device='', *, auto_cleanup_previews=None):
     with _lock:
-        if mode == 'gpu' and not any(item['id'] == device and item['encoding'] for item in (_devices or [])):
+        if mode == 'gpu' and (_checking or not any(item['id'] == device and item['encoding'] for item in (_devices or []))):
             raise HTTPException(409, 'Check the hardware and select a working GPU first.')
         updated = preferences()
         if mode is not None:
             updated.update(mode=mode, device=device if mode == 'gpu' else '')
+            selected = next((item for item in (_devices or []) if item['id'] == device), None) if mode == 'gpu' else None
+            updated['device_location'] = selected.get('location', '') if selected else ''
         if auto_cleanup_previews is not None:
             updated['auto_cleanup_previews'] = auto_cleanup_previews
         path = get_settings().DATA_DIR / 'media-processing.json'
@@ -173,8 +212,8 @@ class MediaProcess:
         if pref['mode'] == 'gpu' and _devices is None:
             try: verify_hardware()
             except Exception: pass
-        self.device = next((item for item in (_devices or []) if item['id'] == pref['device'] and item['encoding']), None) if pref['mode'] == 'gpu' else None
-        if recipe['kind'] == 'thumbnail' and self.device and not self.device['thumbnails']:
+        self.device = selected_device(pref)
+        if self.device and not self.device.get('capabilities', {}).get(recipe['kind'], False):
             self.device = None
         self.entry = {'id': uuid4().hex, 'kind': recipe['kind'], 'processor': 'cpu', 'device': 'CPU', 'state': 'running', 'fallback': pref['mode'] == 'gpu' and not self.device, 'started_at': time.time()}
         with _lock: _activity.appendleft(self.entry)

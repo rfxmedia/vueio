@@ -2,17 +2,21 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, File, Header, HTTPException, Request, UploadFile
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import MediaAsset
 from app.services.file_access import require_file_browser_read_access
+from app.services.auth import get_user_from_session
+from app.services.model_preview import save_model_thumbnail, serve_model
 from app.services.media_serving import HlsRouteBuilder, media_target, serve_file, serve_hls_asset, serve_hls_manifest, serve_hls_status
 from app.services.media_resolution import resolve_media_asset_path, resolve_media_target
 from app.services.project_access import require_project_auth, resolve_authorized_legacy_project_media_target
 from app.services.projects import get_project_dir
 from app.services.share_access import resolve_shared_media_target, validate_share
+from app.services.user_access import is_admin_user
 
 router = APIRouter(tags=['streaming'])
 
@@ -164,3 +168,31 @@ def hls_asset(
         build_asset_url=HlsRouteBuilder('/api/hls/asset', query),
         hls_generation=hls_generation,
     )
+
+
+@router.api_route('/api/model', methods=['GET', 'POST'])
+def model_file(path: str, request: Request, resource: str = 'manifest', name: str = '', frame: int = 0, generation: str = '',
+               project_id: str | None = None, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None,
+               vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    full_path, identity = _resolve_stream_target(path=path, share_id=None, share_token=None, project_id=project_id,
+                                                 media_asset_id=media_asset_id or horizons_media_asset_id,
+                                                 vueio_session=vueio_session, db=db)
+    return serve_model(full_path, identity, db, resource=resource, name=name, frame=frame,
+                       generation=generation, retry=request.method == 'POST', publisher=_is_thumbnail_publisher(vueio_session))
+
+
+def _is_thumbnail_publisher(vueio_session: str | None) -> bool:
+    # Match the file browser thumbnail policy: only administrators change it.
+    return is_admin_user(get_user_from_session(vueio_session, allow_agent_fallback=False))
+
+
+@router.put('/api/model')
+async def put_model_thumbnail(path: str, generation: str, file: UploadFile = File(...), project_id: str | None = None,
+                              media_asset_id: str | None = None, horizons_media_asset_id: str | None = None,
+                              vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    full_path, _identity = await run_in_threadpool(
+        _resolve_stream_target, path=path, share_id=None, share_token=None, project_id=project_id,
+        media_asset_id=media_asset_id or horizons_media_asset_id, vueio_session=vueio_session, db=db)
+    if not _is_thumbnail_publisher(vueio_session):
+        raise HTTPException(status_code=403, detail='Only administrators can set this thumbnail.')
+    return await save_model_thumbnail(full_path, file, generation)

@@ -52,3 +52,16 @@ function normalizeRect(rect) {
     height: Math.min(height, 1 - y),
   }
 }
+
+export function getModelAnnotationTarget(commentOrTarget) {
+  const target = parseAnnotationTarget(commentOrTarget?.annotation_target ?? commentOrTarget)
+  if (!target || target.kind !== 'model-view' || target.version !== 1) return null
+  const vector = value => Array.isArray(value) && value.length === 3 && value.every(n => Number.isFinite(n) && Math.abs(n) <= 1e9)
+  if (![target.position, target.target, target.up].every(vector)) return null
+  if (!(target.fov >= 10 && target.fov <= 100) || !(target.aspect >= 0.05 && target.aspect <= 20)) return null
+  if (!Number.isInteger(target.clip) || target.clip < 0 || target.clip > 1000) return null
+  if (target.time !== null && (!Number.isFinite(target.time) || target.time < 0 || target.time > 86400)) return null
+  const light = target.lighting
+  if (!light || !['studio', 'daylight', 'night'].includes(light.preset) || !(light.intensity >= 0 && light.intensity <= 3) || !(light.rotation >= 0 && light.rotation <= 360)) return null
+  return target
+}

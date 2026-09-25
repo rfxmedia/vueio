@@ -38,6 +38,22 @@ RUN mkdir -p /package/usr/bin /package/usr/share/doc/ffmpeg /package/DEBIAN debi
     printf 'Package: ffmpeg\nVersion: 7:9.0.1-0vueio1\nArchitecture: %s\nMaintainer: Vueio maintainers\nDepends: %s\nDescription: FFmpeg for Vueio media processing\n' "$(dpkg --print-architecture)" "$depends" > /package/DEBIAN/control && \
     dpkg-deb --build --root-owner-group /package /build/ffmpeg.deb
 
+FROM base AS model-build
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake ca-certificates libimath-dev zlib1g-dev
+COPY app/model_decoder /build/model-decoder
+RUN cmake -S /build/model-decoder -B /build/output -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr && \
+    cmake --build /build/output --target vueio-model-preview -j4 && \
+    DESTDIR=/package cmake --install /build/output --component decoder && \
+    strip /package/usr/bin/vueio-model-preview
+# Keep upstream source references, versions and licenses with this small decoder.
+RUN mkdir -p /package/DEBIAN /package/usr/share/doc/vueio-model-preview debian && \
+    cp /build/model-decoder/CMakeLists.txt /package/usr/share/doc/vueio-model-preview/ && \
+    printf 'Source: vueio-model-preview\nMaintainer: Vueio maintainers\n\nPackage: vueio-model-preview\nArchitecture: any\nDescription: Alembic mesh preview decoder\n' > debian/control && \
+    depends=$(dpkg-shlibdeps -O -e/package/usr/bin/vueio-model-preview | sed -n 's/^shlibs:Depends=//p') && test -n "$depends" && \
+    printf 'Package: vueio-model-preview\nVersion: 1.8.12-1\nArchitecture: %s\nMaintainer: Vueio maintainers\nDepends: %s\nBuilt-Using: alembic (= 1.8.12), mapbox-earcut (= 2.2.4)\nDescription: Bounded Ogawa polygon-mesh preview decoder\n' "$(dpkg --print-architecture)" "$depends" > /package/DEBIAN/control && \
+    dpkg-deb --build --root-owner-group /package /build/model-preview.deb
+
 FROM base
 
 LABEL org.opencontainers.image.title="Vue.io Engine" \
@@ -45,14 +61,18 @@ LABEL org.opencontainers.image.title="Vue.io Engine" \
       org.opencontainers.image.url="https://polyformproject.org/licenses/perimeter/1.0.1"
 
 COPY --from=media-build /build/ffmpeg.deb /tmp/ffmpeg.deb
+COPY --from=model-build /build/model-preview.deb /tmp/model-preview.deb
+# Each release tag refreshes OS packages instead of reusing a cached upgrade.
+ARG VUEIO_PACKAGE_REFRESH=
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends /tmp/ffmpeg.deb mesa-va-drivers pciutils && \
-    rm /tmp/ffmpeg.deb && \
+    apt-get install -y --no-install-recommends /tmp/ffmpeg.deb /tmp/model-preview.deb mesa-va-drivers pciutils && \
+    rm /tmp/ffmpeg.deb /tmp/model-preview.deb && \
     rm -rf /var/lib/apt/lists/*
 
 # Debian slim drops optional package documentation during installation.
 COPY --from=media-build /package/usr/share/doc/ffmpeg /usr/share/doc/ffmpeg
+COPY --from=model-build /package/usr/share/doc/vueio-model-preview /usr/share/doc/vueio-model-preview
 
 WORKDIR /app
 

@@ -1,5 +1,20 @@
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+
+
+// Keep decoder workers local and in sync with the locked Three.js release.
+for (const [source, target] of [
+  ['draco/gltf/draco_wasm_wrapper.js', 'draco/draco_wasm_wrapper.js'],
+  ['draco/gltf/draco_decoder.wasm', 'draco/draco_decoder.wasm'],
+  ['basis/basis_transcoder.js', 'basis/basis_transcoder.js'],
+  ['basis/basis_transcoder.wasm', 'basis/basis_transcoder.wasm'],
+]) {
+  const destination = resolve(import.meta.dirname, 'public/model-decoders', target)
+  mkdirSync(dirname(destination), { recursive: true })
+  copyFileSync(resolve(import.meta.dirname, 'node_modules/three/examples/jsm/libs', source), destination)
+}
 
 const apiProxy = {
   target: process.env.VUEIO_API_PROXY || 'http://localhost:8000',

@@ -44,13 +44,13 @@
         @keydown.enter.stop.prevent="openShotVideo(shot)"
         @keydown.space.stop.prevent="openShotVideo(shot)"
       >
-        <VMediaThumbnail :src="getThumbnailUrl(latestVersion)" :alt="shot.shot_id" />
+        <VMediaThumbnail :src="getThumbnailUrl(latestVersion)" :alt="shot.shot_id" :fallback-icon="isModelVersion ? '#icon-model' : '#icon-image'" />
         <div v-if="latestVersion?.exists === false" class="version-unavailable-label">
           <svg class="icon"><use href="#icon-file" /></svg>
           <span>Version unavailable</span>
         </div>
         <div class="version-hover" :class="{ 'is-image': isImageVersion }">
-          <svg class="icon"><use :href="isImageVersion ? '#icon-image' : '#icon-play'" /></svg>
+          <svg class="icon"><use :href="isModelVersion ? '#icon-model' : isImageVersion ? '#icon-image' : '#icon-play'" /></svg>
           <span class="version-hover-label">{{ hoverActionLabel }}</span>
         </div>
       </div>
@@ -70,6 +70,7 @@
 
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { getMediaKind } from '../../lib/mediaEntity'
 import VMediaThumbnail from '../media/VMediaThumbnail.vue'
 import MediaVersionSwitcher from '../media/MediaVersionSwitcher.vue'
 
@@ -103,7 +104,8 @@ const versions = computed(() => props.getShotVersions(props.shot))
 const latestVersion = computed(() => versions.value[versions.value.length - 1] || null)
 const versionsDescending = computed(() => [...versions.value].reverse())
 const isImageVersion = computed(() => latestVersion.value?.is_image === true)
-const hoverActionLabel = computed(() => (isImageVersion.value ? 'View Image' : 'Play Video'))
+const isModelVersion = computed(() => getMediaKind(latestVersion.value) === 'model')
+const hoverActionLabel = computed(() => isModelVersion.value ? 'Review model' : isImageVersion.value ? 'View Image' : 'Play Video')
 const switcherId = computed(() => `shot-version-switcher:${props.shot?.id || props.shot?.shot_id || props.shot?.shot_code || ''}`)
 const currentVersionLabel = computed(() => {
   const total = versions.value.length

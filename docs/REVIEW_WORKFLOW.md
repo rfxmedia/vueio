@@ -123,12 +123,56 @@ Publication is not a separate copy of the file or an immutable delivery package.
 
 ## Media preview support
 
-The viewer has video, image, and PDF views.
+The viewer has video, image, PDF, and 3D model views.
 Video controls include playback, seeking, volume, looping, quality selection, and fullscreen.
 Available quality choices depend on the media and its previews. Other files can still be stored and downloaded when permitted.
 Recognized filename extensions do not guarantee a working preview.
 Playback depends on the actual codec, generated previews, browser support, and available storage.
 For camera formats such as R3D or BRAW, test a representative file before relying on preview support.
+
+## Review a 3D model
+
+Open a supported model from Files, a project, a tracker version, or a share.
+Drag to orbit. Use the scroll wheel or a pinch gesture to zoom. Select **Fit** to reset the view.
+Open **Lighting** to choose Studio, Daylight, or Night. Adjust the light intensity and rotation there.
+These environments are generated locally. They need no external image service.
+
+| Format | Preview support |
+| --- | --- |
+| GLB / glTF 2.0 | Materials, textures, skeletal animation, and morph animation. GLB is the recommended review format. Draco, Meshopt, and KTX2 compression are supported. |
+| FBX | Meshes, embedded textures, and supported skeletal or morph animation. Export external textures inside the FBX, or use GLB. |
+| OBJ | Static meshes and one MTL material library. Place the MTL and its textures beside the model or in a subfolder. Texture-map options are not supported. |
+| STL | Static geometry with neutral lighting. |
+| Alembic (.abc) | Ogawa polygon meshes with animated transforms, deformation, or changing topology. The preview uses a neutral material. HDF5 archives, curves, points, volumes, and subdivision surfaces need conversion to polygon meshes first. |
+
+For glTF, upload its referenced buffers and textures with the file. Keep their relative paths.
+Companion files must stay inside the model folder. Parent paths, symlinks, and remote URLs are blocked.
+A model share can serve the files declared by the model, subject to these limits. It does not expose a folder listing.
+
+Animated models show playback controls and a frame slider. Select the animation clip when a file contains several clips.
+Alembic uses the source frame rate when available. Other animations use a 30 fps review timeline.
+Static models have no timeline or comment timecode.
+
+To leave a note, choose the view and frame, then post the comment. Vue.io saves the camera and lighting with the note.
+Select **Add Drawing** to mark the view. The camera and frame stay fixed while you draw.
+Select a posted note to restore its view, lighting, animation clip, and frame.
+A saved drawing keeps its proportions on other screen sizes. Select **Return to orbit** to leave that view.
+The drawing is a screen overlay for the saved view. It is not attached to the model surface.
+
+GLB, glTF, FBX, OBJ, and STL load directly in the browser. Their combined files must be at most 128 MiB,
+with at most two million triangles. Use textures no larger than 8,192 pixels per side, with at most 64 million pixels in total.
+The viewer renders static models only when the view changes. Animation stops when the browser tab is hidden.
+
+The engine prepares Alembic frames once and reuses its normal preview cache.
+The first frame opens while the remaining frames are prepared. The browser keeps only a few nearby frames in memory.
+Alembic files must be at most 2 GiB, with at most 2,400 frames and 250,000 triangles per frame.
+Processing has a five-minute time limit and a 512 MiB cache limit per model.
+Large simulation caches may need a smaller review export. Vue.io does not change the original file.
+The engine image includes the Alembic decoder; a source installation needs the `vueio-model-preview` binary on its PATH.
+
+3D review requires WebGL 2. Preview speed depends on model size, device graphics, and network speed.
+Materials can differ from an offline renderer. Baked simulations in FBX or glTF must use animation those formats support.
+3D models do not use video LUTs, frame downloads, or the two-version comparison view.
 
 ## Compare two revisions
 
@@ -140,7 +184,7 @@ For camera formats such as R3D or BRAW, test a representative file before relyin
 6. Select **Done** to return to the normal viewer.
 
 Choose two videos or two images from the same shot.
-Mixed media pairs and PDFs are not supported by this comparison view.
+Mixed media pairs, PDFs, and 3D models are not supported by this comparison view.
 Playback depends on available source files and previews.
 Do not assume frame-accurate synchronization for different frame rates or durations.
 

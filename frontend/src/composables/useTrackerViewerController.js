@@ -131,7 +131,7 @@ export function useTrackerViewerController({
       })
       return
     }
-    if (mediaKind === 'video') {
+    if (mediaKind === 'video' || mediaKind === 'model') {
       openVideo(payload)
     }
   }
@@ -402,7 +402,7 @@ export function useTrackerViewerController({
   })
 
   function getComparableVersionFamily(version) {
-    if (!version || version.is_pdf) return 'unsupported'
+    if (!version || version.is_pdf || getMediaKind(version) === 'model') return 'unsupported'
     if (version.is_image === true) return 'image'
     const path = version.path || version.file_path || ''
     const extension = path.split('.').pop()?.toLowerCase?.() || ''

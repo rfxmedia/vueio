@@ -25,6 +25,10 @@ export function useViewerAnnotationOverlay({
   isViewingVideo,
   isViewingImage,
   isViewingPdf,
+  isViewingModel,
+  getModelView,
+  getModelRect,
+  onAnnotationStart,
   videoInfo,
   onAnnotationPreviewVisibilityChange,
   windowTarget = typeof window === 'undefined' ? null : window,
@@ -45,6 +49,7 @@ export function useViewerAnnotationOverlay({
 
   let canvasResizeHandler = null
   let canvasResizeFrame = 0
+  let modelResizeObserver = null
 
   function setAnnotationPreviewVisible(visible) {
     onAnnotationPreviewVisibilityChange?.(Boolean(visible))
@@ -59,6 +64,8 @@ export function useViewerAnnotationOverlay({
   }
 
   function cleanupCanvasResize() {
+    modelResizeObserver?.disconnect()
+    modelResizeObserver = null
     if (canvasResizeHandler) windowTarget?.removeEventListener?.('resize', canvasResizeHandler)
     canvasResizeHandler = null
     if (canvasResizeFrame) {
@@ -94,7 +101,9 @@ export function useViewerAnnotationOverlay({
 
   function getOverlayRect() {
     let rect = null
-    if (readReactiveValue(isViewingVideo)) {
+    if (readReactiveValue(isViewingModel)) {
+      rect = getModelRect?.()
+    } else if (readReactiveValue(isViewingVideo)) {
       rect = getVideoDisplayRect()
     } else if (readReactiveValue(isViewingImage)) {
       rect = getImageDisplayRect()
@@ -165,8 +174,13 @@ export function useViewerAnnotationOverlay({
     cleanupCanvasResize()
     if (!readReactiveValue(isViewingPdf)) {
       updateOverlayCanvasSizes()
-      canvasResizeHandler = scheduleOverlayCanvasResize
-      windowTarget?.addEventListener?.('resize', canvasResizeHandler)
+      if (readReactiveValue(isViewingModel) && canvas.parentElement) {
+        modelResizeObserver = new ResizeObserver(scheduleOverlayCanvasResize)
+        modelResizeObserver.observe(canvas.parentElement)
+      } else {
+        canvasResizeHandler = scheduleOverlayCanvasResize
+        windowTarget?.addEventListener?.('resize', canvasResizeHandler)
+      }
     }
     setDrawingContext(canvas.getContext('2d'))
   }
@@ -220,6 +234,7 @@ export function useViewerAnnotationOverlay({
 
   function getPendingAnnotationTimestampValue() {
     if (readReactiveValue(isViewingImage) || readReactiveValue(isViewingPdf)) return 0
+    if (readReactiveValue(isViewingModel)) return getModelView?.()?.time || 0
     const videoTime = Number(videoEl?.value?.currentTime)
     if (Number.isFinite(videoTime)) return videoTime
     const fallbackTime = Number(readReactiveValue(currentTime))
@@ -237,7 +252,7 @@ export function useViewerAnnotationOverlay({
           page: pdfAnnotationTarget.value?.page || 1,
           rect: drawingBounds,
         })
-      : null
+      : readReactiveValue(isViewingModel) ? JSON.stringify(getModelView?.()) : null
     return true
   }
 
@@ -272,6 +287,7 @@ export function useViewerAnnotationOverlay({
   }
 
   function startAnnotationForComment() {
+    onAnnotationStart?.()
     if (videoEl?.value && readReactiveValue(isPlaying)) videoEl.value.pause()
     setAnnotationPreviewVisible(false)
     clearPendingAnnotationDraft()

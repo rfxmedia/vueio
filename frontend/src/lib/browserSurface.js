@@ -40,7 +40,7 @@ export function openBrowserMediaItem(item, {
     openImage?.(fileData)
     return
   }
-  if (mediaKind === 'video') {
+  if (mediaKind === 'video' || mediaKind === 'model') {
     openVideo?.(fileData)
   }
 }

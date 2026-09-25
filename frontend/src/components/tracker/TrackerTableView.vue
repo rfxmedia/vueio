@@ -447,7 +447,7 @@ function buildShotGroups(shots) {
   --tracker-utility-width: 56px;
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-3);
+  gap: 10px;
 }
 
 .tracker-row-list.is-grid-view {
@@ -465,7 +465,7 @@ function buildShotGroups(shots) {
    changing their DOM order, scrollbar, grouping, selection, or drag targets. */
 .uses-native-virtualization > .tracker-row-card {
   content-visibility: auto;
-  contain-intrinsic-size: auto 202px;
+  contain-intrinsic-size: auto 184px;
 }
 
 .uses-native-virtualization.is-grid-view > .tracker-row-card {
@@ -480,15 +480,28 @@ function buildShotGroups(shots) {
   content-visibility: visible;
 }
 
-/* Section-label styling comes from .v-section-label; this only adds the
-   sticky behaviour that parks the group name under the pinned toolbar. */
+/* Same heading language as the Projects page groups: dot, plain label,
+   count pill. Sticky, so the group name parks under the pinned toolbar. */
 .tracker-shot-group-heading {
   position: sticky;
   top: calc(var(--tracker-toolbar-height, 56px) - 1px);
   z-index: 12;
   max-width: 100%;
   min-height: 34px;
-  margin: 18px 0 2px;
+  margin: 16px 0 0;
+  gap: var(--v-space-2);
+  font-size: var(--v-text-base);
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tracker-shot-group-count {
+  min-width: 20px;
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  box-shadow: none;
+  font-size: var(--v-text-xs);
+  font-weight: 500;
 }
 
 .tracker-shot-group-heading::before {
@@ -518,7 +531,7 @@ function buildShotGroups(shots) {
   height: 7px;
   flex: 0 0 auto;
   border-radius: var(--v-radius-full);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--v-surface-panel) 70%, transparent);
+  margin-right: 2px;
 }
 
 .tracker-shot-group-icon {
@@ -607,14 +620,14 @@ function buildShotGroups(shots) {
 }
 
 .tracker-archive-shelf {
-  margin-top: 28px;
-  padding-top: 18px;
-  border-top: 1px solid color-mix(in srgb, var(--v-surface-panel) 90%, white);
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid var(--v-divider);
 }
 
 .tracker-archive-toggle {
   width: 100%;
-  min-height: 44px;
+  min-height: 40px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
@@ -664,18 +677,17 @@ function buildShotGroups(shots) {
 }
 
 .tracker-archive-toggle__count {
-  min-width: 22px;
-  height: 20px;
+  min-width: 20px;
+  height: 18px;
   padding: 0 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: var(--v-radius-full);
-  background: var(--v-control-bg);
-  box-shadow: var(--v-surface-shadow-inset);
-  color: var(--v-text-secondary);
-  font-size: var(--v-text-2xs);
-  font-weight: 700;
+  background: color-mix(in srgb, var(--v-text) 6%, transparent);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-xs);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
