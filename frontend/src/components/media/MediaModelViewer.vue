@@ -127,7 +127,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { VMenu } from '../primitives'
 import { createModelEnvironment, decodeModelFrame, disposeModel, fetchModelBytes, loadModel } from '../../lib/modelPreview'
 import { ContactShadow, captureThumbnail, clipCamera, createModelRenderer, frameModel, modelBackdrop } from '../../lib/modelStage'
-import { announceModelThumbnail, modelPreviewUrl, uploadModelThumbnail } from '../../lib/modelThumbnails'
+import { announceModelThumbnail, holdModelThumbnails, modelPreviewUrl, uploadModelThumbnail } from '../../lib/modelThumbnails'
 import { getModelAnnotationTarget } from '../../lib/annotations'
 import { formatTimecodeWithFrames } from '../../utils/formatters'
 
@@ -506,6 +506,8 @@ watch(() => props.isDrawingMode, async drawing => {
   await nextTick()
   resize()
 })
+// Background thumbnails wait while this viewer loads and shows its model.
+const releaseThumbnails = holdModelThumbnails()
 onMounted(() => {
   try {
     renderer = createModelRenderer(canvas.value)
@@ -530,6 +532,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   disposed = true
+  releaseThumbnails()
   controller.abort()
   pendingSeek?.resolve(false)
   pendingSeek = null

@@ -4,7 +4,7 @@ import pluginVue from 'eslint-plugin-vue'
 
 export default [
   {
-    ignores: ['dist/**', 'coverage/**', 'node_modules/**', 'public/model-decoders/**'],
+    ignores: ['dist/**', 'coverage/**', 'node_modules/**'],
   },
   js.configs.recommended,
   ...pluginVue.configs['flat/recommended'],

@@ -71,6 +71,21 @@ jobs:
           build-args: VUEIO_PACKAGE_REFRESH=${{ github.ref_name }}
           cache-from: type=gha,scope=${{ inputs.component }}-${{ inputs.architecture }}
           cache-to: type=gha,mode=max,scope=${{ inputs.component }}-${{ inputs.architecture }}
+      - name: Check license notices in the exact untagged image
+        shell: bash
+        env:
+          COMPONENT: ${{ inputs.component }}
+          IMAGE_NAME: ${{ steps.vars.outputs.image }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -Eeuo pipefail
+          [[ $IMAGE_DIGEST =~ ^sha256:[0-9a-f]{64}$ ]]
+          case "$COMPONENT" in
+            engine) check='test -s /app/moonshine-models/MOONSHINE_LICENSE.txt && find /usr/share/doc -name copyright -type f -print -quit | grep -q .' ;;
+            ui) check='test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && find /usr/share/licenses -type f -print -quit | grep -q .' ;;
+            *) echo "Unknown image component." >&2; exit 1 ;;
+          esac
+          docker run --rm --entrypoint sh "${IMAGE_NAME}@${IMAGE_DIGEST}" -c "$check"
       - name: Scan the exact untagged image
         shell: bash
         env:

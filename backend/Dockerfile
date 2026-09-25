@@ -62,8 +62,6 @@ LABEL org.opencontainers.image.title="Vue.io Engine" \
 
 COPY --from=media-build /build/ffmpeg.deb /tmp/ffmpeg.deb
 COPY --from=model-build /build/model-preview.deb /tmp/model-preview.deb
-# Each release tag refreshes OS packages instead of reusing a cached upgrade.
-ARG VUEIO_PACKAGE_REFRESH=
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends /tmp/ffmpeg.deb /tmp/model-preview.deb mesa-va-drivers pciutils && \
@@ -86,6 +84,13 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock && \
     rm -rf /usr/local/lib/python3.11/site-packages/moonshine_voice/assets && \
     pip uninstall -y pip setuptools wheel && \
     rm -f /app/requirements.lock /app/moonshine-models.sha256
+
+# Each release tag refreshes OS packages instead of reusing a cached upgrade.
+# This comes after the slow Python and model layer so that layer stays cached.
+ARG VUEIO_PACKAGE_REFRESH=
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY main.py .
 COPY app ./app

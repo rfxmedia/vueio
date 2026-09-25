@@ -86,7 +86,10 @@ jobs:
             -f compose.release.yml \
             -f "$RUNNER_TEMP/vueio-release.storage.yml" \
             config -q
+      # Release tags build, check and scan each exact published image in
+      # build-release-image.yml, so they skip this local copy.
       - name: Build public release images
+        if: github.ref_type != 'tag'
         run: |
           docker build --pull -t vueio-engine-release-ci:local ./backend
           docker build --pull -t vueio-ui-release-ci:local ./frontend
@@ -95,6 +98,7 @@ jobs:
           docker run --rm --entrypoint sh vueio-ui-release-ci:local -c \
             'test -s /usr/share/nginx/html/THIRD_PARTY_NOTICES.txt && find /usr/share/licenses -type f -print -quit | grep -q .'
       - name: Report all high and critical release-image findings
+        if: github.ref_type != 'tag'
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -110,6 +114,7 @@ jobs:
               "$image"
           done
       - name: Reject fixable high and critical release-image vulnerabilities
+        if: github.ref_type != 'tag'
         shell: bash
         run: |
           set -Eeuo pipefail

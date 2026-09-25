@@ -99,6 +99,3 @@ backend/data/
 .release-bundles/
 release-assets/
 *.spdx.json
-
-# Generated from the locked Three.js package by Vite
-frontend/public/model-decoders/

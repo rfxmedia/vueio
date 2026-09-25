@@ -4,15 +4,15 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js'
 import { OBJLoader } from 'three/addons/loaders/OBJLoader.js'
 import { MTLLoader } from 'three/addons/loaders/MTLLoader.js'
 import { STLLoader } from 'three/addons/loaders/STLLoader.js'
-import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js'
+import { DRACOLoader, DRACO_GLTF_CONFIG } from 'three/addons/loaders/DRACOLoader.js'
 import { KTX2Loader } from 'three/addons/loaders/KTX2Loader.js'
 import { TGALoader } from 'three/addons/loaders/TGALoader.js'
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js'
 import { modelPreviewUrl } from './modelThumbnails'
 
-export async function fetchModelBytes(url, signal, onProgress) {
-  const response = await fetch(url, { credentials: 'same-origin', signal })
+export async function fetchModelBytes(url, signal, onProgress, priority = 'auto') {
+  const response = await fetch(url, { credentials: 'same-origin', signal, priority })
   if (!response.ok) {
     const body = await response.json().catch(() => ({}))
     throw new Error(typeof body.detail === 'string' ? body.detail : 'The model could not be loaded. Try again.')
@@ -199,7 +199,7 @@ async function fitTextures(images, maxSize) {
   return reduced.length > 0
 }
 
-export async function loadModel(source, manifest, renderer, signal, onProgress, { maxTextureSize = 8192 } = {}) {
+export async function loadModel(source, manifest, renderer, signal, onProgress, { maxTextureSize = 8192, priority = 'auto' } = {}) {
   const manager = new THREE.LoadingManager()
   const blobs = new Set()
   const warnings = new Set()
@@ -215,17 +215,40 @@ export async function loadModel(source, manifest, renderer, signal, onProgress, 
   manager.itemStart = url => { textureLoads++; startItem(url) }
   manager.itemEnd = url => { endItem(url); if (--textureLoads === 0) resolveTextures?.() }
   manager.onError = () => { textureErrors++ }
-  const draco = new DRACOLoader().setDecoderPath('/model-decoders/draco/').setWorkerLimit(1)
-  const ktx = new KTX2Loader().setTranscoderPath('/model-decoders/basis/').setWorkerLimit(1).detectSupport(renderer)
+  // The build serves these decoders as cached, compressed assets.
+  const draco = new DRACOLoader().setDecoderPath(DRACO_GLTF_CONFIG).setWorkerLimit(1)
+  const ktx = new KTX2Loader().setWorkerLimit(1).detectSupport(renderer)
+  // KTX2 textures use the same companion-file guard. The decoder files load directly.
+  const loadKtx = ktx.load.bind(ktx)
+  ktx.load = (url, onLoad, onProgress, onError) => loadKtx(manager.resolveURL(url), onLoad, onProgress, error => { textureErrors++; onError(error) })
+  // Stops the other downloads when one fails or the caller cancels.
+  const downloads = new AbortController()
+  const cancel = () => downloads.abort()
+  signal.addEventListener('abort', cancel)
   let root, animations = []
   try {
-    for (const name of manifest.dependencies || []) {
-      const bytes = await fetchModelBytes(modelPreviewUrl(source, 'dependency', { name }), signal)
-      const url = URL.createObjectURL(new Blob([bytes], { type: IMAGE_TYPES[name.split('.').pop().toLowerCase()] || 'application/octet-stream' }))
-      blobs.add(url)
-      dependencies.set(name, url)
+    const libraries = new Map(), queue = [...(manifest.dependencies || [])]
+    let failed = 0
+    const download = async () => {
+      for (let name = queue.shift(); name; name = queue.shift()) {
+        let bytes
+        try {
+          bytes = await fetchModelBytes(modelPreviewUrl(source, 'dependency', { name }), downloads.signal, undefined, priority)
+        } catch (error) {
+          // Geometry buffers are required. The model shows without a material or texture file.
+          if (downloads.signal.aborted || /\.bin$/i.test(name)) throw error
+          failed++
+          continue
+        }
+        if (downloads.signal.aborted) return
+        if (/\.mtl$/i.test(name)) { libraries.set(name, new TextDecoder().decode(bytes)); continue }
+        const url = URL.createObjectURL(new Blob([bytes], { type: IMAGE_TYPES[name.split('.').pop().toLowerCase()] || 'application/octet-stream' }))
+        blobs.add(url)
+        dependencies.set(name, url)
+      }
     }
-    const buffer = await fetchModelBytes(modelPreviewUrl(source, 'source'), signal, onProgress)
+    // Three companion downloads at a time leave connections free for the rest of the app.
+    const [buffer] = await Promise.all([fetchModelBytes(modelPreviewUrl(source, 'source'), downloads.signal, onProgress, priority), download(), download(), download()])
     signal.throwIfAborted()
     const ext = manifest.format
     if (ext === 'glb' || ext === 'gltf') {
@@ -242,15 +265,15 @@ export async function loadModel(source, manifest, renderer, signal, onProgress, 
         }
       })
     } else if (ext === 'obj') {
-      const text = new TextDecoder().decode(buffer)
       const loader = new OBJLoader(manager)
-      if (manifest.material) {
-        const mtl = await fetchModelBytes(modelPreviewUrl(source, 'dependency', { name: manifest.material }), signal)
-        const material = new MTLLoader(manager).parse(new TextDecoder().decode(mtl), manifest.material.includes('/') ? manifest.material.slice(0, manifest.material.lastIndexOf('/') + 1) : '')
-        material.preload()
-        loader.setMaterials(material)
+      // Several material libraries merge into one. Texture names still resolve by file name.
+      const names = (manifest.materials || []).filter(name => libraries.has(name))
+      if (names.length) {
+        const materials = new MTLLoader(manager).parse(names.map(name => libraries.get(name)).join('\n'), names[0].slice(0, names[0].lastIndexOf('/') + 1))
+        materials.preload()
+        loader.setMaterials(materials)
       }
-      root = loader.parse(text)
+      root = loader.parse(new TextDecoder().decode(buffer))
     } else if (ext === 'stl') {
       const geometry = new STLLoader().parse(buffer)
       root = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb7bec2, roughness: 0.6, vertexColors: geometry.hasColors }))
@@ -294,14 +317,18 @@ export async function loadModel(source, manifest, renderer, signal, onProgress, 
       warnings.add('Some textures show at a lower resolution in this preview. The original files do not change.')
     }
     signal.throwIfAborted()
-    const missing = manifest.missing_textures || 0
+    const missingMaterials = manifest.missing_materials || 0, missing = manifest.missing_textures || 0
+    if (missingMaterials) warnings.add(missingMaterials === 1 ? 'The material file is missing. Upload it to the model folder.' : `${missingMaterials} material files are missing. Upload them to the model folder.`)
     if (missing) warnings.add(missing === 1 ? 'A texture file is missing. Upload it to the model folder.' : `${missing} texture files are missing. Upload them to the model folder.`)
-    else if (textureErrors) warnings.add('Some textures did not load. The model shows without them.')
+    if (manifest.skipped_files) warnings.add('Some material or texture files are too large for this preview. The model shows without them.')
+    if (failed || (textureErrors && !missing && !manifest.skipped_files)) warnings.add('Some material or texture files did not load. The model shows without them.')
     return { root, animations, triangles, warnings }
   } catch (error) {
     disposeModel(root)
     throw error
   } finally {
+    downloads.abort()
+    signal.removeEventListener('abort', cancel)
     draco.dispose()
     ktx.dispose()
     for (const url of blobs) URL.revokeObjectURL(url)

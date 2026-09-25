@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { HorizontalBlurShader } from 'three/addons/shaders/HorizontalBlurShader.js'
 import { VerticalBlurShader } from 'three/addons/shaders/VerticalBlurShader.js'
 import { createModelEnvironment, disposeModel, loadModel } from './modelPreview'
-import { modelPreviewUrl } from './modelThumbnails'
+import { fitsBackgroundRender, modelPreviewUrl } from './modelThumbnails'
 
 export const THUMBNAIL_WIDTH = 960, THUMBNAIL_HEIGHT = 540
 const BACKDROP = [[0, '#3b4046'], [0.55, '#212428'], [1, '#131517']]
@@ -200,7 +200,8 @@ export class ContactShadow {
   }
 }
 
-// Render a 16:9 thumbnail at twice its size, then scale it down on the studio backdrop.
+// Render a 16:9 thumbnail on the studio backdrop. Multisampling smooths the
+// edges, so one pass at thumbnail size is enough.
 export function captureThumbnail(renderer, scene, root, shadow) {
   const camera = new THREE.PerspectiveCamera(30, THUMBNAIL_WIDTH / THUMBNAIL_HEIGHT)
   shadow.place(frameModel(root, camera, 0.82).bounds)
@@ -216,12 +217,11 @@ export function captureThumbnail(renderer, scene, root, shadow) {
   const size = renderer.getSize(new THREE.Vector2()), ratio = renderer.getPixelRatio()
   try {
     shadow.render(renderer, scene)
-    renderer.setPixelRatio(2)
+    renderer.setPixelRatio(1)
     renderer.setSize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, false)
     renderer.render(scene, camera)
     // The drawing buffer is still valid in the task that rendered it.
-    context.imageSmoothingQuality = 'high'
-    context.drawImage(renderer.domElement, 0, 0, THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
+    context.drawImage(renderer.domElement, 0, 0)
   } finally {
     renderer.setPixelRatio(ratio)
     renderer.setSize(size.x, size.y, false)
@@ -229,19 +229,48 @@ export function captureThumbnail(renderer, scene, root, shadow) {
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('The thumbnail could not be created.')), 'image/jpeg', 0.9))
 }
 
+// One renderer serves the whole thumbnail queue, so its lighting and shaders
+// are prepared once. It is released when the queue is idle.
+let stage = null, stageTimer = 0
+
+function releaseStage() {
+  if (!stage) return
+  stage.environment.dispose()
+  stage.shadow.dispose()
+  stage.renderer.dispose()
+  stage.renderer.forceContextLoss()
+  stage = null
+}
+
+function thumbnailStage() {
+  clearTimeout(stageTimer)
+  if (stage?.renderer.getContext().isContextLost()) releaseStage()
+  if (!stage) {
+    const renderer = createModelRenderer(document.createElement('canvas'))
+    renderer.setSize(THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT, false)
+    try {
+      stage = { renderer, environment: createModelEnvironment(renderer, 'studio'), shadow: new ContactShadow() }
+    } catch (error) {
+      renderer.dispose()
+      renderer.forceContextLoss()
+      throw error
+    }
+  }
+  return stage
+}
+
 // Load a model without a viewer and render its thumbnail, pose frame 0 of the first animation.
-export async function renderModelThumbnail(source) {
-  const renderer = createModelRenderer(document.createElement('canvas'))
-  const scene = new THREE.Scene(), shadow = new ContactShadow()
-  let root, environment
+export async function renderModelThumbnail(source, signal) {
+  const response = await fetch(modelPreviewUrl(source, 'manifest'), { credentials: 'same-origin', signal, priority: 'low' })
+  const manifest = await response.json()
+  if (!response.ok || !manifest.needs_thumbnail || !fitsBackgroundRender(manifest.format, manifest.bytes)) return null
+  const { renderer, environment, shadow } = thumbnailStage()
+  const scene = new THREE.Scene()
+  scene.environment = environment.texture
+  let root
   try {
-    const response = await fetch(modelPreviewUrl(source, 'manifest'), { credentials: 'same-origin' })
-    const manifest = await response.json()
-    if (!response.ok || !manifest.needs_thumbnail || manifest.format === 'abc') return null
-    environment = createModelEnvironment(renderer, 'studio')
-    scene.environment = environment.texture
-    // A 960 px thumbnail cannot show more than 2048 px of texture detail.
-    const loaded = await loadModel(source, manifest, renderer, new AbortController().signal, undefined, { maxTextureSize: 2048 })
+    // A small thumbnail cannot show more than 1024 px of texture detail.
+    const loaded = await loadModel(source, manifest, renderer, signal, undefined, { maxTextureSize: 1024, priority: 'low' })
     root = loaded.root
     if (loaded.animations.length) {
       const mixer = new THREE.AnimationMixer(root)
@@ -249,12 +278,13 @@ export async function renderModelThumbnail(source) {
       mixer.setTime(0)
     }
     scene.add(root, shadow.group)
+    // Where the browser supports it, shaders compile without blocking the page.
+    await renderer.compileAsync(scene, new THREE.PerspectiveCamera())
+    signal.throwIfAborted()
     return { blob: await captureThumbnail(renderer, scene, root, shadow), generation: manifest.thumbnail_generation }
   } finally {
+    scene.clear()
     disposeModel(root)
-    environment?.dispose()
-    shadow.dispose()
-    renderer.dispose()
-    renderer.forceContextLoss()
+    stageTimer = setTimeout(releaseStage, 30000)
   }
 }

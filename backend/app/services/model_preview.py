@@ -193,17 +193,15 @@ def _references(path: str, signature: str):
         textures = [(unquote(entry['uri']),) for entry in document.get('images', []) if entry.get('uri') and not entry['uri'].startswith('data:')]
     elif suffix == '.obj':
         with source.open(encoding='utf-8', errors='replace') as handle:
-            materials = list(dict.fromkeys(line[7:].strip() for line in handle if line.startswith('mtllib ')))
-        if len(materials) > 1:
-            raise HTTPException(422, 'This OBJ uses multiple material libraries. Export a self-contained GLB for preview.')
+            materials = list(dict.fromkeys(filter(None, (line[7:].strip() for line in handle if line.startswith('mtllib ')))))
     elif suffix == '.fbx':
         try:
             textures = _fbx_textures(source)
         except (OSError, ValueError, UnicodeError):
             textures = []
-    if len(buffers) + len(textures) > 256:
+    if len(buffers) + len(textures) + len(materials) > 256:
         raise HTTPException(422, 'The model has too many companion files. Export a self-contained GLB.')
-    return frozenset(buffers), tuple(textures), materials[0] if materials else None
+    return frozenset(buffers), tuple(textures), tuple(materials)
 
 
 def _resolve(source: Path, reference: str, suffixes, folder: str = '') -> str | None:
@@ -223,44 +221,57 @@ def _resolve(source: Path, reference: str, suffixes, folder: str = '') -> str | 
     return None
 
 
-def _dependencies(source: Path):
-    buffers, textures, material = _references(str(source), source_signature(source))
-    names = set(buffers)
-    textures = list(textures)
-    folder = ''
-    if material:
-        material = _resolve(source, material, {'.mtl'})
-        if not material:
-            raise HTTPException(422, 'The OBJ material file is missing. Upload it beside the model.')
-        path = _companion(source, material)
-        if path.stat().st_size > 1024 * 1024:
-            raise HTTPException(422, 'The OBJ material library is too large.')
-        names.add(material)
-        folder = PurePosixPath(material).parent.as_posix()
-        for line in path.read_text(errors='replace').splitlines():
-            fields = line.strip().split(maxsplit=1)
-            if len(fields) == 2 and fields[0].lower() in {'map_kd', 'map_ks', 'map_ke', 'map_d', 'map_bump', 'bump', 'norm', 'disp'}:
-                textures.append((_mtl_texture(fields[1]),))
-    # A missing texture must not block review. The browser shows the model
-    # without that map and reports how many files are missing.
-    missing = set()
-    for alternatives in textures:
-        found = next(filter(None, (_resolve(source, reference, TEXTURE_SUFFIXES, folder) for reference in alternatives)), None)
-        if found:
-            names.add(found)
-        elif alternatives:
-            missing.add(PurePosixPath(alternatives[0].replace('\\', '/')).name.lower())
+def _dependencies(source: Path) -> dict:
+    buffers, textures, libraries = _references(str(source), source_signature(source))
+    # Geometry buffers are required. Material and texture files are optional:
+    # the browser shows the mesh without a file that is missing or too large.
     total = source.stat().st_size
-    for name in names:
+    for name in buffers:
         companion = _companion(source, name)
         if not companion.is_file():
             raise HTTPException(422, 'A model buffer file is missing. Upload the files that were exported with the model.')
         if companion.suffix.lower() not in TEXTURE_SUFFIXES | {'.bin', '.mtl'}:
             raise HTTPException(422, 'A companion file type is not supported. Export a self-contained GLB.')
         total += companion.stat().st_size
-    if len(names) > 256 or total > MAX_MODEL_BYTES:
+    if total > MAX_MODEL_BYTES:
         raise HTTPException(413, 'The model and its companion files exceed 128 MiB. Export a smaller review model.')
-    return sorted(names), material, len(missing)
+    names, materials, skipped = set(buffers), [], set()
+    missing_materials, missing = 0, set()
+    textures = [(alternatives, '') for alternatives in textures]
+
+    def add(name: str, limit: int = MAX_MODEL_BYTES) -> bool:
+        nonlocal total
+        if name in names:
+            return True
+        size = _companion(source, name).stat().st_size
+        if size > limit or total + size > MAX_MODEL_BYTES:
+            skipped.add(name)
+            return False
+        total += size
+        names.add(name)
+        return True
+
+    for library in libraries:
+        found = _resolve(source, library, {'.mtl'})
+        if not found:
+            missing_materials += 1
+        elif found not in names and add(found, 1024 * 1024):
+            materials.append(found)
+            folder = PurePosixPath(found).parent.as_posix()
+            for line in _companion(source, found).read_text(errors='replace').splitlines():
+                fields = line.strip().split(maxsplit=1)
+                if len(fields) == 2 and fields[0].lower() in {'map_kd', 'map_ks', 'map_ke', 'map_d', 'map_bump', 'bump', 'norm', 'disp'}:
+                    textures.append(((_mtl_texture(fields[1]),), folder))
+    for alternatives, folder in textures:
+        found = next(filter(None, (_resolve(source, reference, TEXTURE_SUFFIXES, folder) for reference in alternatives)), None)
+        if found:
+            add(found)
+        elif alternatives:
+            missing.add(PurePosixPath(alternatives[0].replace('\\', '/')).name.lower())
+    if len(names) > 256:
+        raise HTTPException(422, 'The model has too many companion files. Export a self-contained GLB.')
+    return {'dependencies': sorted(names), 'materials': materials, 'missing_textures': len(missing),
+            'missing_materials': missing_materials, 'skipped_files': len(skipped), 'bytes': total}
 
 
 def model_cache_dir(key: str) -> Path:
@@ -382,13 +393,12 @@ def serve_model(full_path: Path | None, cache_identity: str | None, db, *, resou
     if resource == 'thumbnail':
         return JSONResponse({'format': suffix[1:], 'size': source.stat().st_size, **_thumbnail_state(source, publisher)}, headers=headers)
     if suffix != '.abc':
-        names, material, missing = _dependencies(source)
-        if resource == 'manifest':
-            return JSONResponse({'format': suffix[1:], 'status': 'complete', 'dependencies': names, 'material': material,
-                                 'missing_textures': missing, **_thumbnail_state(source, publisher)}, headers=headers)
         if resource == 'source':
             return FileResponse(source, media_type='application/octet-stream', headers=headers)
-        if resource == 'dependency' and name in names:
+        found = _dependencies(source)
+        if resource == 'manifest':
+            return JSONResponse({'format': suffix[1:], 'status': 'complete', **found, **_thumbnail_state(source, publisher)}, headers=headers)
+        if resource == 'dependency' and name in found['dependencies']:
             return FileResponse(_companion(source, name), headers=headers)
         raise HTTPException(404, 'Model resource not found.')
     signature = source_signature(source)

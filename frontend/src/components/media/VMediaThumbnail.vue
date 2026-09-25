@@ -34,7 +34,7 @@ import {
   setThumbnailState,
   subscribeToThumbnailVisibility,
 } from './mediaThumbnailProbe'
-import { requestModelThumbnail, watchModelThumbnails } from '../../lib/modelThumbnails'
+import { modelThumbnailSource, requestModelThumbnail, watchModelThumbnails } from '../../lib/modelThumbnails'
 
 const props = defineProps({
   src: { type: String, default: '' },
@@ -149,8 +149,9 @@ async function refreshSource(src, { forceProbe = false } = {}) {
   }
 }
 
-function modelThumbnailPublished() {
-  if (isReady.value || !props.src) return
+// A published source refreshes only its own thumbnails, not every waiting one.
+function modelThumbnailPublished(source) {
+  if (isReady.value || !props.src || (source && source !== modelThumbnailSource(props.src))) return
   clearThumbnailState(props.src)
   refreshSource(props.src, { forceProbe: true })
 }
