@@ -243,6 +243,10 @@ export function useMediaViewerController({
     handleStreamError: error => reportError('Stream preparation failed', error),
   })
 
+  function hideAnnotationPreview() {
+    if (mediaComments) mediaComments.showAnnotationPreview.value = false
+  }
+
   const transport = useViewerTransport({
     videoEl,
     videoInfo,
@@ -252,15 +256,10 @@ export function useMediaViewerController({
     canUseNativeVideoFullscreen: () => colorPreviewMode.value === 'source',
     onNativeFullscreenBlocked: () => reportError('Turn off LUT preview to use native fullscreen on this browser.'),
     isSeekBlocked: () => annotations?.isDrawingMode.value || false,
-    onPlayingTimeUpdate: () => {
-      if (mediaComments?.showAnnotationPreview.value) {
-        mediaComments.showAnnotationPreview.value = false
-      }
-    },
+    onPlayingTimeUpdate: hideAnnotationPreview,
     onLoadedMedia: () => annotations?.setupAnnotationCanvas(),
-    onPlaybackStarted: () => {
-      if (mediaComments) mediaComments.showAnnotationPreview.value = false
-    },
+    onPlaybackStarted: hideAnnotationPreview,
+    onUserSeek: hideAnnotationPreview,
   })
 
   function createCommentReferenceOrigin(comment) {
@@ -458,7 +457,7 @@ export function useMediaViewerController({
 
   const sidebarTabs = computed(() => [
     { value: 'comments', label: 'Comments', icon: '#icon-comment', count: mediaComments.comments.value.length },
-    { value: 'info', label: 'File Info', icon: '#icon-info' },
+    { value: 'info', label: 'File info', icon: '#icon-info' },
   ])
   const canShowToolbar = computed(() => (
     media.isViewingVideo.value && !mediaUnavailable.value && !media.streamPreparing.value

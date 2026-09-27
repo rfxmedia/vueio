@@ -866,6 +866,7 @@ const latestCommentCount = computed(() => {
 
 /* ─── Body ───────────────────────────────────────────────── */
 .tracker-row-card__body {
+  container: trc-body / inline-size;
   grid-area: body;
   display: flex;
   flex-direction: column;
@@ -900,7 +901,7 @@ const latestCommentCount = computed(() => {
 }
 
 .trc-controls.has-assignee {
-  grid-template-columns: repeat(3, minmax(130px, 160px));
+  grid-template-columns: repeat(3, minmax(136px, 172px));
 }
 
 .trc-control-cell {
@@ -1328,9 +1329,10 @@ const latestCommentCount = computed(() => {
 .dot-edits_requested { background: var(--v-status-hold); }
 .dot-done { background: var(--v-status-done); }
 
-/* Preserve the shot identity before the workspace sidebars squeeze the card.
-   The controls remain one compact row until the narrower two-column layout. */
-@media (max-width: 1280px) {
+/* The card body, not the window, decides the layout: the navigator and the
+   details panel both take width from it. Controls share the title row only
+   when every label fits; then they stack under the title, then wrap to two. */
+@container trc-body (max-width: 759px) {
   .trc-head {
     flex-direction: column;
     align-items: stretch;
@@ -1353,7 +1355,7 @@ const latestCommentCount = computed(() => {
   }
 }
 
-@media (max-width: 1150px) {
+@container trc-body (max-width: 479px) {
   .trc-controls,
   .trc-controls.has-assignee {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1704,7 +1706,7 @@ const latestCommentCount = computed(() => {
 .tracker-row-card.is-mobile-card .tracker-row-card__select .tracker-row-select-btn {
     width: 44px;
     height: 44px;
-    opacity: 0.72;
+    opacity: 1;
     background: transparent;
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
@@ -1715,6 +1717,12 @@ const latestCommentCount = computed(() => {
 .tracker-row-card.is-mobile-card .tracker-row-card__select .tracker-row-select-box {
     width: 18px;
     height: 18px;
+}
+
+/* The box sits on the thumbnail, so it needs its own contrast. */
+.tracker-row-card.is-mobile-card:not(.is-selected) .tracker-row-select-box {
+    border-color: color-mix(in srgb, white 72%, transparent);
+    background: color-mix(in srgb, var(--v-bg-black) 48%, transparent);
 }
 
 .tracker-row-card.is-mobile-card .tracker-row-card__utility {

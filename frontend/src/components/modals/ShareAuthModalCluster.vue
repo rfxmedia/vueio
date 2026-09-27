@@ -27,15 +27,15 @@
       />
 
       <section v-if="shareCreateTab === 'create'" class="share-create-pane">
-        <p class="v-inline-note">{{ shareCreateTargetNote }}</p>
+        <p v-if="!canManageProjectShares" class="v-inline-note">{{ shareCreateTargetLabel }}</p>
 
         <div class="v-form-grid">
           <VField label="Expiration date" hint="Default: 30 days from today. All links expire for security.">
             <input type="date" v-model="shareCreateForm.expiresDate" class="v-input" required />
           </VField>
 
-          <VField label="Password protection">
-            <input type="password" v-model="shareCreateForm.password" placeholder="Optional password" class="v-input" />
+          <VField label="Password protection" optional>
+            <input type="password" v-model="shareCreateForm.password" autocomplete="new-password" class="v-input" />
           </VField>
 
           <div
@@ -225,8 +225,10 @@
     aria-label="Sign in"
     >
     <div class="auth-card v-modal-auth">
-      <div class="auth-brand">vue<span>.</span>io</div>
-      <p class="auth-subtitle">Review Platform</p>
+      <header class="auth-head">
+        <div class="auth-brand">vue<span>.</span>io</div>
+        <p class="auth-subtitle">Review platform</p>
+      </header>
 
       <div class="v-form-grid">
         <label class="v-field">
@@ -301,9 +303,9 @@
     </template>
 
     <div class="v-form-grid">
-      <input v-model="passwordForm.current" type="password" placeholder="Current Password" aria-label="Current Password" autocomplete="current-password" class="v-input" />
-      <input v-model="passwordForm.new" type="password" placeholder="New Password" aria-label="New Password" autocomplete="new-password" class="v-input" />
-      <input v-model="passwordForm.confirm" type="password" placeholder="Confirm New Password" aria-label="Confirm New Password" autocomplete="new-password" class="v-input" />
+      <input v-model="passwordForm.current" type="password" placeholder="Current password" aria-label="Current password" autocomplete="current-password" class="v-input" />
+      <input v-model="passwordForm.new" type="password" placeholder="New password" aria-label="New password" autocomplete="new-password" class="v-input" />
+      <input v-model="passwordForm.confirm" type="password" placeholder="Confirm new password" aria-label="Confirm new password" autocomplete="new-password" class="v-input" />
       <p v-if="passwordError" class="v-text-danger auth-error">{{ passwordError }}</p>
     </div>
 
@@ -377,14 +379,13 @@ const shareModalTabs = computed(() => [
 
 const shareResultTitle = computed(() => lastCreatedWasFileRequest.value
   ? 'File Request Link'
-  : (shareModal.value === 'project' ? 'Project Share Link' : 'Share Link'))
+  : (shareModal.value === 'project' ? 'Project share link' : 'Share link'))
 const shareResultMessage = computed(() => lastCreatedWasFileRequest.value
   ? 'Anyone with this link can upload files without viewing the folder contents:'
   : `Anyone with this link can view${shareModal.value === 'project' ? ' this project' : ''}:`)
 const shareResultUrl = computed(() => shareModal.value === 'project' ? projectShareUrl.value : shareUrl.value)
 const shareCreateTargetLabel = computed(() => shareCreateTarget.value?.name || shareCreateTarget.value?.title || shareCreateTarget.value?.path || 'Create share link')
 const shareModalTitle = computed(() => canManageProjectShares.value ? shareCreateTargetLabel.value : 'Create share link')
-const shareCreateTargetNote = computed(() => canManageProjectShares.value ? `Creating link for ${shareCreateTargetLabel.value}` : shareCreateTargetLabel.value)
 const canRequestFiles = computed(() => ['folder', 'project-folder'].includes(shareCreateType.value))
 const shareAccessLower = computed(() => (shareAccessError.value || '').toLowerCase())
 const shareLinkExpired = computed(() => shareAccessLower.value.includes('expired'))
@@ -764,6 +765,22 @@ function shareSupportsUpload(share) {
 
 .auth-card {
   text-align: center;
+}
+
+/* Labels and errors read left to right, like every other form. */
+.auth-card .v-form-grid {
+  text-align: left;
+}
+
+.auth-head {
+  display: grid;
+  gap: var(--v-space-1);
+  margin-bottom: var(--v-space-2);
+}
+
+.auth-head .auth-brand,
+.auth-head .auth-subtitle {
+  margin: 0;
 }
 
 .auth-brand {

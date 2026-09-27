@@ -24,8 +24,10 @@
           :aria-checked="!hasAssignee ? 'true' : 'false'"
           @click="selectShotAssignee(shot, null)"
         >
+          <span class="assignee-option-check" :class="{ active: !hasAssignee }">
+            <svg v-if="!hasAssignee" class="icon"><use href="#icon-check" /></svg>
+          </span>
           <span class="tracker-select-option-label">Unassigned</span>
-          <svg v-if="!hasAssignee" class="icon tracker-select-check"><use href="#icon-check" /></svg>
         </button>
         <button
           v-for="candidate in assignmentCandidates"

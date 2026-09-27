@@ -38,7 +38,7 @@
           <button type="button" class="v-btn v-btn-quiet v-btn-sm" @mousedown.prevent @click="retrySearch">Try again</button>
         </div>
         <div v-if="searchResults.projects.length" class="v-search-group">
-          <div class="v-search-group-title">Projects</div>
+          <div class="v-section-label v-search-group-title">Projects</div>
           <div
             v-for="(item, i) in searchResults.projects"
             :key="item.id"
@@ -51,12 +51,12 @@
           >
             <svg class="icon v-search-result-icon"><use href="#icon-project"/></svg>
             <span class="v-search-result-title" :title="item.title">{{ item.title }}</span>
-            <span class="v-status v-status-sm" :class="getSearchStatusClass(item.status)">{{ formatSearchStatus(item.status) }}</span>
+            <ProjectStatusControl :project="item" />
           </div>
         </div>
 
         <div v-if="searchResults.trackers.length" class="v-search-group">
-          <div class="v-search-group-title">Vue Trackers</div>
+          <div class="v-section-label v-search-group-title">Vue Trackers</div>
           <div
             v-for="(item, i) in searchResults.trackers"
             :key="item.id"
@@ -68,13 +68,15 @@
             @mousedown.prevent="goToSearchTracker(item.projectId, item.name)"
           >
             <svg class="icon v-search-result-icon"><use href="#icon-list"/></svg>
-            <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
-            <span class="v-search-result-meta" :title="item.projectTitle">{{ item.projectTitle }}</span>
+            <span class="v-search-result-copy">
+              <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
+              <span class="v-search-result-meta" :title="item.projectTitle">{{ item.projectTitle }}</span>
+            </span>
           </div>
         </div>
 
         <div v-if="searchResults.files.length" class="v-search-group">
-          <div class="v-search-group-title">Files</div>
+          <div class="v-section-label v-search-group-title">Files</div>
           <div
             v-for="(item, i) in searchResults.files"
             :key="item.path"
@@ -86,8 +88,10 @@
             @mousedown.prevent="goToSearchFile(item.path)"
           >
             <svg class="icon v-search-result-icon"><use href="#icon-file"/></svg>
-            <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
-            <span class="v-search-result-meta" :title="item.folder">{{ item.folder }}</span>
+            <span class="v-search-result-copy">
+              <span class="v-search-result-title" :title="item.name">{{ item.name }}</span>
+              <span class="v-search-result-meta" :title="item.folder">{{ item.folder }}</span>
+            </span>
           </div>
         </div>
 
@@ -108,6 +112,7 @@ import { useProjectWorkspaceStore } from '../../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../../ownership/sessionAuth'
 import { useShareAccessContext } from '../../ownership/shareAccessContext'
 import { useTrackerStore } from '../../ownership/tracker'
+import ProjectStatusControl from '../projects/ProjectStatusControl.vue'
 
 const { currentUser } = useSessionAuthStore()
 const { shareMode } = useShareAccessContext()
@@ -264,28 +269,6 @@ function goToSearchFile(filePath) {
   navigateTo(dir)
 }
 
-function formatSearchStatus(status) {
-  const labels = {
-    not_started: 'Draft',
-    in_progress: 'Active',
-    waiting_review: 'Review',
-    edits_requested: 'Hold',
-    done: 'Done',
-  }
-  return labels[status] || status
-}
-
-function getSearchStatusClass(status) {
-  const variants = {
-    not_started: 'v-status-draft',
-    in_progress: 'v-status-active',
-    waiting_review: 'v-status-review',
-    edits_requested: 'v-status-hold',
-    done: 'v-status-done',
-  }
-  return variants[status] || 'v-status-draft'
-}
-
 onBeforeUnmount(cancelSearch)
 
 defineExpose({ focusInput, closeSearch })
@@ -381,19 +364,15 @@ defineExpose({ focusInput, closeSearch })
 }
 
 .v-search-group-title {
-  font-size: var(--v-text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--v-text-muted);
-  padding: var(--v-space-1) var(--v-space-2);
+  padding: var(--v-space-1) var(--v-space-2) var(--v-space-2);
 }
 
 .v-search-result {
   display: flex;
   align-items: center;
-  gap: var(--v-space-2);
-  padding: var(--v-space-2);
+  gap: var(--v-space-3);
+  min-height: 36px;
+  padding: var(--v-space-1) var(--v-space-2);
   border-radius: var(--v-radius-md);
   cursor: pointer;
   transition: background var(--v-transition-fast), color var(--v-transition-fast);
@@ -411,25 +390,30 @@ defineExpose({ focusInput, closeSearch })
   flex-shrink: 0;
 }
 
-.v-search-result-title {
+.v-search-result-copy {
   flex: 1;
   min-width: 0;
-  font-size: var(--v-text-sm);
-  color: var(--v-text);
+  display: grid;
+  gap: 1px;
+}
+
+.v-search-result-title,
+.v-search-result-meta {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.v-search-result-title {
+  flex: 1;
+  font-size: var(--v-text-base);
+  color: var(--v-text);
+}
+
 .v-search-result-meta {
-  flex: 0 1 38%;
-  min-width: 0;
   font-size: var(--v-text-xs);
   color: var(--v-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  text-align: right;
 }
 
 .v-search-empty {
@@ -460,10 +444,5 @@ defineExpose({ focusInput, closeSearch })
   max-height: min(46vh, 360px);
   background: var(--v-surface-panel-soft);
   box-shadow: none;
-}
-
-.v-status-sm {
-  font-size: var(--v-text-3xs);
-  padding: 2px 6px;
 }
 </style>

@@ -8,7 +8,7 @@
       teleport
       :offset="14"
       panel-role="dialog"
-      panel-class="media-version-switcher-menu"
+      :panel-class="['media-version-switcher-menu', { 'has-publication-controls': publicationControlsEnabled }]"
       @update:open="(value) => { if (!value) $emit('close') }"
     >
       <template #trigger="{ triggerProps }">
@@ -368,17 +368,6 @@ function handleModalVisibility(nextValue) {
   padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
 }
 
-:deep(.media-version-switcher-menu) {
-  z-index: calc(var(--v-z-dropdown) + 20);
-  padding: 0;
-  overflow: hidden;
-  margin-top: 14px;
-  max-height: min(560px, calc(100vh - var(--v-shell-header-height) - 28px));
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--v-radius-lg);
-}
-
 :deep(.media-version-switcher-sheet-modal .v-modal-body) {
   padding-top: var(--v-space-2);
 }
@@ -387,5 +376,22 @@ function handleModalVisibility(nextValue) {
   .media-version-switcher-sheet-header {
     align-items: flex-start;
   }
+}
+</style>
+
+<style>
+/* The menu panel is teleported to the body, so scoped styles do not reach it. */
+.v-menu-panel.media-version-switcher-menu {
+  display: flex;
+  flex-direction: column;
+  max-width: min(475px, calc(100vw - 16px));
+  max-height: min(560px, calc(100vh - var(--v-shell-header-height) - 28px));
+  padding: 0;
+  overflow: hidden;
+  border-radius: var(--v-radius-lg);
+}
+
+.v-menu-panel.media-version-switcher-menu.has-publication-controls {
+  max-width: min(570px, calc(100vw - 16px));
 }
 </style>

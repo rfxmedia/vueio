@@ -24,7 +24,7 @@
               @input="$emit('update-identity-field', 'team_name', $event.target.value)"
             />
           </VField>
-          <VField label="Website" hint="Optional. Clients can open this link from the delivery page.">
+          <VField label="Website" optional hint="Clients can open this link from the delivery page.">
             <input
               :value="identityForm.website_url"
               class="v-input"

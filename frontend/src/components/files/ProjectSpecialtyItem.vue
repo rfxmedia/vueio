@@ -15,7 +15,7 @@
       <span class="project-specialty-copy">
         <span class="v-truncate project-specialty-title" :title="item.name">{{ item.name }}</span>
         <span class="project-specialty-meta">
-          <span class="v-truncate">{{ kindLabel }}<template v-if="meta"> · {{ meta }}</template></span>
+          <span class="v-truncate">{{ meta || kindLabel }}</span>
           <time
             v-if="activityAt"
             class="project-specialty-activity"

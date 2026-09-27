@@ -63,7 +63,7 @@ export function useProjectCreateMenu() {
       { label: 'Folder', icon: '#icon-folder', run: workspace.openProjectCreateFolderFromMenu },
       { divider: true },
       {
-        label: 'Upload Files',
+        label: 'Upload files',
         icon: '#icon-upload',
         disabled: !canUpload,
         title: uploadDisabledReason || '',

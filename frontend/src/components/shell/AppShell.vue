@@ -36,7 +36,23 @@
     </div>
   </aside>
 
-  <AppNavigator v-if="showNavigatorToggle" :collapsed="!navigatorOpen" />
+  <AppNavigator
+    v-if="showNavigatorToggle"
+    :collapsed="!navigatorOpen"
+    :class="{ 'is-floating': navigatorFloating }"
+    @navigate="navigatorFloating && setNavigatorOpen(false)"
+    @keydown.esc="navigatorFloating && setNavigatorOpen(false)"
+  />
+  <transition name="v-overlay-fade">
+    <button
+      v-if="showNavigatorToggle && navigatorFloating && navigatorOpen"
+      class="navigator-float-backdrop"
+      type="button"
+      tabindex="-1"
+      aria-label="Close quick navigation"
+      @click="setNavigatorOpen(false)"
+    ></button>
+  </transition>
 
   <transition name="v-overlay-fade">
     <button
@@ -131,6 +147,7 @@
 
   <div class="main-wrapper">
     <header
+      v-if="!showLogin || shareMode"
       class="unified-nav"
       aria-label="Workspace navigation"
       :class="{
@@ -318,7 +335,7 @@ import { useUpdateStatusStore } from '../../ownership/updateStatus'
 import { identityColorStyle } from '../../utils/semanticColors'
 
 const { currentProject, currentTracker } = useProjectTrackerSelectionStore()
-const { currentUser, canAccessFileBrowser, openChangePassword: openSessionChangePassword, logout } = useSessionAuthStore()
+const { currentUser, showLogin, canAccessFileBrowser, openChangePassword: openSessionChangePassword, logout } = useSessionAuthStore()
 const { shareMode, shareAllowDownload, shareRequestFiles } = useShareAccessContext()
 const shareOriginLabel = computed(() => shareRequestFiles.value ? 'File request' : 'Shared review')
 const {
@@ -352,7 +369,7 @@ const showMediaSequenceNav = computed(() => (
 const { canShareFromNav, shareFromNav } = useShareManagementStore()
 const { updateAvailable, latestVersion, check: checkForUpdates } = useUpdateStatusStore()
 
-const { hasNavigator, navigatorOpen, toggleNavigator } = useContextNavigator()
+const { hasNavigator, navigatorOpen, navigatorFloating, setNavigatorOpen, toggleNavigator } = useContextNavigator()
 const showNavigatorToggle = computed(() => showDesktopSidebar.value && hasNavigator.value)
 
 const breadcrumbTrail = computed(() => breadcrumbs.value.slice(-3))
@@ -603,6 +620,25 @@ watch(
   opacity: 0.75;
 }
 
+/* Narrow desktop: the navigator floats over the page instead of taking its width. */
+.app-navigator.is-floating {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: var(--v-sidebar-width);
+  z-index: 90;
+  box-shadow: var(--v-shadow-lg);
+}
+
+.navigator-float-backdrop {
+  position: fixed;
+  inset: 0 0 0 var(--v-sidebar-width);
+  z-index: 89;
+  border: 0;
+  padding: 0;
+  background: var(--v-overlay-scrim);
+}
+
 .nav-navigator-toggle.active .icon {
   opacity: 1;
   color: var(--v-accent);
@@ -656,6 +692,30 @@ watch(
 .nav-right {
   flex: 1 1 0;
   justify-content: flex-end;
+}
+
+@media (min-width: 769px) {
+  /* In the viewer the left side holds the name and review controls; the right side
+     needs only its buttons. Controls shrink before the name disappears. */
+  .unified-nav.in-media {
+    container: shell-nav / inline-size;
+  }
+
+  .unified-nav.in-media .nav-left {
+    flex: 1 1 auto;
+  }
+
+  .unified-nav.in-media .nav-right {
+    flex: 0 0 auto;
+  }
+
+  .unified-nav.in-media .nav-context {
+    min-width: 64px;
+  }
+
+  .unified-nav.in-media .nav-left-trailing {
+    flex-shrink: 1;
+  }
 }
 
 .nav-context {
@@ -1383,12 +1443,20 @@ watch(
     gap: var(--v-space-1);
   }
 
+  /* A 36 px mark sits in a 44 px touch target, so it matches the glyphs beside it. */
   .user-avatar-btn {
-    width: var(--v-btn-height-lg) !important;
-    height: var(--v-btn-height-lg) !important;
-    min-width: var(--v-btn-height-lg) !important;
-    min-height: var(--v-btn-height-lg) !important;
+    width: var(--v-icon-btn-size-lg) !important;
+    height: var(--v-icon-btn-size-lg) !important;
+    min-width: var(--v-icon-btn-size-lg) !important;
+    min-height: var(--v-icon-btn-size-lg) !important;
+    margin: 4px;
     font-size: var(--v-text-sm);
+  }
+
+  .user-avatar-btn::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
   }
 
   header.in-tracker .v-dropdown-wrapper > .v-btn-icon,

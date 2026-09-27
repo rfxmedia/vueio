@@ -18,18 +18,16 @@
       />
     </template>
 
-    <!-- Mode rail (tracker import: Add Shots / Bulk Update) -->
-    <div v-if="showTrackerImportModeToggle" class="fp-mode-block">
-      <span class="fp-control-label">Import type</span>
-      <div class="fp-mode-rail">
-        <VTabs
-          :model-value="trackerImportMode"
-          :tabs="trackerImportModeTabs"
-          variant="segmented"
-          :full-width="true"
-          @update:modelValue="setTrackerImportMode"
-        />
-      </div>
+    <!-- Mode rail (tracker import: Add shots / Bulk update) -->
+    <div v-if="showTrackerImportModeToggle" class="fp-mode-rail">
+      <VTabs
+        aria-label="Import type"
+        :model-value="trackerImportMode"
+        :tabs="trackerImportModeTabs"
+        variant="segmented"
+        :full-width="true"
+        @update:modelValue="setTrackerImportMode"
+      />
     </div>
 
     <!-- Target strip (version picker modes only) -->
@@ -355,7 +353,7 @@
               :disabled="!canApplyVersionPickerSelection"
               @click="applyVersionPickerSelection"
             >
-              {{ versionPickerApplyBusy ? 'Updating…' : (pickerMode === 'bulk-version-update' ? 'Add & Next' : 'Add Version') }}
+              {{ versionPickerApplyBusy ? 'Updating…' : (pickerMode === 'bulk-version-update' ? 'Add & next' : 'Add version') }}
             </button>
           </div>
         </div>
@@ -542,7 +540,7 @@ function getSourceMeta(source) {
   if (source === 'project') {
     return {
       icon: '#icon-project',
-      title: 'Project Files',
+      title: 'Project files',
       hint: 'Browse files linked to this project.',
     }
   }
@@ -631,19 +629,6 @@ function getFileMetaLine(item) {
 }
 
 /* ─── Mode rail ────────────────────────────────────────── */
-
-.fp-mode-block {
-  display: grid;
-  gap: 7px;
-}
-
-.fp-control-label {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
 
 .fp-mode-rail {
   display: flex;
@@ -1458,10 +1443,6 @@ function getFileMetaLine(item) {
 
   :deep(.v-modal-footer) {
     min-height: 76px;
-  }
-
-  .fp-control-label {
-    display: none;
   }
 
   .fp-mode-rail :deep(.v-tabs--segmented) {

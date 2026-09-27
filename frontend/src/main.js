@@ -22,7 +22,7 @@ function renderStartupCrash(title) {
   }
 
   target.innerHTML = `
-    <div style="min-height:100vh;padding:24px;background:#0f1115;color:#f3f4f6;font-family:'SF Pro Display',sans-serif;box-sizing:border-box;">
+    <div style="min-height:100vh;padding:24px;background:#0f1115;color:#f3f4f6;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-sizing:border-box;">
       <h1 style="margin:0 0 12px;font-size:20px;">Startup error</h1>
       <p style="margin:0;color:#f59e0b;">Vueio could not start. Refresh the page or ask the installation administrator to check the server logs.</p>
     </div>

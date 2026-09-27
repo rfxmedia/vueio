@@ -16,6 +16,19 @@ const PROJECT_STATUS_OPTIONS = [
   { value: 'done', label: 'Done' },
 ]
 
+// New projects are stored as 'active'; older ones may say 'completed'.
+export function canonicalProjectStatus(status) {
+  if (status === 'active') return 'in_progress'
+  if (status === 'completed') return 'done'
+  return status || 'not_started'
+}
+
+export function projectStatusLabel(status) {
+  const value = canonicalProjectStatus(status)
+  return PROJECT_STATUS_OPTIONS.find(option => option.value === value)?.label
+    || value.replaceAll('_', ' ').replace(/^./, letter => letter.toUpperCase())
+}
+
 export function createProjectSettingsStore(ctx) {
   const projectModal = useModal()
   const storageModal = useModal()
@@ -98,7 +111,7 @@ export function createProjectSettingsStore(ctx) {
     projectDraftTitle.value = project?.title || ''
     projectDraftDescription.value = project?.description || ''
     projectDraftDueDate.value = project?.due_date || ''
-    projectDraftStatus.value = project?.status || 'not_started'
+    projectDraftStatus.value = canonicalProjectStatus(project?.status)
   }
 
   async function openProjectSettings(project = null) {

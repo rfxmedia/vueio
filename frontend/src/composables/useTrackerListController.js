@@ -522,7 +522,11 @@ export function useTrackerListController(ctx) {
   const trackerActiveFilterCount = computed(() => getTrackerActiveFilterCount(trackerFilters.value))
 
   function toggleTrackerSort(key) {
-    if (!key) return
+    if (!key) {
+      trackerSortKey.value = null
+      trackerSortDir.value = 'asc'
+      return
+    }
     if (trackerSortKey.value !== key) {
       trackerSortKey.value = key
       trackerSortDir.value = key === 'updated' ? 'desc' : 'asc'

@@ -3,6 +3,7 @@
     <span v-if="label" class="v-field-label">
       {{ label }}
       <span v-if="required" class="v-field-required" aria-hidden="true">*</span>
+      <span v-else-if="optional" class="v-field-optional">Optional</span>
     </span>
     <div class="v-field-control">
       <slot />
@@ -20,6 +21,7 @@ defineProps({
   error: { type: String, default: '' },
   inline: { type: Boolean, default: false },
   required: { type: Boolean, default: false },
+  optional: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
 })
 </script>

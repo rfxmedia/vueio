@@ -1349,7 +1349,7 @@ function formatShareAccess(share) {
 }
 
 function downloadEventLabel(event) {
-  if (event.event_type === 'download_all') return 'Download All'
+  if (event.event_type === 'download_all') return 'Download all'
   if (event.event_type === 'download_folder_zip') return 'Folder zip'
   if (event.event_type === 'download_zip') return 'Zip'
   return 'File'
@@ -2889,6 +2889,7 @@ onBeforeUnmount(() => compactQuery.removeEventListener('change', syncCompact))
   }
 
   .admin-nav-chevron {
+    grid-column: 4;
     display: block;
     width: 13px;
     height: 13px;

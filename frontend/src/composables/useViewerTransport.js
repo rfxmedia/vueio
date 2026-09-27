@@ -18,6 +18,7 @@ export function useViewerTransport({
   onPlayingTimeUpdate,
   onLoadedMedia,
   onPlaybackStarted,
+  onUserSeek,
   getFullscreenTarget = () => document.querySelector('.player-main'),
   canUseNativeVideoFullscreen = () => true,
   onNativeFullscreenBlocked,
@@ -254,6 +255,7 @@ export function useViewerTransport({
     const video = videoEl.value
     if (!video) return
     if (options.disableLoop !== false) disableLoopForUserSeek()
+    onUserSeek?.()
 
     const target = clampSeekTime(time)
     const shouldResume = options.resume ?? (!video.paused && !video.ended)
@@ -310,6 +312,7 @@ export function useViewerTransport({
     activeTimelinePointerId.value = event.pointerId
     timelineShouldResume = !videoEl.value.paused && !videoEl.value.ended
     timelinePointerRect = timelineEl.getBoundingClientRect()
+    onUserSeek?.()
     try { timelineEl.setPointerCapture?.(event.pointerId) } catch { /* Pointer capture unavailable */ }
     updateTimelineFromPointer(event, timelineEl)
   }

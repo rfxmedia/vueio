@@ -5,7 +5,7 @@
     <main v-if="showMainContent && !shareMode && currentUser && !canAccessFileBrowser && !canAccessProjectManager" class="no-access-view main-content">
       <div class="v-empty-state">
         <svg class="icon v-empty-state-icon"><use href="#icon-folder"/></svg>
-        <p class="v-empty-state-title">No Access</p>
+        <p class="v-empty-state-title">No access</p>
         <p class="v-empty-state-copy">You don't have access to any apps yet.</p>
         <p class="v-empty-state-hint">Please contact your administrator to request access.</p>
       </div>
@@ -427,13 +427,6 @@ function getCommentCount(item) {
   .file-request-action {
     min-height: 148px;
   }
-}
-
-.browser-file-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-4);
 }
 
 .browser-file-toolbar-copy {

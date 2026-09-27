@@ -49,6 +49,8 @@ const FILE_TYPE_VISUALS = {
   rpp: { mark: 'Re', label: 'REAPER project', color: '#aebdc4' },
 }
 
+const AUDIO_EXTENSIONS = new Set(['aac', 'aif', 'aiff', 'flac', 'm4a', 'mp3', 'ogg', 'opus', 'wav'])
+
 function fileExtension(item) {
   const explicit = String(item?.extension || '').trim().toLowerCase().replace(/^\./, '')
   if (explicit) return explicit
@@ -93,6 +95,10 @@ export function fileTypeVisual(item) {
   return null
 }
 
+export function isAudioFile(item) {
+  return AUDIO_EXTENSIONS.has(fileExtension(item))
+}
+
 export function fileTypeLabel(item) {
   if (item?.type === 'folder') return 'Folder'
 
@@ -104,6 +110,7 @@ export function fileTypeLabel(item) {
   if (isPdf) return 'PDF document'
   if (isImage) return extension ? `${extension} image` : 'Image'
   if (isVideo) return extension ? `${extension} video` : 'Video'
+  if (isAudioFile(item)) return extension ? `${extension} audio` : 'Audio'
   return extension ? `${extension} file` : 'File'
 }
 

@@ -140,12 +140,13 @@ const { isMobile } = viewer.presentation
 
 <style scoped>
 /* One width for all three, so they read as a set the way the tracker row's
-   status/tag/assignee columns do. */
+   status/tag/assignee columns do. They shrink together when space is short. */
 .v-media-topbar-status,
 .v-media-topbar-tag,
 .v-media-topbar-assignee {
-  width: 144px;
-  flex: 0 0 auto;
+  width: 152px;
+  min-width: 116px;
+  flex: 0 1 auto;
 }
 
 .v-media-topbar-status :deep(.tracker-inline-select-trigger),
@@ -157,15 +158,7 @@ const { isMobile } = viewer.presentation
   font-size: var(--v-text-sm);
 }
 
-@media (max-width: 1200px) {
-  .v-media-topbar-status,
-  .v-media-topbar-tag,
-  .v-media-topbar-assignee {
-    width: 128px;
-  }
-}
-
-@media (max-width: 960px) {
+@container shell-nav (max-width: 949px) {
   .v-media-topbar-secondary {
     display: none;
   }

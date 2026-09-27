@@ -1,21 +1,18 @@
 import { computed, ref, watch } from 'vue'
 import api from '../lib/api'
+import { canonicalProjectStatus } from '../ownership/projectSettings'
 
 import { readStoredBoolean } from '../utils/storage'
 import { notify } from '../utils/toasts'
 
 const PROJECT_SORT_LABELS = {
-  updated: 'Last Updated',
-  created: 'Created Date',
+  updated: 'Last updated',
+  created: 'Created date',
   title: 'Title',
-  due_date: 'Due Date',
+  due_date: 'Due date',
 }
 
 const PROJECT_GROUP_ORDER = ['in_progress', 'waiting_review', 'edits_requested', 'not_started', 'done']
-
-function normalizedProjectStatus(status) {
-  return status === 'active' ? 'in_progress' : (status || 'not_started')
-}
 
 function timestampValue(value) {
   if (typeof value === 'number') {
@@ -68,7 +65,7 @@ export function useProjectListState({
   const projectGroups = computed(() => {
     const groups = {}
     for (const project of sortedProjects.value) {
-      const status = normalizedProjectStatus(project.status)
+      const status = canonicalProjectStatus(project.status)
       if (!groups[status]) groups[status] = []
       groups[status].push(project)
     }

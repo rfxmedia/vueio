@@ -27,12 +27,11 @@
           </button>
         </template>
 
-        <div class="tracker-filter-dropdown-header">
-          <p class="tracker-filter-dropdown-title v-section-label">Filters</p>
+        <div v-if="hasTrackerFilters" class="tracker-filter-dropdown-header">
+          <span class="tracker-filter-dropdown-summary">{{ trackerActiveFilterCount }} active</span>
           <button
-            v-if="hasTrackerFilters"
             type="button"
-            class="v-btn v-btn-secondary v-btn-sm tracker-filter-clear-btn"
+            class="v-btn v-btn-quiet v-btn-sm tracker-filter-clear-btn"
             @click="clearAllFilters"
           >
             Clear
@@ -45,14 +44,15 @@
                 :key="group.key"
                 class="tracker-filter-section"
               >
-                <p class="tracker-filter-section-title v-section-label">{{ group.label }}</p>
+                <p class="tracker-filter-section-title v-section-label v-dropdown-label">{{ group.label }}</p>
                 <div class="tracker-filter-option-list">
                   <button
                     v-for="option in group.options"
                     :key="`${group.key}:${option.value}`"
                     type="button"
+                    role="menuitemcheckbox"
                     class="tracker-filter-option v-dropdown-item"
-                    :class="{ active: isFilterSelected(group.key, option.value) }"
+                    :aria-checked="isFilterSelected(group.key, option.value) ? 'true' : 'false'"
                     @click="toggleFilter(group.key, option.value)"
                   >
                     <span class="tracker-filter-option-leading">
@@ -81,7 +81,7 @@
 
         <VMenu
         :open="showSortDropdown && !isMobile"
-        align="end"
+        align="start"
         class="tracker-sort-mobile"
         panel-class="tracker-sort-dropdown"
         :close-on-select="false"
@@ -104,33 +104,35 @@
             </svg>
           </button>
         </template>
-        <div class="tracker-organize-menu-label">Sort shots</div>
+        <div class="v-section-label v-dropdown-label">Sort shots</div>
         <button
           v-for="option in sortOptions"
-          :key="option.key"
+          :key="option.key ?? 'manual'"
+          type="button"
+          role="menuitemradio"
           class="tracker-sort-option v-dropdown-item"
-          :class="{ active: trackerSortKey === option.key }"
+          :aria-checked="trackerSortKey === option.key ? 'true' : 'false'"
+          :title="option.key && trackerSortKey === option.key ? 'Select again to reverse the order' : undefined"
           @click="selectSort(option.key)"
         >
           <span>{{ option.label }}</span>
-          <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-chevron">
-            <use :href="trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
+          <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-mark" aria-hidden="true">
+            <use :href="!option.key ? '#icon-check' : trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
           </svg>
         </button>
         <div class="v-dropdown-divider"></div>
-        <div class="tracker-organize-menu-label">Group shots</div>
+        <div class="v-section-label v-dropdown-label">Group shots</div>
         <button
           v-for="option in groupOptions"
           :key="option.key"
           type="button"
-          class="tracker-group-option v-dropdown-item"
-          :aria-pressed="trackerGroupKey === option.key ? 'true' : 'false'"
+          role="menuitemcheckbox"
+          class="tracker-sort-option v-dropdown-item"
+          :aria-checked="trackerGroupKey === option.key ? 'true' : 'false'"
           @click="toggleGroup(option.key)"
         >
-          <span class="tracker-group-option-check" :class="{ 'is-checked': trackerGroupKey === option.key }">
-            <svg v-if="trackerGroupKey === option.key" class="icon"><use href="#icon-check" /></svg>
-          </span>
           <span>{{ option.label }}</span>
+          <svg v-if="trackerGroupKey === option.key" class="icon tracker-sort-option-mark" aria-hidden="true"><use href="#icon-check" /></svg>
         </button>
         </VMenu>
       </div>
@@ -273,7 +275,7 @@
               :key="`${group.key}:${option.value}`"
               type="button"
               class="tracker-filter-option v-dropdown-item"
-              :class="{ active: isFilterSelected(group.key, option.value) }"
+              :aria-pressed="isFilterSelected(group.key, option.value) ? 'true' : 'false'"
               @click="toggleFilter(group.key, option.value)"
             >
               <span class="tracker-filter-option-leading">
@@ -319,35 +321,33 @@
 
       <div class="tracker-sort-sheet-body">
         <section class="tracker-sort-sheet-section">
-          <p class="tracker-organize-menu-label">Sort shots</p>
+          <p class="v-section-label tracker-sort-sheet-title">Sort shots</p>
           <button
             v-for="option in sortOptions"
-            :key="option.key"
+            :key="option.key ?? 'manual'"
             type="button"
             class="tracker-sort-option v-dropdown-item"
-            :class="{ active: trackerSortKey === option.key }"
+            :aria-pressed="trackerSortKey === option.key ? 'true' : 'false'"
             @click="selectSort(option.key)"
           >
             <span>{{ option.label }}</span>
-            <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-chevron">
-              <use :href="trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
+            <svg v-if="trackerSortKey === option.key" class="icon tracker-sort-option-mark" aria-hidden="true">
+              <use :href="!option.key ? '#icon-check' : trackerSortDir === 'asc' ? '#icon-chevron-up' : '#icon-chevron-down'" />
             </svg>
           </button>
         </section>
         <section class="tracker-sort-sheet-section">
-          <p class="tracker-organize-menu-label">Group shots</p>
+          <p class="v-section-label tracker-sort-sheet-title">Group shots</p>
           <button
             v-for="option in groupOptions"
             :key="option.key"
             type="button"
-            class="tracker-group-option v-dropdown-item"
+            class="tracker-sort-option v-dropdown-item"
             :aria-pressed="trackerGroupKey === option.key ? 'true' : 'false'"
             @click="toggleGroup(option.key)"
           >
-            <span class="tracker-group-option-check" :class="{ 'is-checked': trackerGroupKey === option.key }">
-              <svg v-if="trackerGroupKey === option.key" class="icon"><use href="#icon-check" /></svg>
-            </span>
             <span>{{ option.label }}</span>
+            <svg v-if="trackerGroupKey === option.key" class="icon tracker-sort-option-mark" aria-hidden="true"><use href="#icon-check" /></svg>
           </button>
         </section>
       </div>
@@ -367,6 +367,7 @@ const displayModes = [
 ]
 
 const sortOptions = [
+  { key: null, label: 'Manual order' },
   { key: 'id', label: 'Shot ID' },
   { key: 'updated', label: 'Updated' },
   { key: 'status', label: 'Status' },
@@ -453,7 +454,7 @@ const trackerDownloadPercent = computed(() => {
 })
 
 const trackerDownloadLabel = computed(() => {
-  if (!props.trackerDownloadBusy) return 'Download All'
+  if (!props.trackerDownloadBusy) return 'Download all'
   const message = props.trackerDownloadProgress?.message || 'Packaging'
   const percent = trackerDownloadPercent.value
   if (percent > 0 && percent < 100) return `${message} ${percent}%`
@@ -758,42 +759,36 @@ function toggleGroup(key) {
 }
 
 .tracker-filter-dropdown {
-  left: 0;
-  width: min(360px, calc(100vw - 32px));
+  width: min(300px, calc(100vw - 32px));
   max-height: min(560px, calc(100vh - 180px));
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: var(--v-space-2);
+  padding: var(--v-space-1);
 }
 
 .tracker-sort-dropdown {
-  right: 0;
   min-width: 220px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px;
-}
-
-.tracker-organize-menu-label {
-  margin: 0;
-  padding: 6px 8px 5px;
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
-  font-weight: 600;
-  line-height: 1.3;
+  gap: 1px;
+  padding: var(--v-space-1);
 }
 
 .tracker-filter-dropdown-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--v-space-3);
-  padding: 4px 4px 2px;
+  padding: 0 0 var(--v-space-1) var(--v-space-3);
+  border-bottom: 1px solid var(--v-divider-subtle);
+  margin-bottom: var(--v-space-1);
 }
 
-.tracker-filter-dropdown-title,
+.tracker-filter-dropdown-summary {
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+}
+
 .tracker-filter-section-title {
   margin: 0;
 }
@@ -805,69 +800,36 @@ function toggleGroup(key) {
 .tracker-filter-sections {
   display: flex;
   flex-direction: column;
-  gap: var(--v-space-2);
   overflow-y: auto;
-  padding-right: 2px;
+  overscroll-behavior: contain;
 }
 
 .tracker-filter-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
 }
 
 .tracker-filter-section + .tracker-filter-section {
-  padding-top: var(--v-space-2);
+  margin-top: var(--v-space-1);
+  padding-top: var(--v-space-1);
   border-top: 1px solid var(--v-divider-subtle);
 }
 
 .tracker-filter-option-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 1px;
 }
 
 .tracker-filter-option,
-.tracker-sort-option,
-.tracker-group-option {
+.tracker-sort-option {
   justify-content: space-between;
   gap: 10px;
-  font-size: var(--v-text-base);
-  font-weight: 500;
-  border-radius: var(--v-button-radius);
 }
 
-.tracker-group-option {
-  justify-content: flex-start;
-}
-
-.tracker-group-option-check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-  flex: 0 0 17px;
-  border: 1px solid var(--v-control-border);
-  border-radius: var(--v-radius-sm);
-  background: var(--v-bg-field);
-  color: var(--v-accent);
-}
-
-.tracker-group-option-check.is-checked {
-  border-color: color-mix(in srgb, var(--v-accent) 48%, var(--v-control-border));
-  background: color-mix(in srgb, var(--v-accent) 10%, transparent);
-}
-
-.tracker-group-option-check .icon {
-  width: 12px;
-  height: 12px;
-}
-
-.tracker-filter-option.active,
-.tracker-sort-option.active {
-  color: var(--v-text);
-  background: color-mix(in srgb, var(--v-accent) 10%, transparent);
+.tracker-filter-sections .tracker-filter-option {
+  min-height: 32px;
+  padding-block: var(--v-space-1);
 }
 
 .tracker-filter-option-leading {
@@ -914,11 +876,11 @@ function toggleGroup(key) {
 }
 
 .tracker-filter-option-check,
-.tracker-sort-option-chevron {
-  width: 13px;
-  height: 13px;
-  opacity: 0.72;
+.tracker-sort-option-mark {
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
+  color: var(--v-accent);
 }
 
 /* Mobile drawer (sheet) styling for filter + sort */
@@ -948,8 +910,7 @@ function toggleGroup(key) {
 }
 
 .tracker-filter-sheet-body .tracker-filter-option,
-.tracker-sort-sheet-body .tracker-sort-option,
-.tracker-sort-sheet-body .tracker-group-option {
+.tracker-sort-sheet-body .tracker-sort-option {
   min-height: 44px;
   font-size: var(--v-text-md);
   padding: 0 12px;
@@ -979,8 +940,10 @@ function toggleGroup(key) {
   border-top: 1px solid var(--v-divider-subtle);
 }
 
-.tracker-sort-sheet-section .tracker-organize-menu-label {
-  padding-inline: 2px;
+.tracker-sort-sheet-title {
+  font-size: var(--v-text-xs);
+  letter-spacing: 0.16em;
+  padding: 0 2px var(--v-space-1);
 }
 
 @media (max-width: 900px) {

@@ -5,7 +5,7 @@
       <header class="dash-hero">
         <div class="dash-hero-topline">
           <div class="dash-hero-eyebrow">
-            <span class="v-eyebrow">Project Home</span>
+            <span class="v-eyebrow">Project home</span>
           </div>
 
           <div v-if="canManagePage" class="dash-hero-tools">
@@ -559,7 +559,7 @@ const BLOCK_PLACEHOLDERS = {
   text: 'Notes',
   tracker_list: 'Vue Trackers',
   resource_list: 'Resources',
-  upload_inbox: 'Client Uploads',
+  upload_inbox: 'Client uploads',
 }
 
 const autosaveState = ref('idle')
@@ -686,7 +686,7 @@ function makeBlock(type) {
   const id = `block-${Math.random().toString(36).slice(2, 10)}`
   if (type === 'tracker_list') return { id, type, title: 'Vue Trackers', tracker_ids: [] }
   if (type === 'resource_list') return { id, type, title: 'Resources', resources: [] }
-  if (type === 'upload_inbox') return { id, type, title: 'Client Uploads', target_path: getUploadTarget(), description: '', enabled: true }
+  if (type === 'upload_inbox') return { id, type, title: 'Client uploads', target_path: getUploadTarget(), description: '', enabled: true }
   return { id, type: 'text', title: 'Notes', body: '' }
 }
 

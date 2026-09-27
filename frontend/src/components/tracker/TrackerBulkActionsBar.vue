@@ -394,6 +394,7 @@ async function selectBulkValue(type, value) {
   min-height: 32px;
   padding-inline: 9px;
   color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
 }
 
 .tracker-bulk-clear .icon {
@@ -409,6 +410,7 @@ async function selectBulkValue(type, value) {
 .tracker-bulk-action {
   min-height: 36px;
   gap: 6px;
+  font-size: var(--v-text-sm);
 }
 
 .tracker-bulk-action .icon {

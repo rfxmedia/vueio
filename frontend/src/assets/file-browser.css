@@ -12,6 +12,10 @@
 }
 
 .browser-file-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--v-space-4);
   min-height: 44px;
   margin-bottom: 20px;
   padding: 0 0 16px;
@@ -378,21 +382,27 @@
   transform: translateY(50%);
 }
 
-.v-folder-meta {
+.v-file-meta-parts {
   display: flex;
   align-items: center;
   min-width: 0;
   overflow: hidden;
 }
 
-.v-folder-meta > span {
-  flex: 0 1 auto;
+/* Keep short parts whole; only the last part ends with an ellipsis. */
+.v-file-meta-parts > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.v-file-meta-parts > span:last-child {
+  flex-shrink: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.v-folder-meta > span + span::before {
+.v-file-meta-parts > span + span::before {
   content: "·";
   margin: 0 6px;
   color: var(--v-text-muted);
@@ -416,7 +426,6 @@
 }
 
 .file-meta {
-  gap: 3px 6px;
   min-width: 0;
   overflow: hidden;
   font-size: var(--v-text-xs);

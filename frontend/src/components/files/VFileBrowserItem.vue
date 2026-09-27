@@ -35,6 +35,7 @@
             :compact="viewMode === 'list'"
           />
           <svg v-else-if="isPdf" class="icon file-icon pdf-icon"><use href="#icon-pdf" /></svg>
+          <svg v-else-if="isAudio" class="icon file-icon"><use href="#icon-audio" /></svg>
           <svg v-else class="icon file-icon"><use href="#icon-file" /></svg>
           <div v-if="item.duration_formatted" class="duration-badge v-media-badge">{{ item.duration_formatted }}</div>
           <div v-if="commentCount" class="comment-badge v-media-badge is-accent"><svg class="icon"><use href="#icon-comment" /></svg>{{ commentCount }}</div>
@@ -45,16 +46,13 @@
 
       <div class="file-info">
         <div class="v-truncate file-name" :title="item.name">{{ item.name }}</div>
-        <div v-if="isFolder" class="v-text-muted file-meta v-folder-meta">
+        <div v-if="isFolder" class="v-text-muted file-meta v-file-meta-parts">
           <span v-if="item.is_workspace" class="v-folder-kind is-workspace">Workspace</span>
           <span v-if="showLinkedState && item.is_linked" class="v-folder-kind">Linked</span>
           <span v-if="countLabel" class="v-folder-count">{{ countLabel }}</span>
         </div>
-        <div v-else-if="viewMode === 'grid'" class="v-text-muted file-meta">
-          <template v-for="(part, partIndex) in cardMetaParts" :key="part.key">
-            <span v-if="partIndex" class="meta-sep">·</span>
-            <span :class="part.className">{{ part.label }}</span>
-          </template>
+        <div v-else-if="viewMode === 'grid'" class="v-text-muted file-meta v-file-meta-parts">
+          <span v-for="part in cardMetaParts" :key="part.key" :class="part.className">{{ part.label }}</span>
         </div>
         <div v-else class="v-file-list-mobile-meta">
           <span>{{ typeLabel }}</span>
@@ -83,7 +81,7 @@ import VMediaThumbnail from '../media/VMediaThumbnail.vue'
 import VFileTypeGlyph from './VFileTypeGlyph.vue'
 import { getMediaKind, usesGeneratedImagePreview } from '../../lib/mediaEntity'
 import { fileCardMetaParts, fileTimestampLabel } from '../../utils/formatters'
-import { fileTypeLabel, fileTypeVisual, fileUploaderLabel } from '../../utils/fileBrowserItems'
+import { fileTypeLabel, fileTypeVisual, fileUploaderLabel, isAudioFile } from '../../utils/fileBrowserItems'
 
 const props = defineProps({
   item: { type: Object, required: true },
@@ -107,6 +105,7 @@ const isMedia = computed(() => Boolean(
 ))
 const isModel = computed(() => getMediaKind(props.item) === 'model')
 const isPdf = computed(() => props.item?.is_pdf || String(props.item?.extension || '').toLowerCase() === 'pdf')
+const isAudio = computed(() => isAudioFile(props.item))
 const typeVisual = computed(() => fileTypeVisual(props.item))
 const cardMetaParts = computed(() => fileCardMetaParts(props.item))
 const typeLabel = computed(() => fileTypeLabel(props.item))

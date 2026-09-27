@@ -3,6 +3,7 @@ import api, { buildShareCredentialQuery } from '../lib/api'
 import { useAppChromeStore } from '../ownership/appChrome'
 import { useFileBrowserStore } from '../ownership/fileBrowser'
 import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSelection'
+import { canonicalProjectStatus, projectStatusLabel } from '../ownership/projectSettings'
 import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useShareAccessContext } from '../ownership/shareAccessContext'
@@ -27,11 +28,11 @@ export const NAVIGATOR_MIN_WIDTH = 196
 export const NAVIGATOR_MAX_WIDTH = 420
 
 const PROJECT_STATUS_GROUPS = [
-  { status: 'in_progress', label: 'Active' },
-  { status: 'waiting_review', label: 'Review' },
-  { status: 'edits_requested', label: 'Edits requested' },
-  { status: 'not_started', label: 'Not started' },
-  { status: 'done', label: 'Completed', defaultOpen: false },
+  { status: 'in_progress' },
+  { status: 'waiting_review' },
+  { status: 'edits_requested' },
+  { status: 'not_started' },
+  { status: 'done', defaultOpen: false },
 ]
 
 function readStoredOpen() {
@@ -68,7 +69,17 @@ function readStoredWidth() {
 }
 
 // Shared across every mount point so the rail and the mobile drawer agree.
-const navigatorOpen = ref(readStoredOpen())
+const pinnedOpen = ref(readStoredOpen())
+// On narrow desktop screens the navigator floats over the page, starts closed and
+// closes after each choice, so the page keeps its full width.
+const floatingQuery = globalThis.matchMedia?.('(max-width: 1099px)')
+const navigatorFloating = ref(Boolean(floatingQuery?.matches))
+const floatingOpen = ref(false)
+floatingQuery?.addEventListener?.('change', (event) => {
+  navigatorFloating.value = event.matches
+  floatingOpen.value = false
+})
+const navigatorOpen = computed(() => (navigatorFloating.value ? floatingOpen.value : pinnedOpen.value))
 const navigatorWidth = ref(readStoredWidth())
 const navigatorThumbnails = ref((() => {
   try { return globalThis.localStorage?.getItem('vueio.navigator.thumbnails') !== '0' }
@@ -109,18 +120,6 @@ export function projectStatusVariant(status) {
   return 'draft'
 }
 
-function canonicalProjectStatus(status) {
-  if (status === 'active') return 'in_progress'
-  if (status === 'completed') return 'done'
-  return status || 'not_started'
-}
-
-function statusLabel(status) {
-  return String(status || 'Other')
-    .replaceAll('_', ' ')
-    .replace(/^./, (letter) => letter.toUpperCase())
-}
-
 export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor = () => '') {
   const buckets = new Map()
   for (const project of projects || []) {
@@ -142,7 +141,7 @@ export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor 
     .filter((group) => buckets.has(group.status))
     .map((group) => ({
       key: `projects:${group.status}`,
-      label: group.label,
+      label: projectStatusLabel(group.status),
       tone: 'default',
       statusVariant: projectStatusVariant(group.status),
       defaultOpen: group.defaultOpen !== false,
@@ -155,7 +154,7 @@ export function buildProjectNavigatorGroups(projects, openProject, thumbnailFor 
   for (const status of extraStatuses) {
     groups.push({
       key: `projects:${status}`,
-      label: statusLabel(status),
+      label: projectStatusLabel(status),
       tone: 'default',
       statusVariant: projectStatusVariant(status),
       defaultOpen: true,
@@ -453,8 +452,12 @@ export function useContextNavigator() {
   const hasNavigator = computed(() => Boolean(navigatorContext.value))
 
   function setNavigatorOpen(value) {
-    navigatorOpen.value = Boolean(value)
-    persistOpen(navigatorOpen.value)
+    if (navigatorFloating.value) {
+      floatingOpen.value = Boolean(value)
+      return
+    }
+    pinnedOpen.value = Boolean(value)
+    persistOpen(pinnedOpen.value)
   }
 
   function toggleNavigator() {
@@ -491,6 +494,7 @@ export function useContextNavigator() {
     navigatorContext,
     hasNavigator,
     navigatorOpen,
+    navigatorFloating,
     navigatorWidth,
     setNavigatorOpen,
     toggleNavigator,

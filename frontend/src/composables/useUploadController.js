@@ -3,7 +3,7 @@ import api from '../lib/api'
 
 import { useResumableUploadQueue } from './useResumableUploadQueue'
 
-const DEFAULT_UPLOAD_TITLE = 'Upload Files'
+const DEFAULT_UPLOAD_TITLE = 'Upload files'
 const DEFAULT_UPLOAD_DESCRIPTION = 'Upload files or drop folders from your device into this folder.'
 
 export function useUploadController({

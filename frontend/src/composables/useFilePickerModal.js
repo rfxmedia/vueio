@@ -77,8 +77,8 @@ export function useFilePickerModal({
     pickerMode.value === 'bulk-version-update' ? 'bulk-version-update' : 'shot-import'
   ))
   const trackerImportModeTabs = computed(() => ([
-    { value: 'shot-import', label: 'Add Shots', disabled: !canAddShots.value },
-    { value: 'bulk-version-update', label: 'Bulk Update', disabled: !canAddVersions.value || !versionPickerShots.value.length },
+    { value: 'shot-import', label: 'Add shots', disabled: !canAddShots.value },
+    { value: 'bulk-version-update', label: 'Bulk update', disabled: !canAddVersions.value || !versionPickerShots.value.length },
   ]))
   const canUseProjectPicker = computed(() => (
     !!currentProject.value?.id &&
@@ -96,8 +96,8 @@ export function useFilePickerModal({
   ]))
   const pickerSourceTabs = computed(() => {
     if (!canUseProjectPicker.value) return []
-    if (pickerMode.value === 'comment-reference') return [{ value: 'project', label: 'Project Files' }]
-    const tabs = [{ value: 'project', label: 'Project Files' }]
+    if (pickerMode.value === 'comment-reference') return [{ value: 'project', label: 'Project files' }]
+    const tabs = [{ value: 'project', label: 'Project files' }]
     if (canUseNasPicker.value) tabs.push({ value: 'nas', label: 'Storage' })
     return tabs
   })
@@ -109,7 +109,7 @@ export function useFilePickerModal({
     if (pickerMode.value === 'page-resource') return 'Add resource from storage'
     if (pickerMode.value === 'project-link') return 'Link from storage'
     if (pickerMode.value === 'comment-reference') return 'Add attachment'
-    return 'Add Version'
+    return 'Add version'
   })
 
   const versionPickerShots = computed(() => {

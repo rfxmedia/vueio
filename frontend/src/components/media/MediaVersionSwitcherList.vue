@@ -611,6 +611,7 @@ function getSizeLabel(version) {
 
 .media-version-switcher-notes.is-expanded {
   max-height: 132px;
+  overflow-y: auto;
 }
 
 .media-version-switcher-notes-header {
@@ -674,6 +675,7 @@ function getSizeLabel(version) {
 .media-version-switcher-notes.is-expanded .media-version-switcher-summary {
   white-space: normal;
   overflow: visible;
+  overflow-wrap: anywhere;
   line-height: 1.35;
   -webkit-mask-image: none;
   mask-image: none;

@@ -3,7 +3,7 @@
     <div class="project-file-toolbar-context" :class="{ 'has-breadcrumbs': path }">
       <span class="project-file-toolbar-heading">
         <span class="project-file-toolbar-label">Project contents</span>
-        <span class="project-file-toolbar-count">{{ itemCount }} item{{ itemCount === 1 ? '' : 's' }}</span>
+        <span class="project-browser-section-count">{{ itemCount }}</span>
       </span>
       <nav
         v-if="path"
@@ -123,8 +123,8 @@ watch(
 }
 
 .project-file-toolbar-label {
-  color: var(--v-text);
-  font-size: var(--v-text-base);
+  color: var(--v-text-secondary);
+  font-size: var(--v-text-sm);
   font-weight: 650;
   white-space: nowrap;
 }
@@ -133,12 +133,6 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: var(--v-space-2);
-}
-
-.project-file-toolbar-count {
-  color: var(--v-text-muted);
-  font-size: var(--v-text-sm);
-  font-variant-numeric: tabular-nums;
 }
 
 .project-file-breadcrumbs {

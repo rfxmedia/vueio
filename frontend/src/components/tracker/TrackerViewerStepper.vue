@@ -104,13 +104,13 @@
     >
       <button
         type="button"
-        class="v-view-toggle-btn v-media-sequence-btn"
+        class="v-view-toggle-btn v-media-sequence-btn is-prev"
         :disabled="!canStepToPreviousTrackerMedia"
         aria-label="Previous shot"
         title="Previous shot · [ or Numpad 4"
         @click="stepTrackerMedia(-1)"
       >
-        <svg class="icon"><use href="#icon-back" /></svg>
+        <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
       </button>
       <div class="v-media-sequence-count">{{ trackerViewerSequenceLabel }}</div>
       <button
@@ -121,7 +121,7 @@
         title="Next shot · ] or Numpad 6"
         @click="stepTrackerMedia(1)"
       >
-        <svg class="icon"><use href="#icon-back" /></svg>
+        <svg class="icon" aria-hidden="true"><use href="#icon-chevron-right" /></svg>
       </button>
     </div>
   </div>

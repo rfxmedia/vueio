@@ -10,28 +10,28 @@
     </template>
 
     <div class="v-form-grid v-modal-stack">
-      <input
-        :value="props.newProjectTitle"
-        aria-label="Project Title"
-        placeholder="Project Title"
-        class="v-input"
-        @input="emit('update:newProjectTitle', $event.target.value)"
-      />
-      <textarea
-        :value="props.newProjectDesc"
-        aria-label="Description"
-        placeholder="Description (optional)"
-        class="v-input modal-textarea"
-        @input="emit('update:newProjectDesc', $event.target.value)"
-      ></textarea>
-      <input
-        :value="props.newProjectDue"
-        aria-label="Due Date"
-        type="date"
-        placeholder="Due Date"
-        class="v-input"
-        @input="emit('update:newProjectDue', $event.target.value)"
-      />
+      <VField label="Project name">
+        <input
+          :value="props.newProjectTitle"
+          class="v-input"
+          @input="emit('update:newProjectTitle', $event.target.value)"
+        />
+      </VField>
+      <VField label="Due date" optional>
+        <input
+          :value="props.newProjectDue"
+          type="date"
+          class="v-input create-project-due"
+          @input="emit('update:newProjectDue', $event.target.value)"
+        />
+      </VField>
+      <VField label="Description" optional>
+        <textarea
+          :value="props.newProjectDesc"
+          class="v-input modal-textarea"
+          @input="emit('update:newProjectDesc', $event.target.value)"
+        ></textarea>
+      </VField>
 
       <section class="v-modal-section create-project-storage">
         <div class="v-modal-section-head">
@@ -72,21 +72,21 @@
     </template>
 
     <div class="v-form-grid v-modal-stack">
-      <input
-        :value="props.newPageTitle"
-        aria-label="Vue Dashboard title"
-        placeholder="Vue Dashboard title"
-        class="v-input"
-        @input="emit('update:newPageTitle', $event.target.value)"
-        @keydown.enter="props.createPage"
-      />
-      <textarea
-        :value="props.newPageDesc"
-        aria-label="Description"
-        placeholder="Description (optional)"
-        class="v-input modal-textarea"
-        @input="emit('update:newPageDesc', $event.target.value)"
-      ></textarea>
+      <VField label="Title">
+        <input
+          :value="props.newPageTitle"
+          class="v-input"
+          @input="emit('update:newPageTitle', $event.target.value)"
+          @keydown.enter="props.createPage"
+        />
+      </VField>
+      <VField label="Description" optional>
+        <textarea
+          :value="props.newPageDesc"
+          class="v-input modal-textarea"
+          @input="emit('update:newPageDesc', $event.target.value)"
+        ></textarea>
+      </VField>
     </div>
 
     <template #footer>
@@ -105,14 +105,15 @@
       <VModalHeader title="Create Vue Tracker" @close="props.closeCreateTracker" />
     </template>
 
-    <input
-      :value="props.newTrackerName"
-      aria-label="Vue Tracker name"
-      placeholder="Vue Tracker name (e.g., VFX Shots)"
-      class="v-input"
-      @input="emit('update:newTrackerName', $event.target.value)"
-      @keydown.enter="props.createTracker"
-    />
+    <VField label="Name">
+      <input
+        :value="props.newTrackerName"
+        placeholder="For example, VFX Shots"
+        class="v-input"
+        @input="emit('update:newTrackerName', $event.target.value)"
+        @keydown.enter="props.createTracker"
+      />
+    </VField>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeCreateTracker">Cancel</button>
@@ -130,14 +131,14 @@
       <VModalHeader title="Create folder" @close="props.closeCreateFolder" />
     </template>
 
-    <input
-      :value="props.newFolderName"
-      aria-label="Folder name"
-      placeholder="Folder name"
-      class="v-input"
-      @input="emit('update:newFolderName', $event.target.value)"
-      @keydown.enter="props.createProjectFolder"
-    />
+    <VField label="Name">
+      <input
+        :value="props.newFolderName"
+        class="v-input"
+        @input="emit('update:newFolderName', $event.target.value)"
+        @keydown.enter="props.createProjectFolder"
+      />
+    </VField>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeCreateFolder">Cancel</button>
@@ -155,15 +156,15 @@
       <VModalHeader :title="`Rename ${renameTargetLabel}`" @close="props.closeRenameModal" />
     </template>
 
-    <input
-      :value="props.renameNewName"
-      aria-label="New name"
-      class="v-input"
-      placeholder="New name"
-      autofocus
-      @input="emit('update:renameNewName', $event.target.value)"
-      @keydown.enter="props.confirmRename"
-    />
+    <VField label="New name">
+      <input
+        :value="props.renameNewName"
+        class="v-input"
+        autofocus
+        @input="emit('update:renameNewName', $event.target.value)"
+        @keydown.enter="props.confirmRename"
+      />
+    </VField>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeRenameModal">Cancel</button>
@@ -213,7 +214,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { VModal, VModalHeader } from '../primitives'
+import { VField, VModal, VModalHeader } from '../primitives'
 import StorageFolderPicker from '../files/StorageFolderPicker.vue'
 
 const props = defineProps({
@@ -307,6 +308,10 @@ const thumbUploadTitle = computed(() => {
 .modal-textarea {
   min-height: 80px;
   resize: vertical;
+}
+
+.create-project-due {
+  max-width: 220px;
 }
 
 .create-project-storage { margin-top: 2px; padding-top: 14px; border-top: 1px solid var(--v-modal-divider); }

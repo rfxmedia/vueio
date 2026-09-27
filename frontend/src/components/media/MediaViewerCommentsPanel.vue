@@ -270,7 +270,7 @@
               <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
                 <svg class="icon"><use href="#icon-link"/></svg>
               </button>
-              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add Drawing">
+              <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add drawing">
                 <svg class="icon"><use href="#icon-pen"/></svg>
               </button>
               <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote" aria-label="Record voice note" title="Record voice note">
@@ -396,7 +396,7 @@
           <button type="button" class="composer__action" @click="triggerCommentAttachmentPicker" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments" title="Add attachment">
             <svg class="icon"><use href="#icon-link"/></svg>
           </button>
-          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add Drawing">
+          <button type="button" class="composer__action" @click="startAnnotationForComment" :disabled="commentPosting || isDrawingMode || (isViewingModel && !modelReady)" title="Add drawing">
             <svg class="icon"><use href="#icon-pen"/></svg>
           </button>
           <button v-if="voiceRecorderSupported" type="button" class="composer__action" @click="startVoiceRecording" :disabled="commentPosting || pendingAttachmentCount >= maxAttachments || !!pendingVoiceNote || !!replyTarget" aria-label="Record voice note" title="Record voice note">

@@ -111,10 +111,10 @@
         </div>
       </section>
 
-      <!-- ─── Tracker Tools ──────────────────────────────────────── -->
+      <!-- ─── Tracker tools ──────────────────────────────────────── -->
       <section v-if="scope === 'tracker'" class="ps-section">
         <div class="v-section-label">
-          <h3>Tracker Tools</h3>
+          <h3>Tracker tools</h3>
         </div>
 
         <div class="ps-tool-list">
@@ -129,10 +129,7 @@
                 <svg class="icon"><use :href="tool.icon" /></svg>
               </div>
               <div class="ps-tool-copy">
-                <div class="ps-tool-topline">
-                  <strong class="ps-tool-name">{{ tool.name }}</strong>
-                  <span class="v-tag" :class="{ 'v-tag--accent': tool.enabled }">{{ tool.enabled ? 'On' : 'Off' }}</span>
-                </div>
+                <strong class="ps-tool-name">{{ tool.name }}</strong>
                 <p class="ps-tool-hint">{{ tool.hint }}</p>
               </div>
               <label
@@ -739,7 +736,7 @@ function getStatusColor(value) {
 
 function statusLabel(value) {
   const match = props.statusOptions.find(option => option.value === value)
-  return match?.label || formatTeamRole(value)
+  return match?.label || String(value || '').replaceAll('_', ' ')
 }
 
 function initialsFor(member) {
@@ -1035,7 +1032,6 @@ const dueDateFormatted = computed(() => {
 }
 
 .ps-input-date::-webkit-calendar-picker-indicator {
-  filter: invert(0.55);
   cursor: pointer;
   opacity: 0.7;
   transition: opacity var(--v-transition-fast);
@@ -1187,13 +1183,6 @@ const dueDateFormatted = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  min-width: 0;
-}
-
-.ps-tool-topline {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-2);
   min-width: 0;
 }
 

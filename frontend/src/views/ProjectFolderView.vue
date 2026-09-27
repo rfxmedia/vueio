@@ -266,7 +266,7 @@
                         <template #trigger="{ triggerProps }">
                           <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
                         </template>
-                        <button v-if="canShareProject" class="v-dropdown-item" @click="shareProjectPage(item); closeContentMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share Dashboard</button>
+                        <button v-if="canShareProject" class="v-dropdown-item" @click="shareProjectPage(item); closeContentMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share dashboard</button>
                         <div v-if="canEditProject" class="v-dropdown-divider"></div>
                         <button v-if="canEditProject && !isRestrictedMember" class="v-dropdown-item" @click="startRenamePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Rename</button>
                         <button v-if="canEditProject && !isRestrictedMember" class="v-dropdown-item v-dropdown-item-danger" @click="deletePage(item); closeContentMenu()"><svg class="icon"><use href="#icon-trash"/></svg> Delete</button>
@@ -768,10 +768,10 @@ const emptyStateTitle = computed(() => {
 })
 
 const emptyStateHint = computed(() => {
-  if (isRestrictedMember.value) return 'Upload files or create folders to get started'
-  if (shareMode.value) return 'There are no files or folders available here.'
-  if (isNestedFolder.value) return 'Add files or folders here when this part of the project is ready.'
-  return 'Click "New" to add a shot tracker, folder, or file'
+  if (isRestrictedMember.value) return 'Upload files or create a folder to start.'
+  if (shareMode.value) return 'There are no files or folders here.'
+  if (isNestedFolder.value) return 'Add files or folders when this part of the project is ready.'
+  return 'Use New to add a tracker, a folder, or files.'
 })
 
 function activateProjectBrowserEntry(item) {

@@ -359,7 +359,8 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
   background:
     linear-gradient(
       90deg,
-      color-mix(in srgb, var(--project-header-surface) 28%, transparent) 0%,
+      color-mix(in srgb, var(--project-header-surface) 74%, transparent) 0%,
+      color-mix(in srgb, var(--project-header-surface) 52%, transparent) 42%,
       color-mix(in srgb, var(--project-header-surface) 36%, transparent) 68%,
       var(--project-header-surface) 100%
     ),
@@ -375,6 +376,12 @@ watch(offlineNoticeStorageKey, syncOfflineNoticeDismissal, { immediate: true })
 .project-header-notices {
   position: relative;
   z-index: 1;
+}
+
+/* Keeps copy readable on any artwork without a heavier wash. */
+.project-header-art ~ .project-header-info,
+.project-header-art ~ .project-header-notices .project-header-notice__copy {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
 .project-header-bar.is-tracker .project-header-info {

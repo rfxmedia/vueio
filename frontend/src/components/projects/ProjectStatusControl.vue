@@ -11,7 +11,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useProjectSettingsStore } from '../../ownership/projectSettings'
+import { canonicalProjectStatus, projectStatusLabel, useProjectSettingsStore } from '../../ownership/projectSettings'
 import { projectStatusVariant } from '../../composables/useContextNavigator'
 
 const props = defineProps({
@@ -19,9 +19,9 @@ const props = defineProps({
   editable: { type: Boolean, default: false },
 })
 const { PROJECT_STATUS_OPTIONS, projectStatusSavingIds, setProjectStatus } = useProjectSettingsStore()
-const value = computed(() => props.project.status === 'active' ? 'in_progress' : props.project.status || 'not_started')
+const value = computed(() => canonicalProjectStatus(props.project.status))
 const variant = computed(() => projectStatusVariant(value.value))
-const label = computed(() => PROJECT_STATUS_OPTIONS.find(option => option.value === value.value)?.label || value.value.replaceAll('_', ' '))
+const label = computed(() => projectStatusLabel(value.value))
 const saving = computed(() => projectStatusSavingIds.has(props.project.id))
 
 async function changeStatus(event) {

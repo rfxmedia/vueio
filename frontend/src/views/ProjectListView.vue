@@ -66,7 +66,7 @@
                     <svg class="icon project-sort-chevron" aria-hidden="true"><use href="#icon-chevron-down"/></svg>
                   </button>
                 </template>
-                <div class="project-menu-label">Sort projects</div>
+                <div class="v-section-label v-dropdown-label">Sort projects</div>
                 <button
                   v-for="option in projectSortOptions"
                   :key="option.value"
@@ -80,7 +80,7 @@
                   <svg v-if="projectSort === option.value" class="icon project-sort-check" aria-hidden="true"><use href="#icon-check"/></svg>
                 </button>
                 <div class="v-dropdown-divider"></div>
-                <div class="project-menu-label">Organize view</div>
+                <div class="v-section-label v-dropdown-label">Organize view</div>
                 <button class="v-dropdown-item project-sort-option" type="button" role="menuitemcheckbox" :aria-checked="groupByStatus" @click="toggleGroupByStatus()">
                   <span>Group by status</span>
                   <svg v-if="groupByStatus" class="icon project-sort-check" aria-hidden="true"><use href="#icon-check"/></svg>
@@ -339,8 +339,7 @@ import { computed } from 'vue'
 import ProjectStatusControl from '../components/projects/ProjectStatusControl.vue'
 import VMediaThumbnail from '../components/media/VMediaThumbnail.vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../components/primitives'
-import { getTrackerStatusLabel as formatStatus } from '../lib/trackerCatalogs'
-import { useProjectSettingsStore } from '../ownership/projectSettings'
+import { canonicalProjectStatus, projectStatusLabel, useProjectSettingsStore } from '../ownership/projectSettings'
 import { useProjectTrackerSelectionStore } from '../ownership/projectTrackerSelection'
 import { useProjectWorkspaceStore } from '../ownership/projectWorkspace'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
@@ -432,12 +431,8 @@ const projectSortOptions = [
   { value: 'due_date', label: 'Due date' },
 ]
 
-function normalizeProjectStatus(status) {
-  return status === 'active' ? 'in_progress' : (status || 'not_started')
-}
-
 const activeProjectCount = computed(() => (
-  projects.value.filter((project) => normalizeProjectStatus(project.status) === 'in_progress').length
+  projects.value.filter((project) => canonicalProjectStatus(project.status) === 'in_progress').length
 ))
 
 const projectCountLabel = computed(() => {
@@ -479,15 +474,11 @@ const projectSections = computed(() => {
 })
 
 function projectStatusVariant(status) {
-  if (normalizeProjectStatus(status) === 'in_progress') return 'active'
+  if (canonicalProjectStatus(status) === 'in_progress') return 'active'
   if (status === 'waiting_review') return 'review'
   if (status === 'edits_requested') return 'hold'
   if (status === 'not_started') return 'draft'
   return status || 'draft'
-}
-
-function projectStatusLabel(status) {
-  return formatStatus(normalizeProjectStatus(status))
 }
 
 const projectDateFormatter = new Intl.DateTimeFormat('en-US', {
@@ -524,7 +515,7 @@ function formatCompactProjectDate(value) {
 }
 
 function isProjectOverdue(project) {
-  if (!project?.due_date || normalizeProjectStatus(project.status) === 'done') return false
+  if (!project?.due_date || canonicalProjectStatus(project.status) === 'done') return false
   const dueDate = parsedProjectDate(project.due_date)
   if (!dueDate) return false
   dueDate.setHours(23, 59, 59, 999)
@@ -532,7 +523,7 @@ function isProjectOverdue(project) {
 }
 
 function isProjectDueSoon(project) {
-  if (!project?.due_date || normalizeProjectStatus(project.status) === 'done' || isProjectOverdue(project)) return false
+  if (!project?.due_date || canonicalProjectStatus(project.status) === 'done' || isProjectOverdue(project)) return false
   const dueDate = parsedProjectDate(project.due_date)
   if (!dueDate) return false
   dueDate.setHours(23, 59, 59, 999)
@@ -564,7 +555,7 @@ function projectActivityTitle(project) {
 }
 
 function shouldFlagOfflineMedia(project) {
-  return Boolean(project?.has_offline_media && normalizeProjectStatus(project.status) !== 'done')
+  return Boolean(project?.has_offline_media && canonicalProjectStatus(project.status) !== 'done')
 }
 
 function projectInitials(p) {
@@ -1504,12 +1495,6 @@ function projectInitials(p) {
 
 .projects-sort-dropdown {
   padding-block: 7px;
-}
-
-.project-menu-label {
-  padding: var(--v-space-2) var(--v-space-3);
-  color: var(--v-text-muted);
-  font-size: var(--v-text-xs);
 }
 
 .project-sort-option {
