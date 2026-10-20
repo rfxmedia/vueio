@@ -45,12 +45,14 @@ router = APIRouter(tags=['trackers-basic'])
 
 class TrackerCreate(BaseModel):
     name: str
+    description: Optional[str] = None
 
 
 class TrackerUpdate(BaseModel):
     model_config = ConfigDict(extra='forbid')
 
     name: Optional[str] = None
+    description: Optional[str] = None
     categories: Optional[list[str]] = None
     tags: Optional[list[str]] = None
     settings: Optional[dict] = None
@@ -125,7 +127,7 @@ def list_trackers(project_id: str, vueio_session: str = Cookie(None), x_vueio_ag
 def create_tracker(project_id: str, data: TrackerCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     access_role = _require_tracker_management(db, project_id=project_id, user=user, auth_mode=auth_mode, required_role='owner')
-    tracker = create_horizon_tracker(db, project_id=project_id, name=data.name)
+    tracker = create_horizon_tracker(db, project_id=project_id, name=data.name, description=data.description)
     return serialize_horizon_tracker_detail(db, tracker, user=user, access_role=access_role)
 
 
@@ -401,9 +403,9 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
         project_id=project_id,
         user=user,
         auth_mode=auth_mode,
-        required_role='owner' if incoming_fields & {'name', 'settings'} else 'editor',
+        required_role='owner' if incoming_fields & {'name', 'description', 'settings'} else 'editor',
     )
-    tracker_fields = incoming_fields & {'name', 'settings'}
+    tracker_fields = incoming_fields & {'name', 'description', 'settings'}
     tag_updates = None
     if 'tags' in incoming_fields:
         tag_updates = updates.tags
@@ -414,6 +416,7 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
     current = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     before = {
         'name': current.name,
+        'description': current.description,
         'settings': current.settings_json,
         'tags': current.tags_json,
     }
@@ -422,6 +425,7 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
         project_id,
         tracker_ref,
         name=updates.name,
+        description=updates.description,
         tags=tag_updates,
         settings=updates.settings,
         fields_set=tracker_fields,
@@ -430,6 +434,7 @@ def update_tracker(project_id: str, tracker_ref: str, updates: TrackerUpdate, vu
     changed = [
         field for field, value in (
             ('name', tracker.name),
+            ('description', tracker.description),
             ('settings', tracker.settings_json),
             ('tags', tracker.tags_json),
         )

@@ -35,6 +35,14 @@ from .team import is_restricted_horizon_artist, serialize_horizon_shot_assignmen
 from .tracker_settings import normalize_tracker_settings, tracker_settings_for
 from .version_publication import published_versions_by_shot
 
+TRACKER_DESCRIPTION_MAX_LENGTH = 240
+
+
+def normalize_tracker_description(value) -> str | None:
+    description = ' '.join(str(value or '').split())[:TRACKER_DESCRIPTION_MAX_LENGTH]
+    return description or None
+
+
 def _deserialize_horizon_tracker_tags(tracker: HorizonTracker) -> list[str]:
     raw = str(getattr(tracker, 'tags_json', None) or '').strip()
     if not raw:
@@ -133,11 +141,29 @@ def serialize_horizon_tracker_summary(db: Session, tracker: HorizonTracker, user
         'id': tracker.id,
         'slug': tracker.slug,
         'name': tracker.name,
+        'description': tracker.description or '',
         'settings': tracker_settings_for(tracker),
         'shot_count': len(visible_shots),
         'created_at': tracker.created_at,
         'updated_at': tracker.updated_at,
         'last_activity_at': getattr(tracker, 'last_activity_at', tracker.updated_at or tracker.created_at),
+        'source': 'horizons_db',
+    }
+
+
+def build_tracker_content_item(tracker: HorizonTracker, shots: list[HorizonShot]) -> dict:
+    """Project folder entry for a tracker, counted from the shots this viewer can see."""
+    return {
+        'id': tracker.id,
+        'slug': tracker.slug,
+        'name': tracker.name,
+        'description': tracker.description or '',
+        'path': tracker.id,
+        'type': 'tracker',
+        'shot_count': len(shots),
+        'done_count': sum(1 for shot in shots if shot.status == 'done'),
+        'created_at': tracker.created_at,
+        'last_activity_at': tracker.last_activity_at,
         'source': 'horizons_db',
     }
 
@@ -246,6 +272,7 @@ def serialize_horizon_tracker_detail(
         'id': tracker.id,
         'slug': tracker.slug,
         'name': tracker.name,
+        'description': tracker.description or '',
         'settings': tracker_settings_for(tracker),
         'categories': tags,
         'tags': tags,
@@ -451,7 +478,14 @@ def get_horizon_tracker(db: Session, project_id: str, tracker_id: str) -> Horizo
     return tracker
 
 
-def create_horizon_tracker(db: Session, *, project_id: str, name: str, slug: str | None = None) -> HorizonTracker:
+def create_horizon_tracker(
+    db: Session,
+    *,
+    project_id: str,
+    name: str,
+    slug: str | None = None,
+    description: str | None = None,
+) -> HorizonTracker:
     project = get_horizon_project(db, project_id)
     now = time.time()
     normalized_name = (name or '').strip()
@@ -479,6 +513,7 @@ def create_horizon_tracker(db: Session, *, project_id: str, name: str, slug: str
         project_id=project_id,
         slug=normalized_slug,
         name=normalized_name,
+        description=normalize_tracker_description(description),
         created_at=now,
         updated_at=now,
     )
@@ -520,6 +555,7 @@ def duplicate_horizon_tracker(db: Session, project_id: str, tracker_ref: str) ->
         project_id=project_id,
         slug=copy_slug,
         name=copy_name,
+        description=source.description,
         settings_json=json.dumps(duplicate_settings),
         tags_json=source.tags_json,
         stats_json=None,
@@ -614,6 +650,7 @@ def update_horizon_tracker(
     *,
     name: str | None = None,
     slug: str | None = None,
+    description: str | None = None,
     tags: list | None = None,
     settings: dict | None = None,
     fields_set: set[str] | None = None,
@@ -672,6 +709,8 @@ def update_horizon_tracker(
         if existing and existing.id != tracker.id:
             raise HTTPException(status_code=400, detail='Horizons tracker slug already exists')
         tracker.slug = normalized_slug
+    if 'description' in fields:
+        tracker.description = normalize_tracker_description(description)
     if 'tags' in fields:
         tracker.tags_json = json.dumps(_normalize_horizon_tracker_tags(tags or []))
     if 'settings' in fields:

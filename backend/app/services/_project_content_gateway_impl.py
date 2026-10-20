@@ -29,7 +29,7 @@ from app.services.horizons.team import (
     is_horizon_workspace_root_path,
     is_restricted_horizon_artist,
 )
-from app.services.horizons.trackers import list_horizon_trackers
+from app.services.horizons.trackers import build_tracker_content_item, list_horizon_trackers
 from app.services.media import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, format_size, get_safe_path, get_video_duration_quick, needs_transcode
 from app.services.media_assets import attach_canonical_media_identity, get_media_asset_kind, normalize_storage_scope, register_media_asset
 from app.services.media_resolution import resolve_media_asset_path, resolve_media_target, resolve_project_link_target
@@ -202,9 +202,9 @@ def _append_workspace_tracker_shortcuts(db: Session, project_id: str, items: lis
     for tracker in list_horizon_trackers(db, project_id):
         if tracker.name in existing_tracker_names:
             continue
-        shot_count = len(list_visible_horizon_shots(db, project_id, tracker_id=tracker.id, user=user, access_role=access_role))
-        if shot_count > 0:
-            items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': shot_count, 'last_activity_at': tracker.last_activity_at, 'source': 'horizons_db', 'is_shortcut': True})
+        shots = list_visible_horizon_shots(db, project_id, tracker_id=tracker.id, user=user, access_role=access_role)
+        if shots:
+            items.append({**build_tracker_content_item(tracker, shots), 'is_shortcut': True})
             existing_tracker_names.add(tracker.name)
 
 class HorizonsProjectAuthPolicy:
@@ -303,7 +303,8 @@ class HorizonsProjectAuthPolicy:
             existing_tracker_names = {item.get('name') for item in items if item.get('type') == 'tracker'}
             for tracker in list_horizon_trackers(self.db, self.project_id):
                 if tracker.name not in existing_tracker_names:
-                    items.append({'id': tracker.id, 'slug': tracker.slug, 'name': tracker.name, 'path': tracker.id, 'type': 'tracker', 'shot_count': len(list_visible_horizon_shots(self.db, self.project_id, tracker_id=tracker.id, user=self.user, access_role=self.access_role)), 'last_activity_at': tracker.last_activity_at, 'source': 'horizons_db'})
+                    shots = list_visible_horizon_shots(self.db, self.project_id, tracker_id=tracker.id, user=self.user, access_role=self.access_role)
+                    items.append(build_tracker_content_item(tracker, shots))
         append_horizon_asset_virtual_items(items, self.db, self.project_id, folder_visible_assets, normalized_path, include_counts=include_counts, folder_thumbnail_paths=folder_thumbnail_paths)
         items.sort(key=lambda item: ({'page': 0, 'folder': 1, 'tracker': 2, 'file': 3}.get(item.get('type'), 99), item.get('name', '').lower()))
         read_only = project_storage_is_read_only(self.project)

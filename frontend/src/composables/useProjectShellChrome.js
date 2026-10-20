@@ -30,6 +30,7 @@ export function useProjectShellChrome() {
   const newPageTitle = ref('')
   const newPageDesc = ref('')
   const newTrackerName = ref('')
+  const newTrackerDescription = ref('')
   const newFolderName = ref('')
 
   function toggleProjectNewMenu() {
@@ -74,6 +75,7 @@ export function useProjectShellChrome() {
     newPageTitle,
     newPageDesc,
     newTrackerName,
+    newTrackerDescription,
     newFolderName,
     openCreateProjectModal,
     closeCreateProjectModal,

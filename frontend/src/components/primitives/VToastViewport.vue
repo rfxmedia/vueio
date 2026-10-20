@@ -34,7 +34,8 @@ const { toasts, dismissToast } = useToasts()
 .v-toast-viewport {
   position: fixed;
   right: 18px;
-  bottom: 18px;
+  /* Lifts above the upload tray when it shares this corner. */
+  bottom: calc(18px + var(--v-upload-tray-space, 0px));
   z-index: var(--v-z-toast);
   display: flex;
   width: min(420px, calc(100vw - 36px));
@@ -131,7 +132,7 @@ const { toasts, dismissToast } = useToasts()
 @media (max-width: 768px) {
   .v-toast-viewport {
     right: 10px;
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px) + var(--v-upload-tray-space, 0px));
     width: calc(100vw - 20px);
   }
 

@@ -817,9 +817,13 @@ export function useTrackerWorkspaceController(ctx) {
   async function createTracker() {
     if (!ctx.newTrackerName.value.trim() || !ctx.currentProject.value) return
     try {
-      await api.post(`/api/projects/${ctx.currentProject.value.id}/trackers`, { name: ctx.newTrackerName.value })
+      await api.post(`/api/projects/${ctx.currentProject.value.id}/trackers`, {
+        name: ctx.newTrackerName.value,
+        description: ctx.newTrackerDescription.value,
+      })
       invalidateCurrentTrackerPayloads()
       ctx.newTrackerName.value = ''
+      ctx.newTrackerDescription.value = ''
       ctx.showCreateTracker.value = false
       await ctx.refreshProjectContents()
     } catch (error) {

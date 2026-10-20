@@ -43,7 +43,7 @@
         <svg v-else class="icon nav-row-icon"><use :href="icon" /></svg>
       </span>
       <svg v-else-if="!statusVariant" class="icon nav-row-icon" aria-hidden="true"><use :href="icon"/></svg>
-      <span class="nav-row-label v-truncate" :title="label">{{ label }}</span>
+      <span class="nav-row-label v-truncate" :title="description ? `${label}\n${description}` : label">{{ label }}</span>
     </button>
     <span v-if="meta" class="nav-row-meta" aria-hidden="true">{{ meta }}</span>
     <button
@@ -63,6 +63,7 @@ import VFileTypeGlyph from '../files/VFileTypeGlyph.vue'
 
 defineProps({
   label: { type: String, required: true },
+  description: { type: String, default: '' },
   icon: { type: String, default: '#icon-folder' },
   meta: { type: String, default: '' },
   tone: {

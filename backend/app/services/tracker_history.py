@@ -67,7 +67,7 @@ TRACKER_STATE_EVENT_TYPES = frozenset({
     'versions_updated',
 })
 
-TRACKER_FIELDS = ('slug', 'name', 'settings_json', 'tags_json')
+TRACKER_FIELDS = ('slug', 'name', 'description', 'settings_json', 'tags_json')
 SHOT_FIELDS = (
     'id', 'shot_code', 'description', 'status', 'category', 'assignee_user_id',
     'latest_version_label', 'latest_media_asset_id', 'archived_at', 'archived_by',
@@ -493,6 +493,9 @@ def _target_state(db: Session, event: TrackerEvent) -> dict[str, Any]:
             raise HTTPException(status_code=409, detail='This history point is damaged and cannot be restored.')
         if not hmac.compare_digest(actual_hash, str(event.state_hash)):
             raise HTTPException(status_code=409, detail='This history point is damaged and cannot be restored.')
+        # Points saved before trackers had descriptions compare and restore as no description.
+        if isinstance(state.get('tracker'), dict):
+            state['tracker'].setdefault('description', None)
         return state
     if event.state_hash == SNAPSHOT_UNAVAILABLE_TOO_LARGE:
         raise HTTPException(status_code=409, detail='This history point was too large to save safely.')
@@ -735,7 +738,7 @@ def _validate_target_state(
         raise HTTPException(status_code=409, detail='This history point contains invalid tracker identity data.')
     if any(
         tracker_state.get(field) is not None and not isinstance(tracker_state.get(field), str)
-        for field in ('settings_json', 'tags_json')
+        for field in ('description', 'settings_json', 'tags_json')
     ):
         raise HTTPException(status_code=409, detail='This history point contains invalid tracker settings.')
     if _parsed_json(tracker_state.get('settings_json'), dict) is None:

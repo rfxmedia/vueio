@@ -408,6 +408,7 @@ class HorizonTracker(Base):
     project_id = Column(String, nullable=False, index=True)
     slug = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
     settings_json = Column(Text, nullable=True)
     tags_json = Column(Text, nullable=True)
     stats_json = Column(Text, nullable=True)

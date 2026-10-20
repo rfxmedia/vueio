@@ -18,6 +18,7 @@ export function useProjectContentInteractions({
   const showRenameModal = ref(false)
   const renameTarget = ref(null)
   const renameNewName = ref('')
+  const renameNewDescription = ref('')
 
   function isExternalFileDrag(event) {
     const types = Array.from(event?.dataTransfer?.types || [])
@@ -156,6 +157,7 @@ export function useProjectContentInteractions({
   function startRenameTracker(item) {
     renameTarget.value = { ...item, type: 'tracker' }
     renameNewName.value = item.name
+    renameNewDescription.value = item.description || ''
     showRenameModal.value = true
   }
 
@@ -172,7 +174,7 @@ export function useProjectContentInteractions({
       if (renameTarget.value.type === 'tracker') {
         await api.put(
           `/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(renameTarget.value.id || renameTarget.value.slug || renameTarget.value.name)}`,
-          { name: renameNewName.value.trim() }
+          { name: renameNewName.value.trim(), description: renameNewDescription.value }
         )
       } else if (renameTarget.value.type === 'page') {
         await api.put(
@@ -201,6 +203,7 @@ export function useProjectContentInteractions({
     showRenameModal,
     renameTarget,
     renameNewName,
+    renameNewDescription,
     toggleContentMenu,
     closeContentMenu,
     startProjectDrag,

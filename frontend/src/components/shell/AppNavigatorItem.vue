@@ -2,6 +2,7 @@
   <div class="navigator-item">
     <AppNavigatorRow
       :label="item.label"
+      :description="item.description"
       :icon="item.icon"
       :meta="item.meta"
       :tone="item.tone"

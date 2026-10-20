@@ -467,6 +467,7 @@ const {
   clonePageDraft,
   refreshProjectContents,
   newTrackerName,
+  newTrackerDescription,
   showCreateTracker,
   projectMenuOpen,
 } = projectWorkspaceController
@@ -790,6 +791,7 @@ trackerControllerContext.workspace = {
   openProject,
   closeTrackerSettingsModal,
   newTrackerName,
+  newTrackerDescription,
   showCreateTracker,
   handleError,
   getPackageErrorMessage,
@@ -940,7 +942,11 @@ useAppBootstrapLifecycle({
 
   handleWindowDragOver: (event) => handleWindowDragOver(event),
   handleWindowDrop: (event) => handleWindowDrop(event),
-  handleBeforeUnload: trackerStore.handleBeforeUnload,
+  handleBeforeUnload: (event) => (
+    trackerStore.handleBeforeUnload(event)
+    ?? fileBrowserStore.uploads.project.handleBeforeUnload(event)
+    ?? fileBrowserStore.uploads.shared.handleBeforeUnload(event)
+  ),
   getFilesAbortController,
   getProjectContentsAbortController,
 })

@@ -102,6 +102,7 @@
     :create-page="actions.createPage"
     :show-create-tracker="actions.showCreateTracker"
     :new-tracker-name="actions.newTrackerName"
+    :new-tracker-description="actions.newTrackerDescription"
     :close-create-tracker="actions.closeCreateTrackerModal"
     :create-tracker="tracker.createTracker"
     :show-create-folder="actions.showCreateFolder"
@@ -111,6 +112,7 @@
     :show-rename-modal="actions.showRenameModal"
     :rename-target="actions.renameTarget"
     :rename-new-name="actions.renameNewName"
+    :rename-new-description="actions.renameNewDescription"
     :close-rename-modal="actions.closeRenameModalState"
     :confirm-rename="actions.confirmRename"
     :show-thumb-upload="thumbnails.showThumbUpload"
@@ -129,9 +131,13 @@
     @update:new-page-title="actions.newPageTitle = $event"
     @update:new-page-desc="actions.newPageDesc = $event"
     @update:new-tracker-name="actions.newTrackerName = $event"
+    @update:new-tracker-description="actions.newTrackerDescription = $event"
     @update:new-folder-name="actions.newFolderName = $event"
     @update:rename-new-name="actions.renameNewName = $event"
+    @update:rename-new-description="actions.renameNewDescription = $event"
   />
+
+  <UploadTray :upload="sharedUpload.uploadQueue.length ? sharedUpload : projectUpload" />
 
   <ProjectFileImportModal
     v-if="loadedModals.has('upload')"
@@ -142,20 +148,12 @@
     :upload-disabled-reason="projectUpload.uploadDisabledReason"
     :upload-error="projectUpload.uploadError"
     :upload-modal-drag-active="projectUpload.uploadModalDragActive"
-    :upload-queue="projectUpload.uploadQueue"
-    :upload-summary="projectUpload.uploadSummary"
-    :upload-has-active="projectUpload.uploadHasActive"
-    :upload-has-removable="projectUpload.uploadHasRemovable"
     :close-upload="projectUpload.closeUploadModal"
     :handle-modal-drag-enter="projectUpload.handleModalDragEnter"
     :handle-modal-drag-over="projectUpload.handleModalDragOver"
     :handle-modal-drag-leave="projectUpload.handleModalDragLeave"
     :handle-modal-drop="projectUpload.handleModalDrop"
     :handle-file-upload="projectUpload.handleFileUpload"
-    :retry-upload="projectUpload.retryUpload"
-    :cancel-upload="projectUpload.cancelUpload"
-    :cancel-all-uploads="projectUpload.cancelAllUploads"
-    :clear-completed-uploads="projectUpload.clearCompletedUploads"
   />
 
   <ProjectFileImportModal
@@ -167,10 +165,6 @@
     :upload-disabled-reason="sharedUpload.uploadDisabledReason"
     :upload-error="sharedUpload.uploadError"
     :upload-modal-drag-active="sharedUpload.uploadModalDragActive"
-    :upload-queue="sharedUpload.uploadQueue"
-    :upload-summary="sharedUpload.uploadSummary"
-    :upload-has-active="sharedUpload.uploadHasActive"
-    :upload-has-removable="sharedUpload.uploadHasRemovable"
     :close-upload="sharedUpload.closeUploadModal"
     requires-uploader-name
     :uploader-name="sharedUpload.uploaderName"
@@ -181,10 +175,6 @@
     :handle-modal-drag-leave="sharedUpload.handleModalDragLeave"
     :handle-modal-drop="sharedUpload.handleModalDrop"
     :handle-file-upload="sharedUpload.handleFileUpload"
-    :retry-upload="sharedUpload.retryUpload"
-    :cancel-upload="sharedUpload.cancelUpload"
-    :cancel-all-uploads="sharedUpload.cancelAllUploads"
-    :clear-completed-uploads="sharedUpload.clearCompletedUploads"
   />
 
   <FilePickerModal
@@ -262,6 +252,7 @@ import { useShareAccessContext } from '../../ownership/shareAccessContext'
 import { useTrackerStore } from '../../ownership/tracker'
 import { useViewerStore } from '../../ownership/viewer'
 import { normalizeTrackerSettings } from '../../utils/trackerSettings'
+import UploadTray from '../files/UploadTray.vue'
 
 const DashboardSettingsModal = defineAsyncComponent(() => import('./DashboardSettingsModal.vue'))
 const FilePickerModal = defineAsyncComponent(() => import('./FilePickerModalView.vue'))

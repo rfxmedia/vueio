@@ -93,10 +93,12 @@ export function createFileBrowserStore(ctx) {
     canUpload: canUploadToProject,
     disabledReason: projectUploadDisabledReason,
     getDefaultTargetPath: () => workspace.projectPath.value || '',
-    getTargetLabel: targetPath => String(targetPath || '').split('/').filter(Boolean).at(-1) || 'Project root',
-    getUploadEndpoint: (suffix = '') => selection.currentProject.value?.id
-      ? `/api/projects/${selection.currentProject.value.id}/uploads${suffix}`
-      : '',
+    getTargetLabel: targetPath => [
+      selection.currentProject.value?.title,
+      String(targetPath || '').split('/').filter(Boolean).at(-1),
+    ].filter(Boolean).join(' / ') || 'Project root',
+    getUploadScope: () => selection.currentProject.value?.id || '',
+    getUploadEndpoint: (suffix, projectId) => projectId ? `/api/projects/${projectId}/uploads${suffix}` : '',
     missingTargetMessage: 'No project selected',
     getUploaderName: () => (
       session.currentUser.value?.display_name
@@ -145,8 +147,9 @@ export function createFileBrowserStore(ctx) {
       String(targetPath || '').split('/').filter(Boolean).at(-1)
       || (isSharedPageUpload.value ? 'Upload inbox' : 'Shared folder')
     ),
-    getUploadEndpoint: (suffix = '') => share.pendingShareId.value
-      ? `/api/share/${share.pendingShareId.value}/uploads${suffix}${buildShareCredentialQuery({}, share.getShareCredential())}`
+    getUploadScope: () => share.pendingShareId.value || '',
+    getUploadEndpoint: (suffix, shareId) => shareId
+      ? `/api/share/${shareId}/uploads${suffix}${buildShareCredentialQuery({}, share.getShareCredential({ shareId }))}`
       : '',
     missingTargetMessage: 'Missing share link',
     refreshContents: async () => {

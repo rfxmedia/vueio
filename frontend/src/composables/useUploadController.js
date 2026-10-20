@@ -11,6 +11,7 @@ export function useUploadController({
   disabledReason = ref(''),
   getDefaultTargetPath,
   getTargetLabel,
+  getUploadScope = () => '',
   getUploadEndpoint,
   missingTargetMessage = 'Upload destination is unavailable',
   getUploaderName = value => value,
@@ -23,15 +24,23 @@ export function useUploadController({
   const uploadModalTitle = ref(DEFAULT_UPLOAD_TITLE)
   const uploadModalDescription = ref(DEFAULT_UPLOAD_DESCRIPTION)
   const notifiedCompletedItems = new WeakSet()
+  // Each session keeps the project or share it started in, so navigating away
+  // mid-upload cannot send its remaining chunks somewhere else.
+  const sessionScopes = new Map()
 
   function getActiveTargetPath() {
     return uploadTargetOverride.value || getDefaultTargetPath() || ''
   }
 
-  function resolveEndpoint(suffix = '', required = true) {
-    const endpoint = getUploadEndpoint(suffix)
+  function resolveEndpoint(suffix = '', scope = getUploadScope(), required = true) {
+    const endpoint = getUploadEndpoint(suffix, scope)
     if (endpoint || !required) return endpoint
     throw new Error(missingTargetMessage)
+  }
+
+  function sessionEndpoint(sessionId, suffix = '', required = true) {
+    const scope = sessionScopes.has(sessionId) ? sessionScopes.get(sessionId) : getUploadScope()
+    return resolveEndpoint(`/${sessionId}${suffix}`, scope, required)
   }
 
   const upload = useResumableUploadQueue({
@@ -39,21 +48,23 @@ export function useUploadController({
     getDefaultTargetPath: getActiveTargetPath,
     getTargetLabel,
     createSessionRequest: async ({ uploaderName, clientBatchId, targetPath, files }) => {
-      const { data } = await api.post(resolveEndpoint(), {
+      const scope = getUploadScope()
+      const { data } = await api.post(resolveEndpoint('', scope), {
         uploader_name: getUploaderName(uploaderName),
         client_batch_id: clientBatchId,
         target_path: targetPath || '',
         files,
       })
+      if (data?.id) sessionScopes.set(data.id, scope)
       return data
     },
     getSessionRequest: async (sessionId) => {
-      const { data } = await api.get(resolveEndpoint(`/${sessionId}`))
+      const { data } = await api.get(sessionEndpoint(sessionId))
       return data
     },
     sendChunkRequest: async ({ sessionId, itemId, offset, chunk, signal, onProgress }) => {
       const { data } = await api.patch(
-        resolveEndpoint(`/${sessionId}/items/${itemId}`),
+        sessionEndpoint(sessionId, `/items/${itemId}`),
         chunk,
         {
           signal,
@@ -67,11 +78,11 @@ export function useUploadController({
       return data
     },
     cancelItemRequest: async ({ sessionId, itemId }) => {
-      const endpoint = resolveEndpoint(`/${sessionId}/items/${itemId}`, false)
+      const endpoint = sessionEndpoint(sessionId, `/items/${itemId}`, false)
       if (endpoint) await api.delete(endpoint)
     },
     cancelSessionRequest: async ({ sessionId }) => {
-      const endpoint = resolveEndpoint(`/${sessionId}`, false)
+      const endpoint = sessionEndpoint(sessionId, '', false)
       if (endpoint) await api.delete(endpoint)
     },
     refreshContents,

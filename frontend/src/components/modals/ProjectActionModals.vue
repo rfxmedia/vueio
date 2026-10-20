@@ -105,15 +105,26 @@
       <VModalHeader title="Create Vue Tracker" @close="props.closeCreateTracker" />
     </template>
 
-    <VField label="Name">
-      <input
-        :value="props.newTrackerName"
-        placeholder="For example, VFX Shots"
-        class="v-input"
-        @input="emit('update:newTrackerName', $event.target.value)"
-        @keydown.enter="props.createTracker"
-      />
-    </VField>
+    <div class="v-form-grid v-modal-stack">
+      <VField label="Name">
+        <input
+          :value="props.newTrackerName"
+          placeholder="For example, VFX Shots"
+          class="v-input"
+          @input="emit('update:newTrackerName', $event.target.value)"
+          @keydown.enter="props.createTracker"
+        />
+      </VField>
+      <VField label="Description" optional :hint="trackerDescriptionHint">
+        <textarea
+          :value="props.newTrackerDescription"
+          :maxlength="TRACKER_DESCRIPTION_MAX_LENGTH"
+          placeholder="What this tracker covers, so the team can tell it apart"
+          class="v-input modal-textarea"
+          @input="emit('update:newTrackerDescription', $event.target.value)"
+        ></textarea>
+      </VField>
+    </div>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeCreateTracker">Cancel</button>
@@ -149,26 +160,37 @@
   <VModal
     :modelValue="props.showRenameModal"
     @update:modelValue="props.closeRenameModal"
-    :title="`Rename ${renameTargetLabel}`"
+    :title="renameTitle"
     size="md"
   >
     <template #header>
-      <VModalHeader :title="`Rename ${renameTargetLabel}`" @close="props.closeRenameModal" />
+      <VModalHeader :title="renameTitle" @close="props.closeRenameModal" />
     </template>
 
-    <VField label="New name">
-      <input
-        :value="props.renameNewName"
-        class="v-input"
-        autofocus
-        @input="emit('update:renameNewName', $event.target.value)"
-        @keydown.enter="props.confirmRename"
-      />
-    </VField>
+    <div class="v-form-grid v-modal-stack">
+      <VField :label="isTrackerRename ? 'Name' : 'New name'">
+        <input
+          :value="props.renameNewName"
+          class="v-input"
+          autofocus
+          @input="emit('update:renameNewName', $event.target.value)"
+          @keydown.enter="props.confirmRename"
+        />
+      </VField>
+      <VField v-if="isTrackerRename" label="Description" optional :hint="trackerDescriptionHint">
+        <textarea
+          :value="props.renameNewDescription"
+          :maxlength="TRACKER_DESCRIPTION_MAX_LENGTH"
+          placeholder="What this tracker covers, so the team can tell it apart"
+          class="v-input modal-textarea"
+          @input="emit('update:renameNewDescription', $event.target.value)"
+        ></textarea>
+      </VField>
+    </div>
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeRenameModal">Cancel</button>
-      <button class="v-btn v-btn-primary" @click="props.confirmRename" :disabled="!props.renameNewName?.trim()">Rename</button>
+      <button class="v-btn v-btn-primary" @click="props.confirmRename" :disabled="!props.renameNewName?.trim()">{{ isTrackerRename ? 'Save' : 'Rename' }}</button>
     </template>
   </VModal>
 
@@ -236,6 +258,7 @@ const props = defineProps({
 
   showCreateTracker: { type: Boolean, default: false },
   newTrackerName: { type: String, default: '' },
+  newTrackerDescription: { type: String, default: '' },
   closeCreateTracker: { type: Function, required: true },
   createTracker: { type: Function, required: true },
 
@@ -247,6 +270,7 @@ const props = defineProps({
   showRenameModal: { type: Boolean, default: false },
   renameTarget: { type: Object, default: null },
   renameNewName: { type: String, default: '' },
+  renameNewDescription: { type: String, default: '' },
   closeRenameModal: { type: Function, required: true },
   confirmRename: { type: Function, required: true },
 
@@ -271,9 +295,15 @@ const emit = defineEmits([
   'update:newPageTitle',
   'update:newPageDesc',
   'update:newTrackerName',
+  'update:newTrackerDescription',
   'update:newFolderName',
-  'update:renameNewName'
+  'update:renameNewName',
+  'update:renameNewDescription'
 ])
+
+// Matches the server limit; the card shows the first two lines.
+const TRACKER_DESCRIPTION_MAX_LENGTH = 240
+const trackerDescriptionHint = 'Shown on the tracker card. Keep it to a sentence or two.'
 
 const workingProjectRoot = computed(() => props.projectStorageRoots.find(root => root.id === props.newProjectStorageRoot) || null)
 const workingProjectStorageAvailable = computed(() => (
@@ -289,11 +319,12 @@ const canCreateProject = computed(() => (
   && !!props.newProjectStoragePath?.trim()
 ))
 
-const renameTargetLabel = computed(() => {
-  if (props.renameTarget?.type === 'page') return 'Vue Dashboard'
-  if (props.renameTarget?.type === 'folder') return 'Folder'
-  if (props.renameTarget?.type === 'tracker') return 'Vue Tracker'
-  return 'File'
+const isTrackerRename = computed(() => props.renameTarget?.type === 'tracker')
+const renameTitle = computed(() => {
+  if (isTrackerRename.value) return 'Edit Vue Tracker'
+  if (props.renameTarget?.type === 'page') return 'Rename Vue Dashboard'
+  if (props.renameTarget?.type === 'folder') return 'Rename Folder'
+  return 'Rename File'
 })
 
 const thumbUploadTitle = computed(() => {

@@ -358,6 +358,7 @@ export function useContextNavigator() {
     const trackers = (projectTrackerItems.value || []).map((item) => ({
       key: `tracker:${item.id || item.slug || item.path}`,
       label: item.name,
+      description: item.description,
       meta: countLabel(item.shot_count),
       icon: '#icon-project',
       tone: 'accent',

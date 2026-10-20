@@ -4,7 +4,7 @@ import { useModal } from '../composables/useModal'
 import { useProjectTeamManagement } from '../composables/useProjectTeamManagement'
 import { useTrackerSettings } from '../composables/useTrackerSettings'
 import { notify } from '../utils/toasts'
-import { resetWorkspacePayloadCache } from '../lib/workspacePayloadCache'
+import { invalidateWorkspacePayload, resetWorkspacePayloadCache, workspaceCacheKey } from '../lib/workspacePayloadCache'
 
 export const projectSettingsStoreKey = Symbol('vueio.projectSettingsStore')
 
@@ -157,8 +157,14 @@ export function createProjectSettingsStore(ctx) {
   function applyProjectUpdate(target, data) {
     Object.assign(target, data)
     if (ctx.currentProject.value?.id === target.id) Object.assign(ctx.currentProject.value, data)
-    const listed = ctx.projects.value.find(project => project.id === target.id)
-    if (listed) Object.assign(listed, data)
+    // The project list is a shallowRef: publish a new array and a new item so
+    // cards, status groups, counts, and the navigator re-render now.
+    ctx.projects.value = ctx.projects.value.map(project => (
+      project.id === target.id ? { ...project, ...data } : project
+    ))
+    const scope = ctx.currentUser.value?.id
+    invalidateWorkspacePayload(workspaceCacheKey('projects', scope))
+    invalidateWorkspacePayload(workspaceCacheKey('project', scope, target.id))
   }
 
   async function setProjectStatus(project, status) {

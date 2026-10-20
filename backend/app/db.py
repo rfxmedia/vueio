@@ -353,6 +353,12 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
         'owned_tables': {'workspace_luts': {'id', 'name', 'size', 'byte_size', 'cube_text'}},
         'indexes': {},
     },
+    {
+        'revision': '20261019_0025',
+        'stamp_before': '20260906_0024',
+        'columns': {'horizons_trackers': {'description'}},
+        'indexes': {},
+    },
 )
 
 

@@ -46,47 +46,6 @@
           <button type="button" class="v-btn v-btn-ghost v-btn-sm" @click.prevent="openFolderPicker">Choose folder</button>
         </div>
       </label>
-
-      <div v-if="uploadQueue.length" class="v-upload-queue v-modal-card">
-        <div class="v-upload-summary">
-          <div class="v-upload-summary-left">
-            <span>{{ uploadSummary.label }}</span>
-            <span class="v-text-muted">{{ uploadSummary.size }}</span>
-          </div>
-          <div class="v-upload-summary-right">
-            <span class="v-text-muted">{{ uploadSummary.progress }}</span>
-            <span v-if="uploadSummary.speed" class="v-text-muted">{{ uploadSummary.speed }}</span>
-            <span v-if="uploadSummary.eta" class="v-text-muted">{{ uploadSummary.eta }}</span>
-          </div>
-        </div>
-        <div class="v-upload-list">
-          <div v-for="item in uploadQueue" :key="item.id" class="v-upload-item" :class="`v-upload-${item.status}`">
-            <div class="v-upload-main">
-              <div class="v-upload-name v-truncate">{{ item.relPath || item.name }}</div>
-              <div class="v-text-muted v-upload-meta">{{ item.uploadedLabel || formatSizeBytes(item.size || 0) }}</div>
-            </div>
-            <div v-if="item.speedLabel || item.etaLabel" class="v-text-muted v-upload-transfer">
-              <span v-if="item.speedLabel">{{ item.speedLabel }}</span>
-              <span v-if="item.speedLabel && item.etaLabel">·</span>
-              <span v-if="item.etaLabel">{{ item.etaLabel }}</span>
-            </div>
-            <div class="v-upload-actions">
-              <button v-if="item.status === 'error'" class="v-btn v-btn-ghost v-btn-xs" @click="retryUpload(item)">Retry</button>
-              <button v-else-if="item.status === 'uploading' || item.status === 'pending' || item.status === 'retrying'" class="v-btn v-btn-ghost v-btn-xs" @click="cancelUpload(item)">Cancel</button>
-              <span v-else-if="item.status === 'done'" class="v-text-secondary">Done</span>
-              <span v-else-if="item.status === 'canceled'" class="v-text-muted">Canceled</span>
-            </div>
-            <div v-if="item.status === 'uploading' || item.status === 'retrying'" class="v-progress v-upload-progress">
-              <div class="v-progress-fill" :style="{ width: `${item.progress || 0}%` }"></div>
-            </div>
-            <div v-if="item.status === 'error'" class="v-text-danger v-upload-error">{{ item.error }}</div>
-          </div>
-        </div>
-        <div class="v-upload-footer">
-          <button class="v-btn v-btn-secondary" @click="cancelAllUploads" :disabled="!uploadHasActive">Cancel all</button>
-          <button class="v-btn v-btn-ghost" @click="clearCompletedUploads" :disabled="!uploadHasRemovable">Clear completed</button>
-        </div>
-      </div>
     </div>
 
     <template #footer>
@@ -98,7 +57,6 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { VModal, VModalHeader } from '../primitives'
-import { formatSizeBytes } from '../../utils/formatters'
 
 const props = defineProps({
   show: { type: Boolean, required: true },
@@ -108,10 +66,6 @@ const props = defineProps({
   uploadDisabledReason: { type: String, default: '' },
   uploadError: { type: String, default: '' },
   uploadModalDragActive: { type: Boolean, required: true },
-  uploadQueue: { type: Array, required: true },
-  uploadSummary: { type: Object, required: true },
-  uploadHasActive: { type: Boolean, required: true },
-  uploadHasRemovable: { type: Boolean, required: true },
   closeUpload: { type: Function, required: true },
   requiresUploaderName: { type: Boolean, default: false },
   uploaderName: { type: String, default: '' },
@@ -122,10 +76,6 @@ const props = defineProps({
   handleModalDragLeave: { type: Function, required: true },
   handleModalDrop: { type: Function, required: true },
   handleFileUpload: { type: Function, required: true },
-  retryUpload: { type: Function, required: true },
-  cancelUpload: { type: Function, required: true },
-  cancelAllUploads: { type: Function, required: true },
-  clearCompletedUploads: { type: Function, required: true }
 })
 
 const fileInputRef = ref(null)
@@ -175,129 +125,6 @@ function openFolderPicker() {
   flex-wrap: wrap;
 }
 
-.v-upload-queue {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-3);
-}
-
-.v-upload-summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.v-upload-summary-left {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-2);
-}
-
-.v-upload-summary-right {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-2);
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  text-align: right;
-}
-
-.v-upload-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-2);
-  max-height: 260px;
-  overflow-y: auto;
-  padding-right: var(--v-space-1);
-}
-
-.v-upload-item {
-  --upload-state-color: var(--v-text-muted);
-  background: var(--v-modal-list-item-bg);
-  border: 1px solid color-mix(in srgb, var(--v-modal-list-item-bg) 97%, white);
-  border-left: 2px solid var(--upload-state-color);
-  border-radius: var(--v-radius-lg);
-  padding: var(--v-space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--v-space-2);
-}
-
-.v-upload-pending {
-  --upload-state-color: var(--v-warning);
-}
-
-.v-upload-uploading,
-.v-upload-retrying {
-  --upload-state-color: var(--v-info);
-}
-
-.v-upload-done {
-  --upload-state-color: var(--v-accent);
-}
-
-.v-upload-error {
-  --upload-state-color: var(--v-danger);
-}
-
-.v-upload-canceled {
-  --upload-state-color: var(--v-text-muted);
-}
-
-.v-upload-uploading .v-progress-fill,
-.v-upload-retrying .v-progress-fill {
-  background: var(--v-info);
-}
-
-.v-upload-done .v-upload-actions span {
-  color: var(--v-accent);
-}
-
-.v-upload-main {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--v-space-3);
-}
-
-.v-upload-name {
-  font-weight: 600;
-}
-
-.v-upload-meta {
-  font-size: var(--v-text-xs);
-  white-space: nowrap;
-}
-
-.v-upload-transfer {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-1);
-  font-size: var(--v-text-xs);
-  line-height: 1.35;
-}
-
-.v-upload-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--v-space-2);
-  justify-content: flex-end;
-}
-
-.v-upload-error {
-  font-size: var(--v-text-xs);
-}
-
-.v-upload-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.v-upload-progress {
-  margin-top: var(--v-space-2);
-}
-
 @media (max-width: 768px) {
   .upload-zone-actions {
     width: 100%;
@@ -305,27 +132,6 @@ function openFolderPicker() {
 
   .upload-zone-actions .v-btn {
     flex: 1;
-  }
-
-  .v-upload-summary {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--v-space-1);
-  }
-
-  .v-upload-summary-right {
-    justify-content: flex-start;
-    text-align: left;
-  }
-
-  .v-upload-main {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--v-space-1);
-  }
-
-  .v-upload-meta {
-    white-space: normal;
   }
 }
 </style>

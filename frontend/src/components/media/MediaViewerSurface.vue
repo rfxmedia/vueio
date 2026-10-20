@@ -10,7 +10,7 @@
       </div>
     </div>
 
-    <div v-else class="video-container" :ref="setVideoContainerElement" @click="handleVideoContainerClick">
+    <div v-else class="video-container" :ref="setVideoContainerElement" :style="imageFrameStyle" @click="handleVideoContainerClick">
       <div v-if="mediaUnavailable" class="media-unavailable" role="status">
         <svg class="icon"><use href="#icon-file" /></svg>
         <h3>Version unavailable</h3>
@@ -220,6 +220,7 @@ const imageScale = ref(1)
 const imagePanX = ref(0)
 const imagePanY = ref(0)
 const isImageDragging = ref(false)
+const imageAspect = ref(0)
 
 let dragStartX = 0
 let dragStartY = 0
@@ -422,6 +423,14 @@ const imageShellClass = computed(() => ({
   'is-drawing': props.isDrawingMode,
 }))
 
+// Compact layouts shape the frame to the image, within limits, so tall
+// images are not shrunk into a 16:9 box.
+const imageFrameStyle = computed(() => (
+  props.isViewingImage && imageAspect.value
+    ? { '--viewer-image-aspect': Math.min(2.4, Math.max(0.75, imageAspect.value)) }
+    : null
+))
+
 const imageStageStyle = computed(() => ({
   transform: `translate3d(${imagePanX.value}px, ${imagePanY.value}px, 0) scale(${imageScale.value})`,
 }))
@@ -612,6 +621,8 @@ function handleImageGestureEnd() {
 }
 
 function handleImageLoad(event) {
+  const { naturalWidth, naturalHeight } = event.target
+  imageAspect.value = naturalWidth && naturalHeight ? naturalWidth / naturalHeight : 0
   resetImageTransform()
   props.onImageLoaded(event)
   scheduleColorPreviewFrame()
@@ -631,6 +642,7 @@ function scheduleImagePanClamp() {
 }
 
 watch(() => props.currentMedia?.path, () => {
+  imageAspect.value = 0
   resetImageTransform()
 })
 
@@ -710,6 +722,10 @@ onUnmounted(() => {
 }
 
 .viewer-image {
+  /* Container units measure the shell, which has a real size. Percentages
+     measured the auto-height stage instead, so tall images overflowed. */
+  max-width: 100cqw;
+  max-height: 100cqh;
   object-fit: contain;
 }
 
@@ -728,6 +744,7 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  container-type: size;
 }
 
 .viewer-image-shell.is-interactive {

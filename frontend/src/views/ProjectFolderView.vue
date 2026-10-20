@@ -41,7 +41,6 @@
                     :key="item.path"
                     :item="item"
                     kind="tracker"
-                    :meta="`${item.shot_count} shot${item.shot_count === 1 ? '' : 's'}`"
                     :activity-at="item.last_activity_at"
                     @activate="openTracker(item.slug || item.id || item.path || item.name)"
                   />
@@ -240,10 +239,10 @@
             @dragleave="handleProjectExternalDragLeave"
             @drop.prevent="handleProjectExternalDrop"
           >
-            <section v-if="hasProjectSpecialtyItems" class="project-browser-section project-specialty-section">
+            <section v-if="projectPageItems.length" class="project-browser-section project-specialty-section">
               <header class="project-browser-section-header">
-                <span class="project-browser-section-label">Vue Assets</span>
-                <span class="project-browser-section-count">{{ projectSpecialtyItemCount }}</span>
+                <span class="project-browser-section-label">Dashboards</span>
+                <span class="project-browser-section-count">{{ projectPageItems.length }}</span>
               </header>
               <div class="project-specialty-shelf">
                 <div class="project-specialty-grid">
@@ -252,7 +251,6 @@
                     :key="item.id || item.path"
                     :item="item"
                     kind="dashboard"
-                    :meta="`${item.block_count || 0} block${item.block_count === 1 ? '' : 's'}`"
                     :menu-open="contentMenuOpen === item.path"
                     @activate="openPage(item.slug || item.path)"
                   >
@@ -273,13 +271,27 @@
                       </VMenu>
                     </template>
                   </ProjectSpecialtyItem>
+                </div>
+                <div v-if="canLoadMoreProjectPages" class="v-load-more">
+                  <button class="v-btn v-btn-secondary" @click="loadMoreProjectPages">
+                    Load more dashboards ({{ projectPageItems.length - visibleProjectPageItems.length }} remaining)
+                  </button>
+                </div>
+              </div>
+            </section>
 
+            <section v-if="projectTrackerItems.length" class="project-browser-section project-specialty-section">
+              <header class="project-browser-section-header">
+                <span class="project-browser-section-label">Trackers</span>
+                <span class="project-browser-section-count">{{ projectTrackerItems.length }}</span>
+              </header>
+              <div class="project-specialty-shelf">
+                <div class="project-specialty-grid">
                   <ProjectSpecialtyItem
                     v-for="item in visibleProjectTrackerItems"
                     :key="item.path"
                     :item="item"
                     kind="tracker"
-                    :meta="`${item.shot_count} shot${item.shot_count === 1 ? '' : 's'}`"
                     :activity-at="item.last_activity_at"
                     :menu-open="contentMenuOpen === item.path"
                     :class="{ 'dragging': projectDragItem?.path === item.path }"
@@ -298,7 +310,7 @@
                         <template #trigger="{ triggerProps }">
                           <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === item.path" @click="toggleContentMenu(item.path)" />
                         </template>
-                        <button class="v-dropdown-item" @click="startRenameTracker(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Rename</button>
+                        <button class="v-dropdown-item" @click="startRenameTracker(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Edit details</button>
                         <button class="v-dropdown-item" @click="duplicateItem(item); closeContentMenu()"><svg class="icon"><use href="#icon-copy"/></svg> Duplicate</button>
                         <div class="v-dropdown-divider"></div>
                         <button class="v-dropdown-item v-dropdown-item-danger" @click="deleteTracker(item.name); closeContentMenu()"><svg class="icon"><use href="#icon-trash"/></svg> Delete</button>
@@ -306,11 +318,8 @@
                     </template>
                   </ProjectSpecialtyItem>
                 </div>
-                <div v-if="canLoadMoreProjectPages || canLoadMoreProjectTrackers" class="v-load-more">
-                  <button v-if="canLoadMoreProjectPages" class="v-btn v-btn-secondary" @click="loadMoreProjectPages">
-                    Load more dashboards ({{ projectPageItems.length - visibleProjectPageItems.length }} remaining)
-                  </button>
-                  <button v-if="canLoadMoreProjectTrackers" class="v-btn v-btn-secondary" @click="loadMoreProjectTrackers">
+                <div v-if="canLoadMoreProjectTrackers" class="v-load-more">
+                  <button class="v-btn v-btn-secondary" @click="loadMoreProjectTrackers">
                     Load more trackers ({{ projectTrackerItems.length - visibleProjectTrackerItems.length }} remaining)
                   </button>
                 </div>
@@ -732,11 +741,6 @@ function fileMenuActions(item) {
 const browserProjectFolderItems = computed(() => projectFolderItems.value)
 const visibleBrowserProjectFolderItems = computed(() => visibleProjectFolderItems.value)
 const visibleProjectBrowserEntries = computed(() => projectBrowserEntries.value)
-const hasProjectToolItems = computed(() => projectPageItems.value.length > 0 || projectTrackerItems.value.length > 0)
-const hasProjectSpecialtyItems = computed(() => hasProjectToolItems.value)
-const projectSpecialtyItemCount = computed(() => (
-  projectPageItems.value.length + projectTrackerItems.value.length
-))
 
 const hasNoProjectContents = computed(() => (
   !projectContentsLoading.value
@@ -854,10 +858,10 @@ function handleProjectListDrop(event, item) {
   min-width: 0;
 }
 
-/* Same columns as the file grid, so asset and folder cards line up. */
+/* Wider than the file grid so a name, description, and detail line fit. */
 .project-specialty-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 288px), 1fr));
   gap: 10px;
 }
 
@@ -906,15 +910,5 @@ function handleProjectListDrop(event, item) {
 
 @media (max-width: 768px) {
   .project-contents { padding: 14px; }
-
-  .project-specialty-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 420px) {
-  .project-specialty-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 </style>

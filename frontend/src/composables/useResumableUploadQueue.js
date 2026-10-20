@@ -494,6 +494,7 @@ export function useResumableUploadQueue({
     }
 
     const itemMap = new Map((session?.items || []).map(item => [item.rel_path, item]))
+    const targetLabel = getTargetLabel ? getTargetLabel(normalizedBaseTargetFolder) : normalizedBaseTargetFolder
     let added = 0
     for (const entry of filteredEntries) {
       const relPath = normalizeUploadRelPath(entry.relPath || entry.file.webkitRelativePath || entry.file.name)
@@ -508,6 +509,7 @@ export function useResumableUploadQueue({
         size: entry.file.size || 0,
         relPath,
         targetFolder: normalizedBaseTargetFolder,
+        targetLabel,
         finalPath: serverItem.final_path || joinUploadPath(normalizedBaseTargetFolder, relPath),
         minChunkSize: session?.chunk_size || DEFAULT_UPLOAD_CHUNK_SIZE,
         maxChunkSize: session?.max_chunk_size || DEFAULT_UPLOAD_MAX_CHUNK_SIZE,
@@ -529,8 +531,9 @@ export function useResumableUploadQueue({
       added += 1
     }
 
+    // The upload tray shows progress from here, so the picker can close.
     if (added > 0) {
-      showUploadModal.value = true
+      showUploadModal.value = false
       startUploadWorker()
     }
   }
@@ -585,6 +588,14 @@ export function useResumableUploadQueue({
 
   function clearCompletedUploads() {
     uploadQueue.value = uploadQueue.value.filter(item => ['pending', 'uploading', 'retrying'].includes(item.status))
+  }
+
+  // Closing the tab stops every transfer, so ask first.
+  function handleBeforeUnload(event) {
+    if (!uploadHasActive.value) return undefined
+    event.preventDefault()
+    event.returnValue = ''
+    return ''
   }
 
   async function handleFileUpload(event, targetFolder = '') {
@@ -701,5 +712,6 @@ export function useResumableUploadQueue({
     cancelUpload,
     cancelAllUploads,
     clearCompletedUploads,
+    handleBeforeUnload,
   }
 }
