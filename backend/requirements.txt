@@ -9,6 +9,6 @@ psycopg[binary]==3.2.13
 pydantic-settings==2.10.1
 slowapi==0.1.9
 limits==5.8.0
-Pillow==12.3.0
+Pillow==13.0.0
 httpx==0.26.0
 moonshine-voice==0.1.0
