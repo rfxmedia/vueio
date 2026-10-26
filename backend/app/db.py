@@ -359,6 +359,32 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
         'columns': {'horizons_trackers': {'description'}},
         'indexes': {},
     },
+    {
+        'revision': '20261023_0026',
+        'stamp_before': '20261019_0025',
+        'columns': {},
+        'indexes': {
+            'oauth_grants': {'idx_oauth_grants_user_id', 'idx_oauth_grants_client_id'},
+            'oauth_tokens': {'idx_oauth_tokens_grant_id', 'idx_oauth_tokens_expires_at'},
+        },
+        'owned_tables': {
+            'oauth_clients': {'id', 'name', 'redirect_uris_json', 'source', 'metadata_json', 'created_at', 'updated_at'},
+            'oauth_grants': {'id', 'user_id', 'client_id', 'client_name', 'resource', 'created_at', 'last_used_at', 'revoked_at'},
+            'oauth_tokens': {'token_hash', 'grant_id', 'kind', 'expires_at', 'used_at', 'data_json', 'created_at'},
+        },
+    },
+    {
+        'revision': '20261023_0027',
+        'stamp_before': '20261023_0026',
+        'columns': {'comments': {'author_user_id', 'edited_at'}},
+        'indexes': {'comments': {'ix_comments_author_user_id'}},
+    },
+    {
+        'revision': '20261024_0028',
+        'stamp_before': '20261023_0027',
+        'columns': {'upload_items': {'version_upload_json'}},
+        'indexes': {'agent_mutation_receipts': {'ix_agent_mutation_receipts_created_at'}},
+    },
 )
 
 

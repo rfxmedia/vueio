@@ -34,6 +34,12 @@ SESSION_TTL_SECONDS = settings.SESSION_COOKIE_MAX_AGE
 PBKDF2_ITERATIONS = 310000
 PBKDF2_PREFIX = 'pbkdf2_sha256'
 _request_agent_key: ContextVar[str | None] = ContextVar('vueio_request_agent_key', default=None)
+_request_agent_identity: ContextVar[dict | None] = ContextVar('vueio_request_agent_identity', default=None)
+_request_internal_call: ContextVar[bool] = ContextVar('vueio_request_internal_call', default=False)
+# Set only on requests the MCP server makes inside the engine. Clients cannot
+# set ASGI scope keys, so this marks a call as coming from /api/mcp.
+INTERNAL_CALL_SCOPE_KEY = 'vueio.internal_call'
+OAUTH_ACCESS_TOKEN_PREFIX = 'vueio_oat_'
 
 
 def set_request_agent_key(agent_key: str | None) -> Token:
@@ -47,6 +53,67 @@ def reset_request_agent_key(token: Token) -> None:
 
 def get_request_agent_key() -> str | None:
     return _request_agent_key.get()
+
+
+def set_request_internal_call(internal: bool) -> Token:
+    return _request_internal_call.set(bool(internal))
+
+
+def reset_request_internal_call(token: Token) -> None:
+    _request_internal_call.reset(token)
+
+
+def _oauth_agent_identity(agent_key: str) -> dict | None:
+    # Sign in with Vue.io tokens are bound to the MCP server: they work only
+    # on the calls it makes, never sent straight to the API.
+    if not _request_internal_call.get():
+        return None
+    from app.services.oauth import resolve_access_token
+    return resolve_access_token(agent_key)
+
+
+def credential_is_current(user: dict | None, issued_at: float | None) -> bool:
+    """Credentials belong to this account lifetime and its latest password reset."""
+    return bool(user) and (issued_at or 0) >= max(user.get('created_at') or 0, user.get('credentials_changed_at') or 0)
+
+
+def request_agent_credential(request) -> str | None:
+    scheme, _, token = (request.headers.get('authorization') or '').partition(' ')
+    if scheme.lower() == 'bearer':
+        return token.strip() or 'invalid'
+    return request.headers.get('x-vueio-agent-key')
+
+
+def resolve_request_agent_identity(agent_key: str | None, session_id: str | None = None) -> dict | None:
+    """Identify an agent-key request once, before routes run.
+
+    An explicit agent credential wins over a browser cookie.
+    Used for attribution and retries, never for permission decisions.
+    """
+    if not agent_key:
+        return None
+    if agent_key.startswith(OAUTH_ACCESS_TOKEN_PREFIX):
+        return _oauth_agent_identity(agent_key)
+    db = SessionLocal()
+    try:
+        record = resolve_agent_key_record(db, agent_key)
+        if record is None or not credential_is_current(load_users().get(record.user_id), record.created_at):
+            return None
+        return {'key_id': record.id, 'name': record.name, 'user_id': record.user_id}
+    finally:
+        db.close()
+
+
+def set_request_agent_identity(identity: dict | None) -> Token:
+    return _request_agent_identity.set(identity)
+
+
+def reset_request_agent_identity(token: Token) -> None:
+    _request_agent_identity.reset(token)
+
+
+def get_request_agent_identity() -> dict | None:
+    return _request_agent_identity.get()
 
 
 def _legacy_sha256_hash(password: str) -> str:
@@ -176,11 +243,18 @@ def mutate_users_and_revoke_sessions(
     *,
     exclude_session_id: str | None = None,
 ) -> object:
-    """Mutate users and revoke sessions without allowing a login between them."""
+    """Change or delete an account and revoke its credentials under the user lock."""
+    from app.services.agent_keys import delete_user_agent_keys
+    from app.services.oauth import delete_user_grants
+
     with _locked_users_file(exclusive=True):
         users = _read_users_unlocked()
         result = mutator(users)
+        if user_id in users:
+            users[user_id]['credentials_changed_at'] = time.time()
         destroy_user_sessions(user_id, exclude_session_id=exclude_session_id)
+        delete_user_agent_keys(user_id)
+        delete_user_grants(user_id)
         _write_users_unlocked(users)
         return result
 
@@ -262,6 +336,8 @@ def destroy_user_sessions(user_id: str, *, exclude_session_id: str | None = None
 
 
 def get_user_from_session(session_id: str | None, *, allow_agent_fallback: bool = True) -> Optional[dict]:
+    if get_request_agent_key():
+        return get_user_from_agent_key(get_request_agent_key()) if allow_agent_fallback else None
     if not session_id:
         return get_user_from_agent_key(get_request_agent_key()) if allow_agent_fallback else None
 
@@ -292,6 +368,14 @@ def get_user_from_session(session_id: str | None, *, allow_agent_fallback: bool 
 def get_user_from_agent_key(agent_key: str | None) -> Optional[dict]:
     if not agent_key:
         return None
+    if agent_key.startswith(OAUTH_ACCESS_TOKEN_PREFIX):
+        identity = _oauth_agent_identity(agent_key)
+        if identity is None:
+            return None
+        user = load_users().get(identity['user_id'])
+        if not user:
+            raise HTTPException(status_code=401, detail='The person who connected this app is no longer active')
+        return user
     db = SessionLocal()
     try:
         record = resolve_agent_key_record(db, agent_key)
@@ -299,13 +383,14 @@ def get_user_from_agent_key(agent_key: str | None) -> Optional[dict]:
             return None
         touch_agent_key(record, db)
         user_id = record.user_id
+        issued_at = record.created_at
     finally:
         db.close()
 
     users = load_users()
     user = users.get(user_id)
-    if not user:
-        raise HTTPException(status_code=401, detail='Agent key owner is no longer active')
+    if not credential_is_current(user, issued_at):
+        raise HTTPException(status_code=401, detail='This agent key is no longer valid')
     return user
 
 
@@ -313,12 +398,15 @@ def get_request_user(
     vueio_session: str | None = Cookie(None),
     agent_key: str | None = Header(None, alias='X-Vueio-Agent-Key'),
 ) -> tuple[dict, str]:
+    agent_key = get_request_agent_key() or agent_key
+    if agent_key:
+        user = get_user_from_agent_key(agent_key)
+        if user:
+            return user, 'agent_key'
+        raise HTTPException(status_code=401, detail='This agent credential is not valid')
     user = get_user_from_session(vueio_session, allow_agent_fallback=False)
     if user:
         return user, 'session'
-    user = get_user_from_agent_key(agent_key)
-    if user:
-        return user, 'agent_key'
     raise HTTPException(status_code=401, detail='Authentication required')
 
 
@@ -334,3 +422,23 @@ def require_admin(vueio_session: str | None = Cookie(None)) -> dict:
     if not is_admin_user(user):
         raise HTTPException(status_code=403, detail='Admin access required')
     return user
+
+
+AGENT_CREDENTIAL_DETAIL = (
+    'Agents cannot manage credentials: passwords, accounts with passwords, agent keys '
+    'or integration tokens. Sign in to Vue.io to do this.'
+)
+
+
+def require_signed_in_user(vueio_session: str | None) -> dict:
+    """Require the person's own browser session; agent keys never qualify.
+
+    Credentials stay human-only, so a leaked agent key cannot create, revive,
+    or replace credentials for itself or anyone else.
+    """
+    if get_request_agent_key():
+        raise HTTPException(status_code=403, detail=AGENT_CREDENTIAL_DETAIL)
+    user = get_user_from_session(vueio_session, allow_agent_fallback=False)
+    if user:
+        return user
+    raise HTTPException(status_code=401, detail='Authentication required')

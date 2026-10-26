@@ -30,6 +30,7 @@
                   :datetime="commentPostedDatetime(comment.created_at)"
                   :title="formatCommentPostedTitle(comment.created_at)"
                 >{{ formatRelativeTime(comment.created_at) }}</time>
+                <span v-if="comment.edited_at" class="comment-edited" :title="`Edited ${formatCommentPostedTitle(comment.edited_at)}`">edited</span>
                 <span v-if="isViewingPdf && pdfPageLabel(comment)" class="comment-timecode">{{ pdfPageLabel(comment) }}</span>
                 <span v-else-if="!isViewingImage && !isViewingPdf && (!isViewingModel || modelAnimated) && comment.timestamp != null" class="comment-timecode">{{ formatTimecode(comment.timestamp) }}</span>
                 <span v-if="comment.annotation_data" class="comment-annotation-chip" title="Has drawing annotation" aria-label="Has drawing annotation">
@@ -39,13 +40,20 @@
               <div class="comment-header-tools">
                 <div class="comment-secondary-actions">
                   <button type="button" class="comment-action-button" @click.stop="toggleResolve(comment.id)" :title="comment.resolved ? 'Unresolve' : 'Resolve'" :aria-label="comment.resolved ? 'Unresolve comment' : 'Resolve comment'"><svg class="icon"><use :href="comment.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
-                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(comment.id)" title="Delete comment" aria-label="Delete comment"><svg class="icon"><use href="#icon-trash"/></svg></button>
+                  <button v-if="isOwnComment(comment)" type="button" class="comment-action-button" @click.stop="startEditComment(comment)" title="Edit comment" aria-label="Edit comment"><svg class="icon"><use href="#icon-edit"/></svg></button>
+                  <button v-if="canDeleteComment(comment)" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(comment.id)" title="Delete comment" aria-label="Delete comment"><svg class="icon"><use href="#icon-trash"/></svg></button>
                 </div>
                 <span class="comment-number">#{{ commentIndex + 1 }}</span>
               </div>
             </div>
 
-            <p class="comment-text">
+            <CommentEditForm
+              v-if="editingCommentId === comment.id"
+              :comment="comment"
+              :on-save="saveEditedComment"
+              @cancel="cancelEditComment"
+            />
+            <p v-else class="comment-text">
               <span v-if="comment.text" class="comment-message">
                 <template v-for="(segment, segmentIndex) in comment.textSegments" :key="`${comment.id}-${segmentIndex}`">
                   <a
@@ -112,6 +120,7 @@
                   :datetime="commentPostedDatetime(reply.created_at)"
                   :title="formatCommentPostedTitle(reply.created_at)"
                 >{{ formatRelativeTime(reply.created_at) }}</time>
+                  <span v-if="reply.edited_at" class="comment-edited" :title="`Edited ${formatCommentPostedTitle(reply.edited_at)}`">edited</span>
                   <span v-if="reply.annotation_data" class="comment-annotation-chip" title="Has drawing annotation" aria-label="Has drawing annotation">
                     <svg class="icon"><use href="#icon-pen"/></svg>
                   </span>
@@ -119,11 +128,18 @@
                 </div>
                 <div class="comment-secondary-actions">
                   <button type="button" class="comment-action-button" @click.stop="toggleResolve(reply.id)" :title="reply.resolved ? 'Unresolve' : 'Resolve'" :aria-label="reply.resolved ? 'Unresolve reply' : 'Resolve reply'"><svg class="icon"><use :href="reply.resolved ? '#icon-undo' : '#icon-check'"/></svg></button>
-                  <button v-if="isAdmin" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(reply.id)" title="Delete reply" aria-label="Delete reply"><svg class="icon"><use href="#icon-trash"/></svg></button>
+                  <button v-if="isOwnComment(reply)" type="button" class="comment-action-button" @click.stop="startEditComment(reply)" title="Edit reply" aria-label="Edit reply"><svg class="icon"><use href="#icon-edit"/></svg></button>
+                  <button v-if="canDeleteComment(reply)" type="button" class="comment-action-button is-danger" @click.stop="deleteComment(reply.id)" title="Delete reply" aria-label="Delete reply"><svg class="icon"><use href="#icon-trash"/></svg></button>
                 </div>
               </div>
 
-              <p class="comment-text">
+              <CommentEditForm
+                v-if="editingCommentId === reply.id"
+                :comment="reply"
+                :on-save="saveEditedComment"
+                @cancel="cancelEditComment"
+              />
+              <p v-else class="comment-text">
                 <span v-if="reply.text" class="comment-message">
                   <template v-for="(segment, segmentIndex) in reply.textSegments" :key="`${reply.id}-${segmentIndex}`">
                     <a
@@ -446,6 +462,7 @@ import { formatIsoTimestamp, formatLocaleDateTime, normalizeTimestamp } from '..
 import { segmentCommentText } from '../../utils/textSanitization'
 import { notify } from '../../utils/toasts'
 import CommentAttachmentCard from './CommentAttachmentCard.vue'
+import CommentEditForm from './CommentEditForm.vue'
 import CommentMentionPopover from './CommentMentionPopover.vue'
 import CommentVoiceNote from './CommentVoiceNote.vue'
 import VoiceRecordingStatus from './VoiceRecordingStatus.vue'
@@ -476,13 +493,14 @@ const props = defineProps({
   modelReady: { type: Boolean, default: false },
   modelAnimated: { type: Boolean, default: false },
   activityFocusCommentId: { type: [String, Number], default: null },
-  isAdmin: { type: Boolean, default: false },
+  canDeleteAnyComment: { type: Boolean, default: false },
   maxAttachments: { type: Number, default: 3 },
   formatTimecode: { type: Function, required: true },
   getCommentAttachmentUrl: { type: Function, required: true },
   onHandleCommentClick: { type: Function, required: true },
   onToggleResolve: { type: Function, required: true },
   onDeleteComment: { type: Function, required: true },
+  onUpdateComment: { type: Function, required: true },
   onOpenAttachmentLightbox: { type: Function, required: true },
   onClearCanvas: { type: Function, required: true },
   onCancelDrawing: { type: Function, required: true },
@@ -522,7 +540,6 @@ const {
   isViewingImage,
   isViewingPdf,
   isViewingVideo,
-  isAdmin,
   maxAttachments,
   formatTimecode,
   getCommentAttachmentUrl
@@ -538,6 +555,7 @@ const projectDragComposer = ref('')
 const projectDragItemCount = ref(0)
 const projectDragProjectId = ref('')
 const projectDragDepth = { top: 0, reply: 0 }
+const editingCommentId = ref(null)
 const mentionListboxId = 'comment-mention-listbox'
 const { picker } = useFileBrowserStore()
 const { currentProject } = useProjectTrackerSelectionStore()
@@ -644,6 +662,29 @@ function toggleResolve(commentId) {
 
 function deleteComment(commentId) {
   props.onDeleteComment(commentId)
+}
+
+// The server allows the same: authors edit and delete their own comments.
+function isOwnComment(comment) {
+  const user = props.currentUser
+  return Boolean(!shareMode.value && user && comment?.author_user_id
+    && [user.id, user.username].includes(comment.author_user_id))
+}
+
+function canDeleteComment(comment) {
+  return props.canDeleteAnyComment || isOwnComment(comment)
+}
+
+function startEditComment(comment) {
+  editingCommentId.value = comment.id
+}
+
+function cancelEditComment() {
+  editingCommentId.value = null
+}
+
+async function saveEditedComment(comment, text) {
+  if (await props.onUpdateComment(comment.id, text)) cancelEditComment()
 }
 
 function openAttachmentLightbox(comment, attachment) {
@@ -1130,6 +1171,7 @@ function commentPostedDatetime(value) {
 }
 
 .comment-posted-at,
+.comment-edited,
 .comment-number {
   flex: 0 0 auto;
   color: var(--v-text-muted);

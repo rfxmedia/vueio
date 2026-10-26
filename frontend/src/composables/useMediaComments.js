@@ -490,7 +490,7 @@ export function useMediaComments(ctx) {
     commentAbortController?.abort()
     const controller = new AbortController()
     commentAbortController = controller
-    const query = buildShareCredentialQuery(buildCommentParams(ctx, { path }), getShareCredential(ctx))
+    const query = buildShareCredentialQuery(buildCommentParams(ctx, { path, include_annotations: true }), getShareCredential(ctx))
     try {
       const { data } = await api.get(`/api/comments${query}`, { signal: controller.signal })
       if (requestId !== commentRequestId || path !== getCommentPath(ctx)) return
@@ -594,6 +594,18 @@ export function useMediaComments(ctx) {
     } catch (e) {
       ctx.handleError?.('Failed to delete comment', e)
     }
+  }
+
+  async function updateComment(id, text) {
+    try {
+      await api.put(`/api/comments/${id}`, { text })
+    } catch (e) {
+      ctx.handleError?.('Failed to edit comment', e)
+      return false
+    }
+    await loadComments()
+    await notifyTrackerActivityChanged()
+    return true
   }
 
   function startReply(comment) {
@@ -916,6 +928,7 @@ export function useMediaComments(ctx) {
     loadComments,
     toggleResolve,
     deleteComment,
+    updateComment,
     startReply,
     cancelReply,
     postMediaComment,

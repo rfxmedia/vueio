@@ -17,8 +17,13 @@ def _require_legacy_shot_registry_project(db: Session, project_id: str) -> None:
         raise HTTPException(status_code=409, detail='Shot registry write-through backfill is legacy-only for now')
 
 
-@router.get('/api/projects/{project_id}/shot-registry')
+@router.get('/api/projects/{project_id}/shot-registry', deprecated=True, summary='List legacy shot registry')
 def get_project_shot_registry(project_id: str, tracker_name: str | None = None, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """List the shot registry entries of a legacy project.
+
+    Current projects get 409; use get_horizons_project_shot_registry for them.
+    `tracker_name` keeps only the entries of that tracker name.
+    """
     if db.query(HorizonProject).filter(HorizonProject.id == project_id).first():
         raise HTTPException(status_code=409, detail='Horizons projects must use dedicated /api/horizons routes')
     user = get_user_from_session(vueio_session)
@@ -44,8 +49,13 @@ def get_project_shot_registry(project_id: str, tracker_name: str | None = None, 
     } for entry in entries]}
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shot-registry/backfill')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shot-registry/backfill', deprecated=True, summary='Backfill legacy shot registry')
 def backfill_project_shot_registry(project_id: str, tracker_name: str, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """Copy every shot of a legacy tracker file into the shot registry.
+
+    Legacy projects only; current projects get 409. Existing entries are
+    updated. Returns the number of shots read and entries written.
+    """
     _require_legacy_shot_registry_project(db, project_id)
     require_project_admin(project_id, vueio_session)
     return backfill_tracker_shot_registry(db, project_id, tracker_name)

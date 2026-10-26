@@ -44,6 +44,7 @@ TRACKER_STATE_EVENT_TYPES = frozenset({
     'category_changed',
     'comment_added',
     'comment_deleted',
+    'comment_edited',
     'comment_resolved',
     'shot_archived',
     'shot_created',
@@ -82,6 +83,7 @@ COMMENT_FIELDS = (
     'id', 'file_path', 'project_id', 'horizons_media_asset_id', 'horizons_shot_version_id',
     'user_name', 'timestamp', 'text', 'resolved', 'created_at', 'parent_comment_id',
     'root_comment_id', 'annotation_data', 'annotation_target', 'attachments_data',
+    'author_user_id', 'edited_at',
 )
 
 class SnapshotLimitExceeded(RuntimeError):

@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Cookie, Depends, File, Form, Header, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -52,7 +52,7 @@ from app.services.horizons_fresh import (
 from app.services.horizons.projects import list_unavailable_project_media
 from app.services.media import get_safe_path
 from app.services.media_assets import cleanup_retired_media_asset, retire_media_asset
-from app.services.project_access import verify_path_in_project
+from app.services.project_access import require_project_auth, verify_path_in_project
 from app.services.project_content_gateway import ContentRef, HorizonsProjectAuthPolicy, LegacyProjectAuthPolicy, build_metadata, list_content
 from app.services.project_links import find_link_by_virtual_path, linked_virtual_root
 from app.services.project_permissions import make_project_path_smb_mutable, make_project_tree_smb_mutable
@@ -61,18 +61,18 @@ from app.services.recently_viewed import purge_recently_viewed_for_project
 from app.services.search_index import invalidate_search_index
 from app.services.trackers import queue_thumbnail_warmup_for_paths
 from app.services.uploads import (
-    AuthorizedUploadScope,
-    UPLOAD_SCOPE_PROJECT,
     append_authorized_upload_chunk,
     cancel_authorized_upload_item,
     cancel_authorized_upload_session,
-    create_authorized_upload_session,
+    create_project_upload_session as start_project_upload_session,
     find_upload_item,
     get_authorized_upload_session,
+    project_upload_scope,
     read_limited_upload_chunk,
+    resolve_project_upload_base_path,
+    revalidate_project_upload_write_access,
     serialize_upload_patch_response,
     serialize_upload_session,
-    validate_uploader_name,
     write_bounded_upload,
 )
 from app.services.user_access import has_app_access, is_admin_user, is_restricted_project_member
@@ -123,63 +123,63 @@ def _ensure_artist_workspace_project_path(db: Session, project_id: str, user: di
 class ProjectCreate(BaseModel):
     title: str
     description: Optional[str] = ''
-    due_date: Optional[str] = None
-    thumbnail_path: Optional[str] = None
-    status: Optional[str] = 'not_started'
-    storage_root: Optional[str] = None
-    storage_path: Optional[str] = None
+    due_date: Optional[str] = Field(None, description='Date as YYYY-MM-DD.')
+    thumbnail_path: Optional[str] = Field(None, description='A project file to use as the project thumbnail, relative to the project folder.')
+    status: Optional[str] = Field('not_started', description='One of: active, on_hold, archived, not_started, in_progress, waiting_review, edits_requested, done.')
+    storage_root: Optional[str] = Field(None, description="data (the default), the app's own storage, or a location id from list_storage_roots.")
+    storage_path: Optional[str] = Field(None, description='The project folder in the storage location. Not used for data.')
 
 
 class ProjectUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    due_date: Optional[str] = None
-    thumbnail_path: Optional[str] = None
-    status: Optional[str] = None
+    due_date: Optional[str] = Field(None, description='Date as YYYY-MM-DD.')
+    thumbnail_path: Optional[str] = Field(None, description='A project file to use as the project thumbnail, relative to the project folder.')
+    status: Optional[str] = Field(None, description='One of: active, on_hold, archived, not_started, in_progress, waiting_review, edits_requested, done.')
 
 
 class PageCreate(BaseModel):
     title: str
     description: Optional[str] = ''
-    cover_path: Optional[str] = None
-    blocks: Optional[list[dict]] = None
+    cover_path: Optional[str] = Field(None, description='Cover image, relative to the project folder.')
+    blocks: Optional[list[dict]] = Field(None, description='Page blocks. Each block has a type: text (body), tracker_list (tracker_ids: tracker ids or names), resource_list (resources: items with kind file, folder or url, a label, and a path or url) or upload_inbox (target_path relative to the project folder, description, enabled). Each block can have a title and hidden.')
 
 
 class PageUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    cover_path: Optional[str] = None
-    blocks: Optional[list[dict]] = None
+    cover_path: Optional[str] = Field(None, description='Cover image, relative to the project folder.')
+    blocks: Optional[list[dict]] = Field(None, description='Page blocks. Each block has a type: text (body), tracker_list (tracker_ids: tracker ids or names), resource_list (resources: items with kind file, folder or url, a label, and a path or url) or upload_inbox (target_path relative to the project folder, description, enabled). Each block can have a title and hidden. This list replaces all blocks.')
 
 
 class FolderCreate(BaseModel):
     name: str
-    parent_path: Optional[str] = ''
+    parent_path: Optional[str] = Field('', description='Relative to the project folder. Empty for the root.')
 
 
 class LinkFileRequest(BaseModel):
-    source_path: str
-    target_folder: Optional[str] = ''
+    source_path: str = Field(description='A path in shared storage, as listed by list_files.')
+    target_folder: Optional[str] = Field('', description='Where the link shows, relative to the project folder. Empty for the root.')
 
 
 class LinkFilesRequest(BaseModel):
-    source_paths: list[str]
-    target_folder: Optional[str] = ''
+    source_paths: list[str] = Field(description='Paths in shared storage, as listed by list_files.')
+    target_folder: Optional[str] = Field('', description='Where the links show, relative to the project folder. Empty for the root.')
 
 
 class DuplicateRequest(BaseModel):
-    path: str
-    type: str
-    is_linked: bool = False
-    target_folder: str = ''
+    path: str = Field(description='The item, relative to the project folder.')
+    type: str = Field(description='file, folder or tracker. tracker copies only old file-based trackers.')
+    is_linked: bool = Field(False, description='True if the item is a link to shared storage.')
+    target_folder: str = Field('', description='Folder for the copy, relative to the project folder. Empty for the root.')
 
 
 class RenameRequest(BaseModel):
-    new_name: str
+    new_name: str = Field(description='The new name. A file keeps its extension.')
 
 
 class MoveRequest(BaseModel):
-    target_folder: str
+    target_folder: str = Field(description='Relative to the project folder. Empty for the root.')
 
 
 class UploadManifestItemRequest(BaseModel):
@@ -233,16 +233,28 @@ def _ensure_mutable_project_folder_path(path: str, *, detail: str = 'Workspace f
         raise HTTPException(status_code=400, detail=detail)
 
 
-@router.get('/api/projects')
+@router.get('/api/projects', summary='List projects', openapi_extra={'x-mcp-tool': 'projects_list'})
 def list_projects(vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """List the projects this person can see, most recently updated first.
+
+    Each project has its id, title, status, description, due date, counts of
+    trackers, shots and versions, and this person's `access_role`.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     projects = list_visible_horizon_project_summaries(db, user, auth_mode=auth_mode)
     projects.sort(key=lambda item: item.get('updated_at') or 0, reverse=True)
     return projects
 
 
-@router.post('/api/projects')
+@router.post('/api/projects', summary='Create a project')
 def create_project(data: ProjectCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Create a project. This person becomes its owner.
+
+    `storage_root` is `data`, the app's own storage, or a location id from
+    list_storage_roots. For a location, `storage_path` is the project folder in
+    it. If that folder exists, the project uses the files in it. If not, Vue.io
+    creates the folder.
+    """
     user, _auth_mode = _require_app_capability_user(
         vueio_session,
         x_vueio_agent_key,
@@ -264,21 +276,37 @@ def create_project(data: ProjectCreate, vueio_session: str = Cookie(None), x_vue
     return serialize_horizon_project(db, project, user=user)
 
 
-@router.get('/api/projects/{project_id}')
+@router.get('/api/projects/{project_id}', summary='Get a project')
 def get_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Get one project with its counts, storage state and this person's role.
+
+    `has_offline_media` is true when project files are missing or the project
+    storage is not available.
+    """
     user, _auth_mode, project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     return serialize_horizon_project(db, project, user=user, access_role=access_role)
 
 
-@router.get('/api/projects/{project_id}/offline-media')
+@router.get('/api/projects/{project_id}/offline-media', summary='List missing project media')
 def get_project_offline_media(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """List the media files of a project that are missing or changed on disk.
+
+    Each item has the file path, an `issue` (missing, changed or relink) and the
+    shots and versions that use the file. The list has at most 100 files.
+    `total` gives the full count. If the project storage is not available, the
+    list is empty. Administrators only.
+    """
     _require_admin_user(vueio_session, x_vueio_agent_key)
     get_horizon_project(db, project_id)
     return list_unavailable_project_media(db, project_id)
 
 
-@router.put('/api/projects/{project_id}')
+@router.put('/api/projects/{project_id}', summary='Update a project')
 def update_project(project_id: str, data: ProjectUpdate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Change the title, description, due date, thumbnail or status of a project.
+
+    Send only the fields to change.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -296,8 +324,14 @@ def update_project(project_id: str, data: ProjectUpdate, vueio_session: str = Co
     return serialize_horizon_project(db, project, user=user)
 
 
-@router.delete('/api/projects/{project_id}')
+@router.delete('/api/projects/{project_id}', summary='Delete a project')
 def delete_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete a project permanently. It cannot be restored.
+
+    Its trackers, shots, versions and pages are no longer available. If the
+    project uses the app's own storage, Vue.io deletes the project folder and
+    all files in it. A project folder in another storage location stays on disk.
+    """
     user, _auth_mode, _visible_project, _access_role = _require_project_access_ctx(
         db,
         project_id,
@@ -357,8 +391,15 @@ def delete_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_a
     return {'status': 'deleted'}
 
 
-@router.get('/api/projects/{project_id}/contents')
+@router.get('/api/projects/{project_id}/contents', summary='List project folder contents')
 def list_project_contents(project_id: str, path: str = '', include_counts: bool = False, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """List the items in one folder of a project.
+
+    `path` is a folder relative to the project folder. Leave it empty for the
+    project root, which also lists the project's pages and trackers. Each item
+    has a `type`: page, folder, tracker or file. `include_counts` adds the number
+    of items in each folder.
+    """
     user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     result = list_content(
         HorizonsProjectAuthPolicy(db, project_id, user, access_role),
@@ -373,14 +414,21 @@ def list_project_contents(project_id: str, path: str = '', include_counts: bool 
     }
 
 
-@router.get('/api/projects/{project_id}/pages')
+@router.get('/api/projects/{project_id}/pages', summary='List project pages')
 def list_project_pages(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """List the pages of a project, oldest first, with their blocks."""
     _user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     return {'pages': [serialize_horizon_page(db, page) for page in list_horizon_pages(db, project_id)]}
 
 
-@router.post('/api/projects/{project_id}/pages')
+@router.post('/api/projects/{project_id}/pages', summary='Create a project page')
 def create_project_page(project_id: str, data: PageCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Create a page in a project.
+
+    A page has blocks of text, tracker lists, resource lists and an upload
+    inbox. Without `blocks`, the page gets four default blocks: Overview,
+    Trackers, Resources and Client Uploads. The slug comes from the title.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -397,15 +445,25 @@ def create_project_page(project_id: str, data: PageCreate, vueio_session: str = 
     return serialize_horizon_page(db, page)
 
 
-@router.get('/api/projects/{project_id}/pages/{page_ref}')
+@router.get('/api/projects/{project_id}/pages/{page_ref}', summary='Get a project page')
 def get_project_page(project_id: str, page_ref: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Get one project page with its blocks.
+
+    `page_ref` is the page id or slug. Tracker and resource blocks include the
+    trackers and files they point to.
+    """
     _user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     page = get_horizon_page_by_ref(db, project_id, page_ref)
     return serialize_horizon_page(db, page)
 
 
-@router.put('/api/projects/{project_id}/pages/{page_id}')
+@router.put('/api/projects/{project_id}/pages/{page_id}', summary='Update a project page')
 def update_project_page(project_id: str, page_id: str, data: PageUpdate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Change the title, description, cover or blocks of a project page.
+
+    `page_id` is the page id or slug. Send only the fields to change. `blocks`
+    replaces all blocks of the page. A new title also changes the slug.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -423,8 +481,13 @@ def update_project_page(project_id: str, page_id: str, data: PageUpdate, vueio_s
     return serialize_horizon_page(db, page)
 
 
-@router.delete('/api/projects/{project_id}/pages/{page_id}')
+@router.delete('/api/projects/{project_id}/pages/{page_id}', summary='Delete a project page')
 def delete_project_page(project_id: str, page_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete a project page permanently.
+
+    `page_id` is the page id or slug. Files that were uploaded through the page
+    stay in the project.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -433,8 +496,14 @@ def delete_project_page(project_id: str, page_id: str, vueio_session: str = Cook
     return {'status': 'deleted'}
 
 
-@router.post('/api/projects/{project_id}/folders')
+@router.post('/api/projects/{project_id}/folders', summary='Create a project folder')
 def create_project_folder(project_id: str, data: FolderCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Create a folder in a project.
+
+    `parent_path` is relative to the project folder. Leave it empty for the
+    root. Vue.io removes all characters from `name` except letters, digits,
+    spaces, hyphens and underscores.
+    """
     user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     project_dir = ensure_horizon_project_runtime_dir(db, project_id)
 
@@ -457,15 +526,27 @@ def create_project_folder(project_id: str, data: FolderCreate, vueio_session: st
     verify_path_in_project(new_folder, project_dir)
     if new_folder.exists():
         raise HTTPException(status_code=400, detail='Folder already exists')
-    new_folder.mkdir(parents=True)
+    try:
+        new_folder.mkdir(parents=True)
+    except OSError as error:
+        logger.warning('Could not create project folder %s: %s', new_folder, error.strerror or error)
+        raise HTTPException(
+            status_code=409,
+            detail='The folder could not be created. Check that the storage location allows changes.',
+        ) from error
     make_project_path_smb_mutable(new_folder)
 
     touch_horizon_project(db, project_id)
     return {'status': 'created', 'path': str(new_folder.relative_to(project_dir))}
 
 
-@router.delete('/api/projects/{project_id}/folders')
+@router.delete('/api/projects/{project_id}/folders', summary='Delete a project folder')
 def delete_project_folder(project_id: str, path: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete a project folder and all files in it from disk. This is permanent.
+
+    `path` is relative to the project folder. Versions that use these files show
+    them as missing. The workspace folders of team members cannot be deleted.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     project_dir = ensure_horizon_project_runtime_dir(db, project_id)
     if _is_project_artist(user):
@@ -483,40 +564,7 @@ def delete_project_folder(project_id: str, path: str, vueio_session: str = Cooki
     return {'status': 'deleted', **result}
 
 
-def _resolve_project_upload_base_path(user: dict, access_role: str, project_id: str, target_path: str | None, db: Session) -> str:
-    normalized_target_path = (target_path or '').strip().strip('/')
-    if _is_artist_user(user):
-        workspace_path = ensure_horizon_project_user_workspace(db, project_id, user)
-        if not normalized_target_path:
-            normalized_target_path = workspace_path
-        if normalized_target_path != workspace_path and not normalized_target_path.startswith(f'{workspace_path}/'):
-            raise HTTPException(status_code=403, detail='Members with review access can only upload into their workspace')
-    elif not _role_can_edit_project_files(access_role):
-        raise HTTPException(status_code=403, detail='Editor access required')
-    return normalized_target_path
-
-
-def _revalidate_project_upload_write_access(
-    db: Session,
-    *,
-    project_id: str,
-    user: dict,
-    access_role: str,
-    session,
-) -> None:
-    session_base_path = (session.base_path or '').strip().strip('/')
-    allowed_base_path = _resolve_project_upload_base_path(
-        user,
-        access_role,
-        project_id,
-        session_base_path,
-        db,
-    )
-    if allowed_base_path != session_base_path:
-        raise HTTPException(status_code=403, detail='Upload target is no longer authorized')
-
-
-@router.post('/api/projects/{project_id}/uploads')
+@router.post('/api/projects/{project_id}/uploads', summary='Start a resumable project upload')
 def create_project_upload_session(
     project_id: str,
     data: UploadSessionCreateRequest,
@@ -524,34 +572,27 @@ def create_project_upload_session(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
-    user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
-    project_dir = ensure_horizon_project_runtime_dir(db, project_id)
-    base_path = _resolve_project_upload_base_path(user, access_role, project_id, data.target_path, db)
-    target_dir = project_dir / base_path if base_path else project_dir
-    verify_path_in_project(target_dir, project_dir)
-    target_dir.mkdir(parents=True, exist_ok=True)
-    make_project_path_smb_mutable(target_dir)
-    if not os.access(target_dir, os.W_OK):
-        raise HTTPException(status_code=403, detail='Upload target is not writable by the server')
+    """Start or resume an upload of files into a project folder.
 
-    upload_scope = AuthorizedUploadScope(
-        scope_type=UPLOAD_SCOPE_PROJECT,
-        root_dir=project_dir.resolve(),
-        base_path=base_path,
-        project_id=project_id,
-        owner_user_id=user.get('id'),
-    )
-    session, items = create_authorized_upload_session(
+    `target_path` is relative to the project folder. Members with review access
+    upload only into their workspace, which is also their default. Send each
+    file's bytes with patch_project_upload_item.
+    """
+    user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
+    session, items = start_project_upload_session(
         db,
-        upload_scope,
-        uploader_name=validate_uploader_name(data.uploader_name),
+        project_id=project_id,
+        user=user,
+        access_role=access_role,
+        target_path=data.target_path,
+        uploader_name=data.uploader_name,
         client_batch_id=data.client_batch_id,
         manifest=[item.model_dump() for item in data.files],
     )
     return serialize_upload_session(session, items)
 
 
-@router.get('/api/projects/{project_id}/uploads/{session_id}')
+@router.get('/api/projects/{project_id}/uploads/{session_id}', summary='Get a project upload')
 def get_project_upload_session(
     project_id: str,
     session_id: str,
@@ -559,13 +600,14 @@ def get_project_upload_session(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Get the progress of each file in one of your project uploads."""
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
-    upload_scope = AuthorizedUploadScope(scope_type=UPLOAD_SCOPE_PROJECT, root_dir=ensure_horizon_project_runtime_dir(db, project_id).resolve(), base_path='', project_id=project_id, owner_user_id=user.get('id'))
+    upload_scope = project_upload_scope(db, project_id, user)
     session, items = get_authorized_upload_session(db, upload_scope, session_id=session_id)
     return serialize_upload_session(session, items)
 
 
-@router.patch('/api/projects/{project_id}/uploads/{session_id}/items/{item_id}')
+@router.patch('/api/projects/{project_id}/uploads/{session_id}/items/{item_id}', summary='Send a chunk of a project upload')
 async def patch_project_upload_item(
     project_id: str,
     session_id: str,
@@ -576,10 +618,15 @@ async def patch_project_upload_item(
     upload_offset: int = Header(..., alias='Upload-Offset'),
     db: Session = Depends(get_db),
 ):
+    """Send the next raw chunk of one file, up to 8 MB.
+
+    `Upload-Offset` is the number of bytes already sent. When the last chunk
+    arrives, the file moves into the project folder.
+    """
     user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
-    upload_scope = AuthorizedUploadScope(scope_type=UPLOAD_SCOPE_PROJECT, root_dir=ensure_horizon_project_runtime_dir(db, project_id).resolve(), base_path='', project_id=project_id, owner_user_id=user.get('id'))
+    upload_scope = project_upload_scope(db, project_id, user)
     session, items = get_authorized_upload_session(db, upload_scope, session_id=session_id)
-    _revalidate_project_upload_write_access(
+    revalidate_project_upload_write_access(
         db,
         project_id=project_id,
         user=user,
@@ -599,7 +646,7 @@ async def patch_project_upload_item(
     return serialize_upload_patch_response(session, item)
 
 
-@router.delete('/api/projects/{project_id}/uploads/{session_id}/items/{item_id}')
+@router.delete('/api/projects/{project_id}/uploads/{session_id}/items/{item_id}', summary='Cancel one file of a project upload')
 def delete_project_upload_item(
     project_id: str,
     session_id: str,
@@ -608,15 +655,16 @@ def delete_project_upload_item(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Cancel one file of a project upload. Files that are complete stay."""
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
-    upload_scope = AuthorizedUploadScope(scope_type=UPLOAD_SCOPE_PROJECT, root_dir=ensure_horizon_project_runtime_dir(db, project_id).resolve(), base_path='', project_id=project_id, owner_user_id=user.get('id'))
+    upload_scope = project_upload_scope(db, project_id, user)
     session, items = get_authorized_upload_session(db, upload_scope, session_id=session_id)
     item = find_upload_item(items, item_id)
     session, items = cancel_authorized_upload_item(db, upload_scope, session=session, item=item)
     return serialize_upload_session(session, items)
 
 
-@router.delete('/api/projects/{project_id}/uploads/{session_id}')
+@router.delete('/api/projects/{project_id}/uploads/{session_id}', summary='Cancel a project upload')
 def delete_project_upload_session(
     project_id: str,
     session_id: str,
@@ -624,27 +672,26 @@ def delete_project_upload_session(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Cancel the files of a project upload that are not complete."""
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
-    upload_scope = AuthorizedUploadScope(scope_type=UPLOAD_SCOPE_PROJECT, root_dir=ensure_horizon_project_runtime_dir(db, project_id).resolve(), base_path='', project_id=project_id, owner_user_id=user.get('id'))
+    upload_scope = project_upload_scope(db, project_id, user)
     session, _items = get_authorized_upload_session(db, upload_scope, session_id=session_id)
     session, items = cancel_authorized_upload_session(db, upload_scope, session=session)
     return serialize_upload_session(session, items)
 
 
-@router.post('/api/projects/{project_id}/import')
+@router.post('/api/projects/{project_id}/import', summary='Upload a file to a project')
 async def import_file_to_project(project_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), target_folder: str = Form(''), file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload one file into a project folder.
+
+    `target_folder` is relative to the project folder. Leave it empty for the
+    root. If the file name is in use, Vue.io adds a number, for example
+    `plate_1.exr`. Vue.io registers the file as a media asset.
+    """
     user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     project_dir = ensure_horizon_project_runtime_dir(db, project_id)
 
-    normalized_target_folder = (target_folder or '').strip().strip('/')
-    if _is_artist_user(user):
-        workspace_path = ensure_horizon_project_user_workspace(db, project_id, user)
-        if not normalized_target_folder:
-            normalized_target_folder = workspace_path
-        if normalized_target_folder != workspace_path and not normalized_target_folder.startswith(f'{workspace_path}/'):
-            raise HTTPException(status_code=403, detail='Members with review access can only upload into their workspace')
-    elif not _role_can_edit_project_files(access_role):
-        raise HTTPException(status_code=403, detail='Editor access required')
+    normalized_target_folder = resolve_project_upload_base_path(db, project_id, user, access_role, target_folder)
 
     target_dir = project_dir / normalized_target_folder if normalized_target_folder else project_dir
     verify_path_in_project(target_dir, project_dir)
@@ -762,8 +809,13 @@ def _append_project_link(links_data: dict, source_path: str, target_folder: str 
     return link
 
 
-@router.post('/api/projects/{project_id}/link')
+@router.post('/api/projects/{project_id}/link', summary='Link a storage item')
 def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Show a file or folder from shared storage inside a project.
+
+    `source_path` is a path in shared storage, as listed by list_files. Vue.io
+    does not copy the item. The link shows in `target_folder`.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -776,8 +828,14 @@ def link_nas_file(project_id: str, data: LinkFileRequest, vueio_session: str = C
     return {'status': 'linked', 'type': link['type']}
 
 
-@router.post('/api/projects/{project_id}/links')
+@router.post('/api/projects/{project_id}/links', summary='Link several storage items')
 def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Show several files or folders from shared storage inside a project.
+
+    Each path in `source_paths` is a path in shared storage, as listed by
+    list_files. Vue.io does not copy the items. If one item is already linked
+    in `target_folder`, Vue.io links none of them.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -803,8 +861,14 @@ def link_nas_files(project_id: str, data: LinkFilesRequest, vueio_session: str =
     return {'status': 'linked', 'count': len(linked), 'items': linked}
 
 
-@router.delete('/api/projects/{project_id}/link')
+@router.delete('/api/projects/{project_id}/link', summary='Remove a storage link')
 def unlink_nas_file(project_id: str, source_path: str, target_folder: str = None, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Remove a link to a shared storage item from a project.
+
+    `source_path` is the linked path in shared storage. With `target_folder`,
+    only the link in that folder is removed. Without it, the links in all
+    folders are removed. The item in shared storage does not change.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         raise HTTPException(status_code=403, detail='Project content management access required')
@@ -824,8 +888,13 @@ def unlink_nas_file(project_id: str, source_path: str, target_folder: str = None
     return {'status': 'unlinked'}
 
 
-@router.delete('/api/projects/{project_id}/files')
+@router.delete('/api/projects/{project_id}/files', summary='Delete a project file')
 def delete_project_file(project_id: str, path: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete a file from a project and from disk. This is permanent.
+
+    `path` is relative to the project folder. Versions that use the file show it
+    as missing.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         path = _ensure_artist_workspace_project_path(db, project_id, user, path, allow_workspace_root=False)
@@ -833,8 +902,14 @@ def delete_project_file(project_id: str, path: str, vueio_session: str = Cookie(
     return {'status': 'deleted', **result}
 
 
-@router.post('/api/projects/{project_id}/duplicate')
+@router.post('/api/projects/{project_id}/duplicate', summary='Duplicate a project item')
 def duplicate_project_item(project_id: str, data: DuplicateRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Copy a file or folder in a project. The copy has "copy" in its name.
+
+    `path` and `target_folder` are relative to the project folder. For a link to
+    shared storage, set `is_linked`. Vue.io then adds a second link and does not
+    copy the files.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         data.path = _ensure_artist_workspace_project_path(db, project_id, user, data.path, allow_workspace_root=False)
@@ -939,8 +1014,14 @@ def duplicate_project_item(project_id: str, data: DuplicateRequest, vueio_sessio
     return {'status': 'duplicated'}
 
 
-@router.put('/api/projects/{project_id}/files/rename')
+@router.put('/api/projects/{project_id}/files/rename', summary='Rename a project file or folder')
 def rename_project_file(project_id: str, path: str, data: RenameRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Rename a file or folder in a project.
+
+    `path` is relative to the project folder. A file keeps its extension. Links
+    to the item in pages, comments and shares change to the new path. Trackers
+    cannot be renamed here.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         path = _ensure_artist_workspace_project_path(db, project_id, user, path, allow_workspace_root=False)
@@ -966,8 +1047,14 @@ def rename_project_file(project_id: str, path: str, data: RenameRequest, vueio_s
     return {'status': 'renamed', 'new_path': result['path']}
 
 
-@router.put('/api/projects/{project_id}/files/move')
+@router.put('/api/projects/{project_id}/files/move', summary='Move a project file or folder')
 def move_project_file(project_id: str, path: str, data: MoveRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Move a file or folder to another folder in the same project.
+
+    `path` and `target_folder` are relative to the project folder. Use an empty
+    `target_folder` for the root. For a link to shared storage, only the link
+    moves. Links in pages, comments and shares change to the new path.
+    """
     user, _auth_mode, _project, _access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='editor')
     if _is_project_artist(user):
         path = _ensure_artist_workspace_project_path(db, project_id, user, path, allow_workspace_root=False)
@@ -1008,8 +1095,13 @@ def move_project_file(project_id: str, path: str, data: MoveRequest, vueio_sessi
     return {'status': 'moved', 'new_path': result['path']}
 
 
-@router.get('/api/projects/{project_id}/file-info')
+@router.get('/api/projects/{project_id}/file-info', deprecated=True, summary='Get legacy project file info')
 def get_project_file_info(project_id: str, path: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Get file details for an old file-based project.
+
+    Current projects return a 409 error. For them, use
+    get_horizons_media_asset_file_info or get_horizons_shot_version_file_info.
+    """
     if db.query(HorizonProject).filter(HorizonProject.id == project_id).first():
         raise HTTPException(status_code=409, detail='Horizons projects must use dedicated /api/horizons routes')
     user = require_project_auth(project_id, vueio_session)

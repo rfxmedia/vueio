@@ -3,8 +3,13 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import json
+import math
 import shutil
 import subprocess
+import tempfile
+from fractions import Fraction
+from functools import lru_cache
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -18,11 +23,12 @@ from app.services.horizons_fresh import (
     can_access_horizon_shot_version_id,
     require_horizon_project_access,
 )
-from app.services.media import get_file_hash
+from app.services.media import get_file_hash, is_image, is_video, probe_duration_seconds
 from app.services.media_resolution import resolve_media_asset_path
 
 settings = get_settings()
-COMMENT_VISUAL_CACHE_VERSION = 'comment-visual-v2'
+# v3: video frames show the frame the review player shows at that moment.
+COMMENT_VISUAL_CACHE_VERSION = 'comment-visual-v3'
 
 
 def comment_visual_url(comment_id: int, kind: str) -> str:
@@ -105,19 +111,7 @@ def build_comment_visual_context(db: Session, comment_id: int, user: dict, auth_
     if not asset_id:
         raise HTTPException(status_code=404, detail='Visual context requires a media target')
 
-    asset = (
-        db.query(MediaAsset)
-        .filter(MediaAsset.project_id == comment.project_id)
-        .filter(MediaAsset.id == asset_id)
-        .first()
-    )
-    if asset is None:
-        raise HTTPException(status_code=404, detail='Media asset not found')
-    full_path, cache_identity, _storage_scope = resolve_media_asset_path(
-        asset, project_id=comment.project_id, db=db
-    )
-    if not full_path or not full_path.exists():
-        raise HTTPException(status_code=404, detail='Media file not found')
+    asset, full_path, cache_identity = resolve_project_media(db, comment.project_id, asset_id)
     return {
         'comment': comment,
         'version': version,
@@ -128,6 +122,22 @@ def build_comment_visual_context(db: Session, comment_id: int, user: dict, auth_
     }
 
 
+def resolve_project_media(db: Session, project_id: str, asset_id: str) -> tuple[MediaAsset, Path, str | None]:
+    """Return the asset, file path and cache identity of project media. Check access first."""
+    asset = (
+        db.query(MediaAsset)
+        .filter(MediaAsset.project_id == project_id)
+        .filter(MediaAsset.id == asset_id)
+        .first()
+    )
+    if asset is None:
+        raise HTTPException(status_code=404, detail='Media asset not found')
+    full_path, cache_identity, _storage_scope = resolve_media_asset_path(asset, project_id=project_id, db=db)
+    if not full_path or not full_path.exists():
+        raise HTTPException(status_code=404, detail='Media file not found')
+    return asset, full_path, cache_identity
+
+
 def can_generate_comment_frame(path: Path) -> bool:
     from app.services.media import MODEL_EXTENSIONS
     return path.suffix.lower() not in MODEL_EXTENSIONS and (_is_image(path) or bool(shutil.which('ffmpeg')))
@@ -135,6 +145,83 @@ def can_generate_comment_frame(path: Path) -> bool:
 
 def _is_image(path: Path) -> bool:
     return path.suffix.lower() in {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.tif', '.tiff'}
+
+
+@lru_cache(maxsize=128)
+def _probe_video(path: str, _mtime_ns: int, _size: int) -> tuple[Fraction | None, float, tuple[int, int] | None]:
+    # The file generation is part of the cache key, so a replaced file is probed again.
+    try:
+        result = subprocess.run([
+            'ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries',
+            'stream=r_frame_rate,avg_frame_rate,width,height,sample_aspect_ratio,duration:stream_side_data=rotation:format=duration',
+            '-of', 'json', path,
+        ], capture_output=True, text=True, timeout=15)
+        data = json.loads(result.stdout or '{}')
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None, 0.0, None
+    stream = (data.get('streams') or [{}])[0]
+    rate = None
+    # The review player counts frames with r_frame_rate, as the file details do.
+    for key in ('r_frame_rate', 'avg_frame_rate'):
+        try:
+            value = Fraction(str(stream.get(key) or ''))
+        except (ValueError, ZeroDivisionError):
+            continue
+        if 1 <= value <= 240:
+            rate = value
+            break
+    size = None
+    try:
+        aspect = str(stream.get('sample_aspect_ratio') or '1:1')
+        sar = Fraction(aspect.replace(':', '/')) if aspect not in ('N/A', '0:1') else Fraction(1)
+        width, height = round(int(stream['width']) * sar), int(stream['height'])
+        rotation = next((item['rotation'] for item in stream.get('side_data_list', []) if 'rotation' in item), 0)
+        if abs(round(rotation)) % 180 == 90:
+            width, height = height, width
+        if width > 0 and height > 0:
+            size = (width, height)
+    except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        pass
+    return rate, probe_duration_seconds(data), size
+
+
+def _video_probe(source: Path) -> tuple[Fraction | None, float, tuple[int, int] | None]:
+    """Return the frame rate, duration and display size of a video, as far as known."""
+    try:
+        stat = source.stat()
+    except OSError:
+        return None, 0.0, None
+    return _probe_video(str(source), stat.st_mtime_ns, stat.st_size)
+
+
+def frame_timestamp(source: Path, frame: int) -> float:
+    """Return the time in seconds of a frame number, counted from 0. Images have one frame."""
+    if is_image(source):
+        return 0.0
+    rate = _video_probe(source)[0] if is_video(source) else None
+    if rate is None:
+        raise HTTPException(status_code=422, detail='Frame numbers need a video with a known frame rate. Use a time in seconds.')
+    # A quarter frame in, so the review player and the server agree on the frame.
+    return float((frame + Fraction(1, 4)) / rate)
+
+
+def media_display_size(source: Path) -> tuple[int, int]:
+    """Return the width and height of media as the review player shows it."""
+    if is_image(source):
+        try:
+            with Image.open(source) as image:
+                width, height = image.size
+                # Browsers apply the EXIF orientation of photos.
+                if image.getexif().get(0x0112) in (5, 6, 7, 8):
+                    width, height = height, width
+            if width > 0 and height > 0:
+                return width, height
+        except Exception:
+            pass  # Formats such as EXR are read by ffprobe below.
+    size = _video_probe(source)[2]
+    if size is None:
+        raise HTTPException(status_code=422, detail='The size of this media is unknown.')
+    return size
 
 
 def _dimensions(path: Path) -> tuple[int, int]:
@@ -182,14 +269,7 @@ def _image_frame(source: Path, output: Path, annotation: Path | None) -> None:
         raise HTTPException(status_code=500, detail='Unable to generate comment frame') from exc
 
 
-def generate_comment_frame(ctx: dict, annotation_path: Path | None = None) -> Path:
-    output = _cache_path(ctx, 'frame')
-    if output.exists() and output.stat().st_size > 0:
-        return output
-    source = ctx['full_path']
-    from app.services.media import MODEL_EXTENSIONS
-    if source.suffix.lower() in MODEL_EXTENSIONS:
-        raise HTTPException(422, 'Open the saved 3D view in the review player.')
+def _render_frame(source: Path, timestamp: float, output: Path, annotation_path: Path | None = None) -> None:
     if _is_image(source):
         _image_frame(source, output, annotation_path)
     else:
@@ -198,22 +278,58 @@ def generate_comment_frame(ctx: dict, annotation_path: Path | None = None) -> Pa
             f'scale={width}:{height}:force_original_aspect_ratio=decrease,'
             f'pad={width}:{height}:(ow-iw)/2:(oh-ih)/2'
         )
+        seek = max(0.0, float(timestamp or 0))
+        rate = _video_probe(source)[0]
+        if rate is not None:
+            # ffmpeg starts at the first frame at or after the seek time, but the
+            # review player shows the frame that started at or before it.
+            shown = math.floor(seek * rate + Fraction(1, 1000))
+            seek = max(0.0, float((shown - Fraction(1, 4)) / rate))
         try:
             result = subprocess.run(
-                ['ffmpeg', '-y', '-ss', f"{max(0.0, float(ctx['comment'].timestamp or 0)):.6f}",
+                ['ffmpeg', '-y', '-ss', f'{seek:.6f}',
                  '-i', str(source), '-frames:v', '1', '-vf', scale, '-q:v', '2', str(output)],
                 capture_output=True,
                 timeout=45,
             )
         except subprocess.TimeoutExpired as exc:
-            raise HTTPException(status_code=504, detail='Unable to generate comment frame') from exc
+            raise HTTPException(status_code=504, detail='Unable to generate the frame') from exc
         except FileNotFoundError as exc:
             raise HTTPException(status_code=503, detail='ffmpeg is not available') from exc
         if result.returncode != 0:
-            raise HTTPException(status_code=500, detail='Unable to generate comment frame')
+            raise HTTPException(status_code=500, detail='Unable to generate the frame')
     if not output.exists() or output.stat().st_size <= 0:
-        raise HTTPException(status_code=500, detail='Unable to generate comment frame')
+        raise HTTPException(status_code=500, detail='Unable to generate the frame')
+
+
+def generate_comment_frame(ctx: dict, annotation_path: Path | None = None) -> Path:
+    output = _cache_path(ctx, 'frame')
+    if output.exists() and output.stat().st_size > 0:
+        return output
+    from app.services.media import MODEL_EXTENSIONS
+    if ctx['full_path'].suffix.lower() in MODEL_EXTENSIONS:
+        raise HTTPException(422, 'Open the saved 3D view in the review player.')
+    _render_frame(ctx['full_path'], ctx['comment'].timestamp or 0, output, annotation_path)
     return output
+
+
+def render_media_frame(source: Path, timestamp: float) -> bytes:
+    """Return one frame of a video, or an image, as a JPEG 960 pixels wide.
+
+    Frames are not cached: callers may ask for any moment.
+    """
+    from app.services.media import MODEL_EXTENSIONS
+    if source.suffix.lower() in MODEL_EXTENSIONS:
+        raise HTTPException(422, '3D models have no frames.')
+    if not _is_image(source):
+        duration = _video_probe(source)[1]
+        if duration > 0:
+            # A moment past the end shows the last frame.
+            timestamp = min(timestamp, max(0.0, duration - 0.1))
+    with tempfile.TemporaryDirectory(prefix='vueio-frame-') as directory:
+        output = Path(directory) / 'frame.jpg'
+        _render_frame(source, timestamp, output)
+        return output.read_bytes()
 
 
 def generate_annotated_comment_frame(ctx: dict) -> Path:

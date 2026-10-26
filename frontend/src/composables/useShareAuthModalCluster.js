@@ -440,6 +440,24 @@ export function useShareAuthModalCluster({
     }
   }
 
+  async function deleteProjectShare(share) {
+    const projectId = shareCreateProjectId.value
+    if (!share || !projectId) return
+    const label = share.target_name || share.path || share.id
+    if (!confirm(`Delete the share link for "${label}"? People with the link lose access. This cannot be undone.`)) return
+
+    projectShareBusyId.value = share.id
+    try {
+      await api.delete(`/api/projects/${projectId}/shares/${share.id}`)
+      if (editingProjectShare.value?.id === share.id) closeProjectShareEditor()
+      await loadProjectShares()
+    } catch (error) {
+      notify(`Failed to delete share: ${apiErrorMessage(error, 'Unknown error')}`)
+    } finally {
+      projectShareBusyId.value = ''
+    }
+  }
+
   return {
     showShareCreate,
     shareCreateTarget,
@@ -461,6 +479,7 @@ export function useShareAuthModalCluster({
     closeProjectShareEditor,
     saveProjectShareEdit,
     revokeProjectShare,
+    deleteProjectShare,
     cancelShareCreate,
     confirmShareCreate,
     shareModal,

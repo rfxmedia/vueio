@@ -25,10 +25,13 @@ class Comment(Base):
     horizons_media_asset_id = Column(String, index=True, nullable=True)
     horizons_shot_version_id = Column(String, index=True, nullable=True)
     user_name = Column(String)
+    # The signed-in author; share-link visitors have none.
+    author_user_id = Column(String, index=True, nullable=True)
     timestamp = Column(Float)
     text = Column(Text)
     resolved = Column(Boolean, default=False)
     created_at = Column(Float, default=time.time)
+    edited_at = Column(Float, nullable=True)
     parent_comment_id = Column(Integer, index=True, nullable=True)
     root_comment_id = Column(Integer, index=True, nullable=True)
     annotation_data = Column(Text, nullable=True)
@@ -104,6 +107,7 @@ class UploadItem(Base):
     created_at = Column(Float, default=time.time)
     updated_at = Column(Float, default=time.time)
     completed_at = Column(Float, nullable=True, index=True)
+    version_upload_json = Column(Text, nullable=True)
 
 
 class PackageJob(Base):
@@ -477,6 +481,44 @@ class HorizonShotVersion(Base):
     updated_at = Column(Float, default=time.time)
 
 
+class OAuthClient(Base):
+    """An app that may ask a person to connect it (Sign in with Vue.io)."""
+    __tablename__ = 'oauth_clients'
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    redirect_uris_json = Column(Text, nullable=False)
+    # 'metadata_document' (client_id is the document URL) or 'registered'.
+    source = Column(String, nullable=False)
+    metadata_json = Column(Text, nullable=True)
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time)
+
+
+class OAuthGrant(Base):
+    """One connected app for one person."""
+    __tablename__ = 'oauth_grants'
+    id = Column(String, primary_key=True)
+    user_id = Column(String, nullable=False, index=True)
+    client_id = Column(String, nullable=False, index=True)
+    client_name = Column(String, nullable=False)
+    resource = Column(String, nullable=False)
+    created_at = Column(Float, default=time.time)
+    last_used_at = Column(Float, nullable=True)
+    revoked_at = Column(Float, nullable=True)
+
+
+class OAuthToken(Base):
+    """An authorization code, access token or refresh token, stored hashed."""
+    __tablename__ = 'oauth_tokens'
+    token_hash = Column(String, primary_key=True)
+    grant_id = Column(String, nullable=False, index=True)
+    kind = Column(String, nullable=False)
+    expires_at = Column(Float, nullable=False, index=True)
+    used_at = Column(Float, nullable=True)
+    data_json = Column(Text, nullable=True)
+    created_at = Column(Float, default=time.time)
+
+
 class AgentApiKey(Base):
     __tablename__ = 'agent_api_keys'
     id = Column(String, primary_key=True)
@@ -504,7 +546,7 @@ class AgentMutationReceipt(Base):
     operation = Column(String, nullable=False, index=True)
     idempotency_key = Column(String, nullable=False, index=True)
     response_json = Column(Text, nullable=False)
-    created_at = Column(Float, default=time.time)
+    created_at = Column(Float, default=time.time, index=True)
 
 
 class NotificationPreference(Base):

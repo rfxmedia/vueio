@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -40,8 +40,8 @@ router = APIRouter(tags=['project-media'])
 
 
 class BatchMediaInfoRequest(BaseModel):
-    paths: list[str]
-    project_id: Optional[str] = None
+    paths: list[str] = Field(description='Up to 80 file paths.')
+    project_id: Optional[str] = Field(None, description='Only for old file-based projects. Leave it empty for paths in shared storage.')
 
 
 class FolderZipRequest(BaseModel):
@@ -62,8 +62,15 @@ def _is_legacy_project(project_id: str) -> bool:
     return (get_project_dir(project_id) / 'project.json').exists()
 
 
-@router.post('/api/media-info/batch')
+@router.post('/api/media-info/batch', summary='Get info for many files')
 def batch_media_info(payload: BatchMediaInfoRequest, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Get size, dates, type and video duration for up to 80 files.
+
+    Without `project_id`, the paths are in shared storage, as listed by
+    list_files. A missing file has `missing` true. With `project_id`, this works
+    only for old file-based projects. For a current project, use
+    batch_horizons_media_info.
+    """
     paths: list[str] = []
     seen = set()
     for raw in payload.paths or []:
@@ -144,9 +151,14 @@ def batch_media_info(payload: BatchMediaInfoRequest, vueio_session: str | None =
     return {'items': items}
 
 
-@router.head('/api/project-thumbnail/{project_id}')
-@router.get('/api/project-thumbnail/{project_id}')
+@router.head('/api/project-thumbnail/{project_id}', deprecated=True)
+@router.get('/api/project-thumbnail/{project_id}', deprecated=True, summary='Get legacy uploaded project thumbnail')
 def get_project_thumbnail(project_id: str, share_id: str | None = None, share_token: str | None = None, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Get the uploaded thumbnail image of an old file-based project.
+
+    Current projects return a 409 error. For them, use
+    get_uploaded_horizons_project_thumbnail.
+    """
     if share_id:
         share = _validate_project_share(project_id, share_id, db, ['project', 'project-folder', 'tracker'], share_token=share_token)
         if is_horizons_share_project(share):
@@ -165,9 +177,15 @@ def _is_delivery_thumbnail_variant(variant: str | None) -> bool:
     return str(variant or '').strip().lower() in {'delivery', 'delivery_poster', 'poster'}
 
 
-@router.head('/api/project-thumbnail/{project_id}/resolved')
-@router.get('/api/project-thumbnail/{project_id}/resolved')
+@router.head('/api/project-thumbnail/{project_id}/resolved', deprecated=True)
+@router.get('/api/project-thumbnail/{project_id}/resolved', deprecated=True, summary='Get legacy project thumbnail')
 def get_project_thumbnail_resolved(project_id: str, share_id: str | None = None, share_token: str | None = None, cached_only: bool = False, variant: str | None = None, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Get the thumbnail image of an old file-based project.
+
+    Current projects return a 409 error. For them, use
+    get_resolved_horizons_project_thumbnail. `variant` `poster` gives a larger
+    image. With `cached_only`, Vue.io does not make a missing thumbnail.
+    """
     project_user = None
     if share_id:
         share = _validate_project_share(project_id, share_id, db, ['project', 'project-folder', 'tracker'], share_token=share_token)
@@ -216,9 +234,14 @@ def get_project_thumbnail_resolved(project_id: str, share_id: str | None = None,
     )
 
 
-@router.head('/api/project-thumbnail/{project_id}/file')
-@router.get('/api/project-thumbnail/{project_id}/file')
+@router.head('/api/project-thumbnail/{project_id}/file', deprecated=True)
+@router.get('/api/project-thumbnail/{project_id}/file', deprecated=True, summary='Get legacy project file thumbnail')
 def get_project_file_thumbnail(project_id: str, path: str, share_id: str | None = None, share_token: str | None = None, cached_only: bool = False, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Get the thumbnail image of a file in an old file-based project.
+
+    Current projects return a 409 error. For them, use
+    thumbnail_horizons_media_asset or thumbnail_horizons_shot_version.
+    """
     if share_id:
         share = _validate_project_share(project_id, share_id, db, ['project', 'project-folder', 'project-file'], share_token=share_token)
         if is_horizons_share_project(share):
@@ -259,8 +282,13 @@ def get_project_file_thumbnail(project_id: str, path: str, share_id: str | None 
     )
 
 
-@router.post('/api/projects/{project_id}/folder-zip')
+@router.post('/api/projects/{project_id}/folder-zip', deprecated=True, summary='Download a legacy project folder')
 def download_project_folder_zip(project_id: str, data: FolderZipRequest, background_tasks: BackgroundTasks, request: Request, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Download a folder of an old file-based project as a zip file.
+
+    Current projects return a 409 error. For them, use
+    download_horizons_project_folder_zip.
+    """
     if not data.path:
         raise HTTPException(status_code=400, detail='No path provided')
     if not _is_legacy_project(project_id):

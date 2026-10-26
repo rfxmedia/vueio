@@ -138,6 +138,15 @@
                 >
                   Revoke
                 </button>
+                <button
+                  type="button"
+                  class="v-btn v-btn-ghost v-btn-sm"
+                  :disabled="projectShareBusyId === share.id"
+                  @click="deleteProjectShare(share)"
+                >
+                  <svg class="icon"><use href="#icon-trash" /></svg>
+                  <span>Delete</span>
+                </button>
               </div>
             </div>
 
@@ -345,6 +354,7 @@ const {
   closeProjectShareEditor,
   saveProjectShareEdit,
   revokeProjectShare,
+  deleteProjectShare,
   cancelShareCreate,
   confirmShareCreate,
   shareModal,

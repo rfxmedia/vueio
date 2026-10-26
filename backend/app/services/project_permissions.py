@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
 import stat
 from pathlib import Path
 
 from app.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def make_project_path_smb_mutable(path: Path) -> None:
@@ -30,7 +33,13 @@ def make_project_path_smb_mutable(path: Path) -> None:
         desired_permissions = settings.project_file_mode
     desired_permissions |= current_permissions & 0o7000
     if current_permissions != desired_permissions:
-        path.chmod(desired_permissions)
+        # Some shares (for example ZFS with restricted ACLs) refuse mode
+        # changes. The item already exists, so keep it and let the share's
+        # own permissions apply.
+        try:
+            path.chmod(desired_permissions)
+        except OSError as error:
+            logger.warning('Could not set permissions on %s: %s', path, error.strerror or error)
 
 
 def make_project_tree_smb_mutable(path: Path) -> None:

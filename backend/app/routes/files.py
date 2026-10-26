@@ -63,17 +63,25 @@ def require_nas_thumbnail_mutation_access(vueio_session: str | None, *paths: str
     return user
 
 
-@router.get('/api/files')
+@router.get('/api/files', summary='List a storage folder')
 def list_files(
     path: str = '',
-    share_root: str = '',
     include_counts: bool = False,
     share_id: str | None = None,
     share_token: str | None = None,
     vueio_session: str | None = Cookie(None),
     db: Session = Depends(get_db),
 ):
+    """List the folders and files in one File Browser folder, folders first.
+
+    `path` is relative to the media root; empty means the root. Hidden files
+    are left out. `include_counts` adds the item count of each folder. Use
+    `share_id` and `share_token` to list a shared folder. The result also has
+    breadcrumbs.
+    """
     user = get_user_from_session(vueio_session)
+    # Only a validated share sets the root; a caller cannot choose it.
+    share_root = ''
 
     if share_id:
         share = validate_share(share_id, None, db, ['folder'], share_token=share_token, track_access=False)
@@ -186,8 +194,14 @@ def list_files(
     return payload
 
 
-@router.get('/api/video-info')
+@router.get('/api/video-info', summary='Get video file details')
 def video_info(path: str, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Return the duration, frames, frame rate, resolution and codec of a video.
+
+    `path` is relative to the media root. The result also has `file_size` and
+    `created_at`. For a file that is not a video, only these two are returned.
+    `media_asset_id` is optional and must be the asset of the same path.
+    """
     require_file_browser_read_access(vueio_session, path)
     file_path = get_safe_path(path)
     if not file_path.exists():
@@ -230,9 +244,20 @@ def video_info(path: str, media_asset_id: str | None = None, horizons_media_asse
 
 
 @router.head('/api/thumbnail')
-@router.get('/api/thumbnail')
+@router.get('/api/thumbnail', summary='Get a file thumbnail')
 def get_thumbnail(path: str, refresh: int | None = None, cached_only: bool = False, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Return a thumbnail image of a storage file.
+
+    `path` is relative to the media root. An image file is returned as it is.
+    For a video without a thumbnail, a placeholder image is returned and the
+    thumbnail is made in the background. `cached_only` does not start that
+    work. `refresh` deletes the cached thumbnail first. Only people who can
+    remake the thumbnail with delete_thumbnail can use `refresh`.
+    """
     require_file_browser_read_access(vueio_session, path)
+    if refresh:
+        # A refresh makes the server do the work again; readers cannot force it.
+        require_nas_thumbnail_mutation_access(vueio_session, path)
     file_path = get_safe_path(path)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail='File not found')
@@ -270,8 +295,12 @@ def get_thumbnail(path: str, refresh: int | None = None, cached_only: bool = Fal
     )
 
 
-@router.delete('/api/thumbnail')
+@router.delete('/api/thumbnail', summary='Remake a file thumbnail')
 def delete_thumbnail(path: str, vueio_session: str | None = Cookie(None)):
+    """Delete the cached thumbnail of a storage file and make a new one now.
+
+    `path` is relative to the media root. The source file does not change.
+    """
     require_nas_thumbnail_mutation_access(vueio_session, path)
     thumb_path = thumbnail_cache_path_for_browser(path)
     deleted = False
@@ -289,12 +318,17 @@ def delete_thumbnail(path: str, vueio_session: str | None = Cookie(None)):
     return {'status': 'deleted' if deleted else 'not_found'}
 
 
-@router.post('/api/folder-thumbnail/upload')
+@router.post('/api/folder-thumbnail/upload', summary='Upload a folder thumbnail')
 async def upload_folder_thumbnail(
     target_path: str = Form(...),
     file: UploadFile = File(...),
     vueio_session: str | None = Cookie(None),
 ):
+    """Upload an image as the custom thumbnail of a storage folder.
+
+    `target_path` is the folder, relative to the media root. The image must be
+    20 MiB or smaller. It replaces the old custom thumbnail.
+    """
     require_nas_thumbnail_mutation_access(vueio_session, target_path)
     folder_path = get_safe_path(target_path)
     if not folder_path.is_dir():
@@ -309,11 +343,17 @@ async def upload_folder_thumbnail(
     require_valid_image(contents, detail='Thumbnail image is invalid')
     with open(thumb_path, 'wb') as handle:
         handle.write(contents)
-    return {'status': 'success', 'thumbnail_path': str(thumb_path)}
+    return {'status': 'success'}
 
 
-@router.post('/api/folder-thumbnail/set')
+@router.post('/api/folder-thumbnail/set', summary='Set a folder thumbnail from storage')
 def set_folder_thumbnail_from_nas(target_path: str, source_path: str, vueio_session: str | None = Cookie(None)):
+    """Make a custom storage folder thumbnail from an image or video file.
+
+    `target_path` is the folder and `source_path` is the file. Both are query
+    parameters, relative to the media root. It replaces the old custom
+    thumbnail.
+    """
     require_nas_thumbnail_mutation_access(vueio_session, target_path, source_path)
     folder_path = get_safe_path(target_path)
     source_file = get_safe_path(source_path)
@@ -324,13 +364,18 @@ def set_folder_thumbnail_from_nas(target_path: str, source_path: str, vueio_sess
 
     thumb_path = folder_thumbnail_cache_path(target_path)
     if generate_thumbnail(source_file, thumb_path):
-        return {'status': 'success', 'thumbnail_path': str(thumb_path)}
+        return {'status': 'success'}
     raise HTTPException(status_code=500, detail='Failed to generate thumbnail')
 
 
 @router.head('/api/folder-thumbnail')
-@router.get('/api/folder-thumbnail')
+@router.get('/api/folder-thumbnail', summary='Get a folder thumbnail')
 def get_folder_thumbnail(path: str, vueio_session: str | None = Cookie(None)):
+    """Return the custom thumbnail image of a storage folder.
+
+    `path` is relative to the media root. Returns 404 when the folder has no
+    custom thumbnail.
+    """
     require_file_browser_read_access(vueio_session, path)
     thumb_path = folder_thumbnail_cache_path(path)
     if thumb_path.exists():
@@ -338,7 +383,7 @@ def get_folder_thumbnail(path: str, vueio_session: str | None = Cookie(None)):
     raise HTTPException(status_code=404, detail='No custom thumbnail')
 
 
-@router.get('/api/transcode-status')
+@router.get('/api/transcode-status', summary='Get transcode progress')
 def transcode_status(
     path: str | None = None,
     project_id: str | None = None,
@@ -350,6 +395,13 @@ def transcode_status(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Return the status and progress of the playback transcode of a video.
+
+    For a project, send `project_id` with `horizons_shot_version_id` or
+    `horizons_media_asset_id`. For a storage file, send only `path`, relative
+    to the media root. `status` is 'none', 'processing', 'complete' or 'error'.
+    `progress` is a percentage.
+    """
     cleanup_old_transcode_entries()
 
     job_key = None

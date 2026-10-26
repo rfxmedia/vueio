@@ -125,7 +125,7 @@ export function useAppSession({
       })
       showChangePassword.value = false
       passwordForm.value = { current: '', new: '', confirm: '' }
-      notify('Password changed successfully!')
+      notify('Password changed. Other sessions are signed out. Reconnect your agents in Settings.')
     } catch (e) {
       passwordError.value = getApiErrorMessage(e, 'Failed to change password')
     }

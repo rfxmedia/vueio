@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import HTTPException
 
 from app.models import HorizonShotVersion
@@ -13,14 +15,20 @@ def normalize_shot_status(status: str | None) -> str:
     return normalized
 
 
+_NUMBERED_LABEL = re.compile(r'^(v?)(\d+)$', re.IGNORECASE)
+
+
 def next_version_label(existing_versions: list[HorizonShotVersion]) -> str:
-    max_version = 0
+    """Return the label after the highest numbered one, in its style: 3 after 2, v002 after v001."""
+    highest: tuple[int, str, int] | None = None
     for version in existing_versions or []:
-        try:
-            max_version = max(max_version, int(str(version.label).strip()))
-        except Exception:
-            continue
-    return str(max_version + 1)
+        match = _NUMBERED_LABEL.match(str(version.label or '').strip())
+        if match and (highest is None or int(match.group(2)) > highest[0]):
+            highest = (int(match.group(2)), match.group(1), len(match.group(2)))
+    if highest is None:
+        return '1'
+    number, prefix, width = highest
+    return f'{prefix}{number + 1:0{width}d}'
 
 
 def normalize_bulk_shot_refs(shot_ids: list[str]) -> list[str]:

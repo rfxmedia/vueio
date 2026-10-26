@@ -3,18 +3,21 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import operator
 import os
 import re
+import subprocess
 import time
 import unicodedata
 import uuid
+from array import array
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import and_, or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, defer
 
 from app.config import get_settings
 from app.models import Comment, HorizonPage, HorizonProject, HorizonShotVersion, HorizonTracker, MediaAsset
@@ -35,6 +38,7 @@ from app.services.projects import load_project_links, resolve_horizon_project_ro
 from app.services.share_access import resolve_shared_horizons_object_target, resolve_shared_media_target, validate_share
 from app.services.upload_payloads import require_valid_image_path
 from app.services.uploads import ensure_upload_capacity
+from app.services.user_access import is_admin_user
 
 settings = get_settings()
 _AUTH_USER_UNSET = object()
@@ -42,6 +46,8 @@ _AUTH_USER_UNSET = object()
 COMMENT_SHARE_TYPES = ('file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page')
 VOICE_NOTE_MAX_DURATION_SECONDS = 300
 VOICE_NOTE_MAX_PEAKS = 128
+VOICE_NOTE_PEAK_COUNT = 64  # The browser recorder's waveform has 64 peaks.
+VOICE_NOTE_SAMPLE_RATE = 16000
 VOICE_NOTE_TRANSCRIPTION_MAX_CHARS = 20000
 COMMENT_ATTACHMENT_LIMIT = 3
 MENTION_REFERENCE_LIMIT = 20
@@ -124,6 +130,9 @@ def normalize_voice_note_metadata(voice_note: str | None, files: list[UploadFile
     normalized_transcription = (transcription or '').strip()[:VOICE_NOTE_TRANSCRIPTION_MAX_CHARS] or None
 
     duration = raw.get('duration')
+    if duration is None and raw.get('peaks') is None:
+        # The server measures notes that arrive without a waveform.
+        return {'filename': filename, 'transcription': normalized_transcription, 'duration': None, 'peaks': None}
     if isinstance(duration, bool) or not isinstance(duration, (int, float)) or not math.isfinite(float(duration)):
         raise HTTPException(status_code=400, detail='Voice note duration is invalid')
     normalized_duration = float(duration)
@@ -144,6 +153,38 @@ def normalize_voice_note_metadata(voice_note: str | None, files: list[UploadFile
         'transcription': normalized_transcription,
         'duration': round(normalized_duration, 3),
         'peaks': normalized_peaks,
+    }
+
+
+def measure_voice_note(path: Path) -> dict | None:
+    """Return the duration and waveform of audio, as the browser recorder makes them.
+
+    Returns None when the audio cannot be read or is longer than 300 seconds.
+    """
+    try:
+        result = subprocess.run([
+            'ffmpeg', '-v', 'error', '-nostdin', '-i', str(path),
+            '-t', str(VOICE_NOTE_MAX_DURATION_SECONDS + 1), '-vn', '-ac', '1',
+            '-ar', str(VOICE_NOTE_SAMPLE_RATE), '-f', 's16le', '-',
+        ], capture_output=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    samples = array('h', result.stdout[:len(result.stdout) // 2 * 2])
+    duration = len(samples) / VOICE_NOTE_SAMPLE_RATE
+    if result.returncode != 0 or not 0 < duration <= VOICE_NOTE_MAX_DURATION_SECONDS:
+        return None
+    # The root mean square of equal parts, scaled to the loudest part.
+    bucket = max(1, len(samples) // VOICE_NOTE_PEAK_COUNT)
+    levels = []
+    for index in range(VOICE_NOTE_PEAK_COUNT):
+        start = index * bucket
+        end = len(samples) if index == VOICE_NOTE_PEAK_COUNT - 1 else min(len(samples), start + bucket)
+        part = samples[start:end]
+        levels.append(math.sqrt(sum(map(operator.mul, part, part)) / max(1, end - start)))
+    loudest = max(levels) or 1
+    return {
+        'duration': round(duration, 3),
+        'peaks': [round(max(0.06, min(1.0, level / loudest)), 4) for level in levels],
     }
 
 
@@ -301,6 +342,34 @@ def resolve_comment_target_identity(
     return path_target
 
 
+def default_comment_path(
+    db: Session,
+    project_id: str | None,
+    *,
+    horizons_media_asset_id: str | None = None,
+    horizons_shot_version_id: str | None = None,
+) -> str:
+    """Return the media path for a caller that names only the object.
+
+    Access is still checked afterwards, against the object ids.
+    """
+    if not project_id:
+        return ''
+    asset_id = horizons_media_asset_id
+    if horizons_shot_version_id:
+        version = (
+            db.query(HorizonShotVersion)
+            .filter(HorizonShotVersion.id == horizons_shot_version_id)
+            .filter(HorizonShotVersion.project_id == project_id)
+            .first()
+        )
+        asset_id = (version.media_asset_id if version else None) or asset_id
+    if not asset_id:
+        return ''
+    asset = db.query(MediaAsset).filter(MediaAsset.id == asset_id).filter(MediaAsset.project_id == project_id).first()
+    return _normalize_comment_path(asset.file_path) if asset else ''
+
+
 def build_comment_record_fields(target: CommentTargetIdentity) -> dict:
     return {
         'file_path': target.path,
@@ -388,7 +457,7 @@ def require_comment_access(
     return user, share, effective_project_id
 
 
-def serialize_comment(comment: Comment, *, include_references: bool = True) -> dict:
+def serialize_comment(comment: Comment, *, include_references: bool = True, include_annotations: bool = True) -> dict:
     attachments_data = comment.attachments_data
     if attachments_data and not include_references:
         attachments = [
@@ -405,11 +474,14 @@ def serialize_comment(comment: Comment, *, include_references: bool = True) -> d
         'parent_comment_id': comment.parent_comment_id,
         'root_comment_id': comment.root_comment_id,
         'user_name': normalize_comment_author_name(comment.user_name),
+        # Share-link visitors do not see account ids.
+        'author_user_id': comment.author_user_id if include_references else None,
         'text': comment.text,
         'timestamp': comment.timestamp,
         'resolved': comment.resolved,
         'created_at': comment.created_at,
-        'annotation_data': comment.annotation_data,
+        'edited_at': comment.edited_at,
+        'annotation_data': comment.annotation_data if include_annotations else None,
         'annotation_target': comment.annotation_target,
         'attachments_data': attachments_data,
     }
@@ -461,9 +533,36 @@ def normalize_comment_author_name(user_name: str | None, user: dict | None = Non
     return value
 
 
+def comment_author_id(user: dict | None) -> str | None:
+    """Return the account id stored as a comment's author. Share-link visitors have none."""
+    return str(user.get('id') or user.get('username')) if user else None
+
+
+def is_comment_author(comment: Comment, user: dict | None) -> bool:
+    return bool(user and comment.author_user_id) and comment.author_user_id in {
+        str(user.get('id') or ''),
+        str(user.get('username') or ''),
+    }
+
+
+def can_delete_any_comment(db: Session, project_id: str | None, user: dict | None) -> bool:
+    """App admins, and project owners who are not restricted members, may delete any comment."""
+    if is_admin_user(user):
+        return True
+    if not user or not _is_horizons_project(db, project_id):
+        return False
+    try:
+        _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode='session', required_role='owner')
+    except HTTPException:
+        return False
+    return not is_restricted_horizon_artist(user, access_role)
+
+
 def serialize_comment_write_response(comment: Comment) -> dict:
     payload = serialize_comment(comment)
     payload.pop('resolved', None)
+    # The drawing can be large; the caller sent it or can fetch it as an image.
+    payload['has_annotation'] = bool(payload.pop('annotation_data', None))
     return payload
 
 
@@ -885,18 +984,26 @@ def attach_uploaded_files(comment: Comment, *, path: str, project_id: Optional[s
                     'scope': scope,
                     'project_id': project_id if scope == 'project' else None,
                 }
-                if voice_note and kind == 'audio' and safe_name == voice_note.get('filename'):
+                note = voice_note if voice_note and kind == 'audio' and safe_name == voice_note.get('filename') else None
+                if kind == 'audio' and (note is None or note.get('peaks') is None):
+                    # Agents and attached audio files send no waveform: measure it here.
+                    # Browser recordings keep the waveform the browser made.
+                    measured = measure_voice_note(target_file)
+                    if measured is None and note is not None:
+                        raise HTTPException(status_code=400, detail='Voice note must be readable audio of up to 300 seconds')
+                    note = {**(note or {}), **measured} if measured else None
+                if note:
                     attachment.update({
-                        'transcription': voice_note.get('transcription'),
+                        'transcription': note.get('transcription'),
                         'transcription_status': (
                             'complete'
-                            if voice_note.get('transcription')
+                            if note.get('transcription')
                             else 'queued'
                             if settings.VOICE_TRANSCRIPTION_ENABLED
                             else 'unavailable'
                         ),
-                        'duration': voice_note.get('duration'),
-                        'peaks': voice_note.get('peaks'),
+                        'duration': note.get('duration'),
+                        'peaks': note.get('peaks'),
                     })
                 attachments.append(attachment)
 
@@ -992,20 +1099,34 @@ def load_comments_for_targets(
     db: Session,
     *,
     project_id: str | None = None,
+    include_media_data: bool = True,
 ) -> list[list[Comment]]:
     targets = resolve_comment_targets(target_inputs, db, project_id=project_id)
     if not targets:
         return []
 
     query = comment_scope_filter(db.query(Comment), project_id=project_id)
+    if not include_media_data:
+        query = query.options(defer(Comment.annotation_data), defer(Comment.attachments_data))
     rows = query.filter(or_(*[build_comment_target_filter(target) for target in targets])).order_by(Comment.created_at.asc(), Comment.id.asc()).all()
 
     grouped: list[list[Comment]] = [[] for _ in targets]
     grouped_ids: list[set[int]] = [set() for _ in targets]
+    by_version: dict[str, list[int]] = {}
+    by_asset: dict[str, list[int]] = {}
+    by_path: dict[str, list[int]] = {}
+    for index, target in enumerate(targets):
+        if target.horizons_shot_version_id:
+            by_version.setdefault(target.horizons_shot_version_id, []).append(index)
+        elif target.horizons_media_asset_id:
+            by_asset.setdefault(target.horizons_media_asset_id, []).append(index)
+        else:
+            by_path.setdefault(target.path, []).append(index)
     for comment in rows:
-        for index, target in enumerate(targets):
-            if not comment_matches_target(comment, target):
-                continue
+        matches = by_path.get(comment.file_path, []) + by_version.get(comment.horizons_shot_version_id, [])
+        if comment.horizons_shot_version_id is None:
+            matches += by_asset.get(comment.horizons_media_asset_id, [])
+        for index in matches:
             if comment.id in grouped_ids[index]:
                 continue
             grouped[index].append(comment)

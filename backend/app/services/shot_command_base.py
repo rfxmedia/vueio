@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.models import Comment, HorizonProject, HorizonShot, HorizonShotAssignee, HorizonShotVersion, HorizonTracker, MediaAsset
 from app.services.comments import preserve_comment_attachments
+from app.services.file_access import require_user_file_browser_read_access
 from app.services.horizons.media import can_access_horizon_media_asset_id
 from app.services.horizons.projects import get_horizon_project
-from app.services.horizons.shots import get_horizon_shot_by_ref
+from app.services.horizons.shots import get_horizon_shot_by_ref, require_horizon_shot_view_access
 from app.services.horizons.team import (
     get_horizon_assignable_user,
     get_horizon_shot_assignee_ids,
@@ -100,6 +101,16 @@ class ShotCommandBase:
             if shot_ref.project_id != ctx.project_id or shot_ref.tracker_id != ctx.tracker_id:
                 raise HTTPException(status_code=404, detail='Shot not found')
             return shot_ref
+        if ctx.restricted_artist:
+            # Restricted members act only on assigned shots, in bulk too.
+            return require_horizon_shot_view_access(
+                self.db,
+                ctx.project_id,
+                shot_ref,
+                tracker_id=ctx.tracker_id,
+                user=ctx.actor.user,
+                access_role=ctx.access_role,
+            )
         return get_horizon_shot_by_ref(self.db, ctx.project_id, shot_ref, tracker_id=ctx.tracker_id)
 
     def _media_asset(self, ctx: ShotCommandContext, media_asset_id: str | None) -> MediaAsset | None:
@@ -157,9 +168,12 @@ class ShotCommandBase:
         if not normalized:
             raise HTTPException(status_code=400, detail='Tracker media file is required')
         self._enforce_restricted_artist_media_path(ctx, normalized, storage_scope='tracker_version')
-        full_path, _job_key, _scope = resolve_media_target(normalized, ctx.project_id, storage_scope='tracker_version')
+        full_path, _job_key, scope = resolve_media_target(normalized, ctx.project_id, storage_scope='tracker_version')
         if not full_path or not full_path.exists() or not full_path.is_file():
             raise HTTPException(status_code=404, detail='Tracker media file not found')
+        if scope == 'media_root':
+            # A file outside the project: only one this person may open in the File Browser.
+            require_user_file_browser_read_access(ctx.actor.user, normalized)
         if not is_video(full_path) and not is_image(full_path) and full_path.suffix.lower() not in MODEL_EXTENSIONS:
             raise HTTPException(status_code=400, detail='Tracker media must be an image, video, or supported 3D model')
         return normalized

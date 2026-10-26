@@ -22,7 +22,10 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
-      '/api': apiProxy
+      '/api': apiProxy,
+      // Sign in with Vue.io pages and discovery documents come from the engine.
+      '/.well-known/oauth-': apiProxy,
+      '/oauth/': apiProxy
     }
   },
   build: {

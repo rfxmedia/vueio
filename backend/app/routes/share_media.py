@@ -18,6 +18,7 @@ from app.services.media_serving import (
     get_object_hls_asset,
     get_object_hls_manifest,
     get_object_hls_status,
+    get_object_scrub_sprite,
     get_object_thumbnail,
     media_target_from_resolved,
     media_target,
@@ -47,7 +48,8 @@ from app.services.share_access import normalize_virtual_path, require_path_withi
 from app.services.zip_utils import ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget
 from app.services.model_preview import serve_model
 from app.services.comparison import comparison_file, comparison_status, resolve_comparison
-from app.services.comparison_export import cancel_export, read_export_request, resolve_export, start_export
+from app.services.comparison_export import EXPORT_OPENAPI, cancel_export, read_export_request, resolve_export, start_export
+from app.services.tracker_downloads import tracker_version_download_name
 
 router = APIRouter(tags=['share-media'])
 settings = get_settings()
@@ -77,7 +79,7 @@ def shared_comparison_file(share_id: str, version_id: str, other_id: str, share_
     return comparison_file(pair)
 
 
-@router.post('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export')
+@router.post('/api/projects/shared/{share_id}/shot-versions/{version_id}/comparison/{other_id}/export', openapi_extra=EXPORT_OPENAPI)
 async def shared_comparison_export(share_id: str, version_id: str, other_id: str, request: Request, response: Response,
                              share_token: str | None = None, db: Session = Depends(get_db)):
     pair, owner = await run_in_threadpool(_shared_comparison, share_id, version_id, other_id, share_token, db, download=True)
@@ -279,6 +281,7 @@ def download_shared_shot_version(share_id: str, version_id: str, request: Reques
     if not share.allow_download:
         raise HTTPException(status_code=403, detail='Downloads are disabled for this share link')
     full_path, cache_key, payload = _build_shared_object_payload(share, db, horizons_shot_version_id=version_id)
+    download_name = tracker_version_download_name(db, version_id, full_path)
     return serve_download(
         media_target(full_path, cache_key, metadata_payload=payload),
         db,
@@ -291,13 +294,24 @@ def download_shared_shot_version(share_id: str, version_id: str, request: Reques
             'resource_type': 'shot_version',
             'resource_id': version_id,
             'resource_name': payload.get('name') or (full_path.name if full_path else version_id),
-            'filename': full_path.name if full_path else None,
+            'filename': download_name or (full_path.name if full_path else None),
             'paths': [payload.get('path') or ''],
             'size_bytes': full_path.stat().st_size if full_path and full_path.is_file() else None,
             'metadata': {'share_type': share.share_type},
         }),
         not_found_detail='Horizons shared shot version file not found',
         audit_before_exists=True,
+        # Clients get the tracker's name and version, such as glow shot_V8.mov.
+        filename=download_name,
+    )
+
+
+@router.get('/api/projects/shared/{share_id}/shot-versions/{version_id}/scrub')
+def get_shared_shot_version_scrub(share_id: str, version_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
+    share = _validate_shared_horizons_object_share(share_id, share_token, db)
+    return get_object_scrub_sprite(
+        lambda: _build_shared_object_payload(share, db, horizons_shot_version_id=version_id),
+        db,
     )
 
 

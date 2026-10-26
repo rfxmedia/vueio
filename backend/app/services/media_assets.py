@@ -248,6 +248,7 @@ def _purge_asset_cache(db: Session, asset: MediaAsset) -> None:
         delivery_poster_cache_path_for_identity,
         generated_thumbnail_cache_path_for_identity,
         media_source_cache_identity,
+        scrub_sprite_cache_path_for_identity,
     )
     from app.services.transcode_lifecycle import (
         all_transcode_identities_for_source,
@@ -287,6 +288,7 @@ def _purge_asset_cache(db: Session, asset: MediaAsset) -> None:
         for path in (
             generated_thumbnail_cache_path_for_identity(cache_identity),
             delivery_poster_cache_path_for_identity(cache_identity),
+            scrub_sprite_cache_path_for_identity(cache_identity),
         ):
             try:
                 path.unlink(missing_ok=True)

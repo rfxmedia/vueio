@@ -73,6 +73,7 @@ def create_app() -> FastAPI:
     from app.routes.media_assets import router as media_assets_router
     from app.routes.mention_search import router as mention_search_router
     from app.routes.notifications import router as notifications_router
+    from app.routes.oauth import router as oauth_router
     from app.routes.project_media import router as project_media_router
     from app.routes.project_storage import router as project_storage_router
     from app.routes.projects import router as projects_router
@@ -92,6 +93,9 @@ def create_app() -> FastAPI:
     from app.services.zip_utils import cleanup_orphaned_zip_temp_files, recover_interrupted_package_jobs
     from app.services.voice_transcription import start_voice_transcription_worker
     from app.services.folder_events import folder_events
+    from app.services.mcp_server import McpEndpoint
+    from app.services.oauth import prune_expired_tokens as prune_expired_oauth_tokens
+    from app.services.agent_idempotency import prune_expired_receipts
 
     run_migrations()
     _warn_insecure_runtime_defaults()
@@ -99,6 +103,8 @@ def create_app() -> FastAPI:
     async def maintain_preview_cache():
         while True:
             try:
+                await asyncio.to_thread(prune_expired_receipts)
+                await asyncio.to_thread(prune_expired_oauth_tokens)
                 result = await asyncio.to_thread(enforce_transcode_cache_budget, expire_unused=True)
                 if result['evicted_jobs']:
                     logger.info('Cleared %s unused preview(s), reclaiming %s bytes', result['evicted_jobs'], result['evicted_bytes'])
@@ -113,6 +119,7 @@ def create_app() -> FastAPI:
             db.commit()
         if any(pruned_history.values()):
             logger.info('Pruned bounded operational history: %s', pruned_history)
+        prune_expired_oauth_tokens()
         cleaned_zip_temps = cleanup_orphaned_zip_temp_files()
         if cleaned_zip_temps:
             logger.info('Removed %s orphaned ZIP temp file(s)', cleaned_zip_temps)
@@ -132,7 +139,8 @@ def create_app() -> FastAPI:
         start_voice_transcription_worker()
         preview_cleanup = asyncio.create_task(maintain_preview_cache())
         try:
-            yield
+            async with mcp_endpoint.run():
+                yield
         finally:
             preview_cleanup.cancel()
             with suppress(asyncio.CancelledError):
@@ -159,6 +167,7 @@ def create_app() -> FastAPI:
     app.include_router(media_assets_router)
     app.include_router(mention_search_router)
     app.include_router(notifications_router)
+    app.include_router(oauth_router)
     app.include_router(projects_router)
     app.include_router(project_media_router)
     app.include_router(project_storage_router)
@@ -170,6 +179,9 @@ def create_app() -> FastAPI:
     app.include_router(streaming_router)
     app.include_router(trackers_basic_router)
     app.include_router(tracker_workflow_router)
+    # Agents connect here with their agent key; see app/services/mcp_server.py.
+    mcp_endpoint = McpEndpoint(app)
+    app.router.add_route('/api/mcp', mcp_endpoint, methods=['GET', 'POST', 'DELETE'], include_in_schema=False)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_allow_origins,
@@ -180,17 +192,46 @@ def create_app() -> FastAPI:
 
     @app.middleware('http')
     async def log_slow_requests(request: Request, call_next):
-        from app.services.auth import reset_request_agent_key, set_request_agent_key
+        from starlette.concurrency import run_in_threadpool
+
+        from app.services.auth import (
+            INTERNAL_CALL_SCOPE_KEY,
+            request_agent_credential,
+            reset_request_agent_identity,
+            reset_request_agent_key,
+            reset_request_internal_call,
+            resolve_request_agent_identity,
+            set_request_agent_identity,
+            set_request_agent_key,
+            set_request_internal_call,
+        )
         from app.services.share_access import reset_request_share_access_token, set_request_share_access_token
 
-        credential_token = set_request_agent_key(request.headers.get('X-Vueio-Agent-Key'))
+        agent_key = request_agent_credential(request)
+        internal_token = set_request_internal_call(request.scope.get(INTERNAL_CALL_SCOPE_KEY) is True)
+        credential_token = set_request_agent_key(agent_key)
+        agent_identity_token = set_request_agent_identity(None)
         share_credential_token = set_request_share_access_token(request.cookies.get('vueio_share_access'))
         start = time.perf_counter()
         try:
-            response = await call_next(request)
+            agent_identity = await run_in_threadpool(resolve_request_agent_identity, agent_key) if agent_key and request.url.path != '/api/mcp' else None
+            set_request_agent_identity(agent_identity)
+            if agent_identity:
+                from fastapi.responses import JSONResponse
+
+                from app.limiter import agent_request_allowed
+                from app.services.agent_idempotency import run_with_idempotency
+
+                if not request.scope.get(INTERNAL_CALL_SCOPE_KEY) and not agent_request_allowed(agent_identity['key_id']):
+                    return JSONResponse({'detail': 'Too many agent requests. Wait a minute, then retry.'}, status_code=429, headers={'Retry-After': '60'})
+                response = await run_with_idempotency(request, call_next, agent_identity['key_id'])
+            else:
+                response = await call_next(request)
         finally:
             reset_request_share_access_token(share_credential_token)
+            reset_request_agent_identity(agent_identity_token)
             reset_request_agent_key(credential_token)
+            reset_request_internal_call(internal_token)
         duration = time.perf_counter() - start
         if duration > 0.5:
             logger.warning(f'SLOW REQUEST: {request.method} {request.url.path} took {duration:.2f}s')

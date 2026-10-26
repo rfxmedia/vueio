@@ -82,6 +82,7 @@
         :play-shot-version="playShotVersion"
         :open-version-upload="openVersionUpload"
         :get-thumbnail-url="getThumbnailUrl"
+        :get-scrub-preview-url="getScrubPreviewUrl"
         :get-shot-duration-label="getShotDurationLabel"
         :get-media-duration-label="getMediaDurationLabel"
         :fetch-batch-media-info="fetchBatchMediaInfo"
@@ -341,6 +342,7 @@ const {
   getShotDurationLabel,
   getShotVersions,
   getThumbnailUrl,
+  getScrubPreviewUrl,
   isBriefPreviewEmpty,
   isLatestPreviewEmpty,
   isShotActionBusy,

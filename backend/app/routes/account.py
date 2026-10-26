@@ -16,9 +16,9 @@ from app.services.agent_keys import (
     update_agent_key,
 )
 from app.services.auth import (
-    get_user_from_session,
     hash_password,
     mutate_users_and_revoke_sessions,
+    require_signed_in_user,
     verify_password,
 )
 from app.services.user_validation import validate_password
@@ -41,10 +41,8 @@ class PasswordUpdate(BaseModel):
 
 
 def _require_current_user(vueio_session: str | None) -> dict:
-    user = get_user_from_session(vueio_session)
-    if not user:
-        raise HTTPException(status_code=401, detail='Authentication required')
-    return user
+    # Every route here manages a credential, so only the person may call it.
+    return require_signed_in_user(vueio_session)
 
 
 def _current_user_id(user: dict) -> str:

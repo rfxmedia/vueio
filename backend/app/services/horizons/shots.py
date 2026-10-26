@@ -30,7 +30,7 @@ def list_horizon_shots(db: Session, project_id: str, tracker_id: str | None = No
     return query.order_by(HorizonShot.created_at.asc()).all()
 
 
-def list_visible_horizon_shots(
+def visible_horizon_shots_query(
     db: Session,
     project_id: str,
     *,
@@ -38,7 +38,7 @@ def list_visible_horizon_shots(
     user: dict | None = None,
     access_role: str | None = None,
     include_archived: bool = False,
-) -> list[HorizonShot]:
+):
     query = db.query(HorizonShot).filter(HorizonShot.project_id == project_id)
     if tracker_id:
         query = query.filter(HorizonShot.tracker_id == tracker_id)
@@ -46,10 +46,15 @@ def list_visible_horizon_shots(
         query = query.filter(HorizonShot.archived_at.is_(None))
     if is_restricted_horizon_artist(user, access_role):
         subject_ids = {value for _stype, value in _subject_candidates_for_user(user)}
-        if not subject_ids:
-            return []
         query = query.filter(_horizon_shot_assignment_clause(subject_ids))
-    return query.order_by(HorizonShot.created_at.asc()).all()
+    return query
+
+
+def list_visible_horizon_shots(db: Session, project_id: str, *, tracker_id: str | None = None,
+                              user: dict | None = None, access_role: str | None = None,
+                              include_archived: bool = False) -> list[HorizonShot]:
+    return visible_horizon_shots_query(db, project_id, tracker_id=tracker_id, user=user,
+                                      access_role=access_role, include_archived=include_archived).order_by(HorizonShot.created_at.asc()).all()
 
 
 def get_horizon_shot(db: Session, project_id: str, shot_id: str) -> HorizonShot:
@@ -97,8 +102,7 @@ def require_horizon_shot_view_access(db: Session, project_id: str, shot_id: str,
 def require_horizon_tracker_view_access(db: Session, project_id: str, tracker_ref: str, *, user: dict | None = None, access_role: str | None = None) -> HorizonTracker:
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
     if is_restricted_horizon_artist(user, access_role):
-        visible_shots = list_visible_horizon_shots(db, project_id, tracker_id=tracker.id, user=user, access_role=access_role)
-        if not visible_shots:
+        if visible_horizon_shots_query(db, project_id, tracker_id=tracker.id, user=user, access_role=access_role).first() is None:
             raise HTTPException(status_code=404, detail='Horizons tracker not found')
     return tracker
 

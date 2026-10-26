@@ -16,6 +16,7 @@ DOWNLOAD_EVENT_LIMIT_DEFAULT = 100
 DOWNLOAD_EVENT_LIMIT_MAX = 500
 DOWNLOAD_METADATA_FIELDS = {
     'access_role',
+    'agent_key_name',
     'file_count',
     'job_status',
     'progress',
@@ -78,8 +79,15 @@ def create_download_event(
     # history identifies the actor and resource without fingerprinting clients
     # or retaining filesystem details.
     _ = request, paths
+    from app.services.auth import get_request_agent_identity
+
     now = time.time()
     actor = _actor_from_user(user)
+    agent = get_request_agent_identity()
+    if agent and not share_id:
+        source = 'agent'
+        auth_mode = 'agent_key'
+        metadata = {**(metadata or {}), 'agent_key_name': agent['name']}
     safe_metadata = _safe_metadata(metadata)
     event = DownloadEvent(
         id=uuid.uuid4().hex,

@@ -20,7 +20,7 @@ def _parse_target_types(value: str | None) -> tuple[str, ...]:
     return requested
 
 
-@router.get('/api/projects/{project_id}/mention-search')
+@router.get('/api/projects/{project_id}/mention-search', summary='Search mention targets')
 def mention_search(
     project_id: str,
     q: str = Query(default='', max_length=120),
@@ -31,6 +31,13 @@ def mention_search(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Find shots, files, trackers and pages to mention in a comment.
+
+    `q` matches part of a shot code, file path, tracker name or page title.
+    `types` is a comma list of shot, media_asset, tracker and page; the default
+    is all. Shots of `context_tracker_id` come first. `limit` applies to each
+    group, and `has_more` shows if a group has more results.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(
         db,

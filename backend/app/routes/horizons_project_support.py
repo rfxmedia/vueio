@@ -6,13 +6,13 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
 from app.models import HorizonProject, MediaAsset
-from app.services.auth import get_request_user
+from app.services.auth import get_request_user, get_request_agent_key
 from app.services.file_access import require_user_file_browser_read_access
 from app.services.horizons_fresh import (
     get_horizon_project,
@@ -100,7 +100,7 @@ def _authorize_thumbnail_mutation(
 
 
 class HorizonsBatchMediaInfoRequest(BaseModel):
-    paths: list[str]
+    paths: list[str] = Field(description='File paths, relative to the project folder. At most 80.')
 
 
 class HorizonsFolderZipRequest(BaseModel):
@@ -109,9 +109,9 @@ class HorizonsFolderZipRequest(BaseModel):
 
 
 class HorizonsEntityThumbnailSelectRequest(BaseModel):
-    entity_type: str = 'project'
-    path: Optional[str] = None
-    source_path: str
+    entity_type: str = Field('project', description="'project' for the project cover or 'folder' for a project folder.")
+    path: Optional[str] = Field(None, description="The folder, relative to the project folder. Required when entity_type is 'folder'.")
+    source_path: str = Field(description='An image or video file, relative to the media root (the File Browser root).')
 
 
 def _require_horizons_viewer(project_id: str, vueio_session: str | None, x_vueio_agent_key: str | None, db: Session):
@@ -121,7 +121,8 @@ def _require_horizons_viewer(project_id: str, vueio_session: str | None, x_vueio
 
 
 def _require_horizons_editor(project_id: str, vueio_session: str | None, db: Session):
-    user, auth_mode = get_request_user(vueio_session, None)
+    # Agents may change covers like their person can; the key comes from the request.
+    user, auth_mode = get_request_user(vueio_session, get_request_agent_key())
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     return user, access_role, project
 
@@ -318,8 +319,13 @@ def resolve_horizon_entity_thumbnail_response(db: Session, project_id: str, enti
     raise HTTPException(status_code=404, detail='No folder thumbnail')
 
 
-@router.post('/api/horizons/projects/{project_id}/media-info/batch')
+@router.post('/api/horizons/projects/{project_id}/media-info/batch', summary='Get details of project files')
 def batch_horizons_media_info(project_id: str, payload: HorizonsBatchMediaInfoRequest, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Return the size, dates and video duration of up to 80 project files.
+
+    An item for a file that is not found or not visible to you has
+    `missing: true`. A file with a media asset also has its `media_asset_id`.
+    """
     user, access_role, _project = _require_horizons_viewer(project_id, vueio_session, x_vueio_agent_key, db)
 
     paths: list[str] = []
@@ -399,8 +405,13 @@ def batch_horizons_media_info(project_id: str, payload: HorizonsBatchMediaInfoRe
     return {'items': items}
 
 
-@router.post('/api/horizons/projects/{project_id}/thumbnail/select')
+@router.post('/api/horizons/projects/{project_id}/thumbnail/select', summary='Set a cover from storage')
 def select_horizons_entity_thumbnail(project_id: str, payload: HorizonsEntityThumbnailSelectRequest, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Use a storage file as the cover of a project or of a project folder.
+
+    It replaces the old cover. An old uploaded cover image is deleted. The
+    source file does not change.
+    """
     user, access_role, _project = _require_horizons_editor(project_id, vueio_session, db)
     try:
         entity_type, entity_path = normalize_horizon_thumbnail_entity(payload.entity_type, payload.path)
@@ -439,7 +450,7 @@ def select_horizons_entity_thumbnail(project_id: str, payload: HorizonsEntityThu
     return {'status': 'success', 'entity_type': entity_type, 'path': entity_path, 'source_path': source_path}
 
 
-@router.post('/api/horizons/projects/{project_id}/thumbnail/upload')
+@router.post('/api/horizons/projects/{project_id}/thumbnail/upload', summary='Upload a cover image')
 async def upload_horizons_project_thumbnail(
     project_id: str,
     file: UploadFile = File(...),
@@ -448,6 +459,12 @@ async def upload_horizons_project_thumbnail(
     vueio_session: str | None = Cookie(None),
     db: Session = Depends(get_db),
 ):
+    """Upload an image as the cover of a project or of a project folder.
+
+    `entity_type` is 'project' or 'folder'. For a folder, `path` is the folder,
+    relative to the project folder. The image must be 20 MiB or smaller. It
+    replaces the old cover. An old uploaded cover image is deleted.
+    """
     user, access_role, _project = _require_horizons_editor(project_id, vueio_session, db)
     try:
         normalized_type, normalized_path = normalize_horizon_thumbnail_entity(entity_type, path)
@@ -492,9 +509,14 @@ async def upload_horizons_project_thumbnail(
     return {'status': 'success', 'entity_type': normalized_type, 'path': normalized_path, 'upload_name': upload_name}
 
 
-@router.head('/api/horizons/projects/{project_id}/thumbnail/uploaded')
-@router.get('/api/horizons/projects/{project_id}/thumbnail/uploaded')
+@router.head('/api/horizons/projects/{project_id}/thumbnail/uploaded', deprecated=True)
+@router.get('/api/horizons/projects/{project_id}/thumbnail/uploaded', deprecated=True, summary='Get an old uploaded project cover')
 def get_uploaded_horizons_project_thumbnail(project_id: str, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Return a project cover image from the old upload store, if one exists.
+
+    Covers from the current upload route are not served here. To get the
+    current cover, use the resolved thumbnail route.
+    """
     _user, _access_role, _project = _require_horizons_viewer(project_id, vueio_session, x_vueio_agent_key, db)
     thumb_path = settings.thumbnail_dir / f'project_{project_id}.jpg'
     if thumb_path.exists():
@@ -503,7 +525,7 @@ def get_uploaded_horizons_project_thumbnail(project_id: str, vueio_session: str 
 
 
 @router.head('/api/horizons/projects/{project_id}/thumbnail/resolved')
-@router.get('/api/horizons/projects/{project_id}/thumbnail/resolved')
+@router.get('/api/horizons/projects/{project_id}/thumbnail/resolved', summary='Get a project or folder cover')
 def get_resolved_horizons_project_thumbnail(
     project_id: str,
     entity_type: str = 'project',
@@ -516,6 +538,14 @@ def get_resolved_horizons_project_thumbnail(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Return the cover image of a project, or of a project folder.
+
+    For a folder, set `entity_type` to 'folder' and `path` to the folder,
+    relative to the project folder. `variant=poster` gives a larger image. If
+    the project has no chosen cover, the server picks a project file and keeps
+    it as the cover. A placeholder is returned while an image is made;
+    `cached_only` does not start that work.
+    """
     user, access_role, project = _resolve_horizons_thumbnail_viewer(project_id, vueio_session, x_vueio_agent_key, share_id, share_token, entity_type, path, db)
     return resolve_horizon_entity_thumbnail_response(
         db,
@@ -558,8 +588,13 @@ def download_horizons_project_folder_zip(project_id: str, data: HorizonsFolderZi
     )
 
 
-@router.get('/api/horizons/projects/{project_id}/shot-registry')
+@router.get('/api/horizons/projects/{project_id}/shot-registry', summary='List shots across trackers')
 def get_horizons_project_shot_registry(project_id: str, tracker_name: str | None = None, vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """List the shots that you can see in every tracker of a project, or in one.
+
+    `tracker_name` takes a tracker id, slug or name. In each entry, `shot_id`
+    is the shot code, and `latest_file_path` is the file of the latest version.
+    """
     user, access_role, _project = _require_horizons_viewer(project_id, vueio_session, x_vueio_agent_key, db)
     entries = list_horizon_shot_registry_entries(db, project_id, tracker_name=tracker_name, user=user, access_role=access_role)
     return {'entries': entries}

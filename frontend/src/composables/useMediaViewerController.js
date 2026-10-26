@@ -785,6 +785,7 @@ export function useMediaViewerController({
       videoManifestUrl: media.videoManifestUrl,
       resolveViewerMediaRoutes: media.resolveViewerMediaRoutes,
       getThumbnailUrl: media.getThumbnailUrl,
+      getScrubPreviewUrl: media.getScrubPreviewUrl,
       isProjectRenderPath: media.isProjectRenderPath,
       isProjectScopedPath: media.isProjectScopedPath,
       getProjectThumbnailUrl: media.getProjectThumbnailUrl,

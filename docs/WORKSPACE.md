@@ -113,23 +113,43 @@ Keep the bot token private. Leave **Mention @everyone** off unless that notifica
 
 ## Connect an agent
 
-An agent uses a key bound to a Vue.io user. It inherits that user's current permissions.
-It does not receive unrestricted workspace access merely because it is an agent.
+An agent, such as Claude Code, Codex or OpenClaw, connects to Vue.io through
+its MCP server. The agent uses a key bound to a Vue.io user. It can do what
+that user can do in Vue.io, and nothing more.
 
 1. Open **Settings → Agent keys**.
 2. Select **New key**, or **New personal key** for an administrator's own key.
-3. Save the displayed key in the agent's private configuration.
-4. Select **Copy skill** for the app-provided API instructions.
-5. Configure the agent to send the key in the `X-Vueio-Agent-Key` header.
+3. Select **Copy MCP setup**.
+4. Run the command for your agent from the copied text, or add the server to
+   the agent's MCP configuration.
+
+The agent finds every Vue.io feature through the MCP server. When Vue.io gets
+a new feature, connected agents can use it at once. There is no setup to
+update.
+
+### Connect a chat app
+
+Chat apps such as Claude and ChatGPT connect without a key. They use Sign in
+with Vue.io.
+
+1. In the chat app, add a custom connector with the address
+   `https://<your Vue.io address>/api/mcp`.
+2. Sign in to Vue.io in the window that opens, then select **Allow**.
+
+The app acts as you, with your permissions. Chat apps connect from the
+internet, so Vue.io must have a public https address. To disconnect an app,
+open **Settings → Agent keys** and select **Disconnect** under
+**Connected apps**.
 
 **New managed key** in this UI creates a key for the current administrator.
 For a restricted agent, create a personal key while signed in as the intended member.
 The full key is shown once. **Reissue** replaces its value; update the agent after reissuing.
-**Reissue and copy skill** also replaces the key. It is not a read-only copy action.
+**Copy MCP setup** on an existing key also replaces the key. It is not a read-only copy action.
 Revoke keys that are no longer needed.
 
-Agents use the application's authenticated API routes.
-They remain subject to account access, project roles, assignments, and content visibility.
+Agents remain subject to account access, project roles, assignments, and content visibility.
+Vue.io records changes that an agent makes with the key name in the history.
+Agents cannot manage agent keys, passwords or the Discord bot token, or create accounts.
 Host storage registration and browser-only administration do not become available through an agent key.
 Do not put a key in a URL, shared document, or public issue.
 

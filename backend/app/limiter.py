@@ -9,8 +9,19 @@ from slowapi import Limiter
 from app.config import get_settings
 
 
+# A runaway agent loop must not starve the server or other people's agents.
+AGENT_REQUEST_LIMIT = '600/minute'
+
+
 def client_rate_limit_key(request: Request) -> str:
-    """Return the original client address forwarded by Vueio's own proxy."""
+    """Return the agent key, or the original client address forwarded by Vueio's own proxy."""
+    from app.services.auth import get_request_agent_identity
+
+    agent = get_request_agent_identity()
+    if agent:
+        # Agents may share one address (for example the MCP server), so count each key.
+        return f"agent:{agent['key_id']}"
+
     def parsed(candidate: str | None):
         value = str(candidate or '').strip()
         try:
@@ -39,6 +50,12 @@ def client_rate_limit_key(request: Request) -> str:
 
 
 limiter = Limiter(key_func=client_rate_limit_key)
+
+
+def agent_request_allowed(agent_key_id: str) -> bool:
+    if not limiter.enabled:
+        return True
+    return limiter.limiter.hit(parse(AGENT_REQUEST_LIMIT), 'agent-requests', f'agent:{agent_key_id}')
 
 
 def enforce_rate_limit(request: Request, limit_value: str, *, scope: str) -> None:

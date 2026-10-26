@@ -323,6 +323,19 @@ export function useViewerMediaCore(ctx) {
     return `/api/thumbnail?${params.toString()}`
   }
 
+  // Hover-scrub sprite sheets exist only for tracker shot versions.
+  function getScrubPreviewUrl(mediaInput) {
+    const media = normalizeMediaInput(mediaInput)
+    const shotVersionId = media ? getCanonicalMediaRefs(media).shotVersionId : null
+    if (!shotVersionId) return ''
+    if (ctx.shareMode.value && ctx.pendingShareId.value) {
+      const query = buildShareCredentialQuery({}, { shareToken: getScopedShareAccessToken() })
+      return `/api/projects/shared/${ctx.pendingShareId.value}/shot-versions/${shotVersionId}/scrub${query}`
+    }
+    const projectId = ctx.currentProject.value?.id
+    return projectId ? `/api/horizons/projects/${projectId}/shot-versions/${shotVersionId}/scrub` : ''
+  }
+
   const streamPreparing = ref(false)
   const showStreamPreparingOverlay = ref(false)
   const streamProgress = ref(0)
@@ -497,6 +510,7 @@ export function useViewerMediaCore(ctx) {
     videoManifestUrl,
     resolveViewerMediaRoutes,
     getThumbnailUrl,
+    getScrubPreviewUrl,
     isProjectRenderPath,
     isProjectScopedPath,
     getProjectThumbnailUrl,

@@ -85,6 +85,8 @@ Source media files stay in the project. This action is different from deleting a
 6. Confirm that the comment appears against the intended media and time or page.
 
 Reply to a comment to keep its discussion together.
+Use **Edit** on your own comment to change its text; Vue.io marks it as edited.
+Use **Delete** to remove your own comment. Project owners and administrators can delete any comment.
 Comments can include uploaded attachments and references to existing project content.
 Type `@` and select a search result to insert an available person or content reference.
 Typing plain text alone does not create a linked reference.

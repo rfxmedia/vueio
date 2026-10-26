@@ -176,13 +176,13 @@ def save_discord_provider_settings(payload: dict[str, Any]) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail='Public base URL must be a valid http or https URL')
         discord['public_base_url'] = public_base_url
 
-    token_value = payload.get('bot_token') if 'bot_token' in payload else None
-    if token_value is not None:
-        token = str(token_value or '').strip()
+    token = str(payload.get('bot_token') or '').strip()
+    if payload.get('clear_token'):
         if token:
-            discord['bot_token'] = token
-        elif payload.get('clear_token'):
-            discord.pop('bot_token', None)
+            raise HTTPException(status_code=400, detail='Send a new bot token or clear the saved token, not both')
+        discord.pop('bot_token', None)
+    elif token:
+        discord['bot_token'] = token
 
     providers['discord'] = discord
     _save_provider_settings(providers)
@@ -414,6 +414,8 @@ def mark_notification_read(db: Session, user: dict, *, event_id: int | None, sco
         record.last_seen_event_id = event.id
         record.last_seen_created_at = event.created_at or 0
     else:
+        # An older event id would not belong to the new time position.
+        record.last_seen_event_id = None
         record.last_seen_created_at = now
     record.updated_at = now
     db.add(record)

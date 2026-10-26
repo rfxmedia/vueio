@@ -336,6 +336,7 @@ import { VTabs } from '../primitives'
 import { useOutsideClick } from '../../composables/useOutsideClick'
 import { getTrackerEventColor, getTrackerEventIcon } from '../../lib/trackerCatalogs'
 import { identityColorStyle } from '../../utils/semanticColors'
+import { activityActorName } from '../../utils/activityActor'
 import {
   formatActivityAbsoluteTimestamp as absoluteTimestamp,
   formatActivityRelativeTimestamp as relativeTimestamp,
@@ -776,7 +777,7 @@ function showPrimaryShotChip(item) {
 }
 
 function actorLabel(item) {
-  if (!item?.group_count || item.group_count <= 1) return item?.actor_name || 'Someone'
+  if (!item?.group_count || item.group_count <= 1) return activityActorName(item)
   const actorCount = uniqueSetValues(item._actor_names).length
   if (actorCount <= 1) return item.actor_name || 'Someone'
   return `${actorCount} people`

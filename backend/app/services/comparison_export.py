@@ -38,6 +38,16 @@ class ExportOptions(BaseModel):
     swapped: bool = Field(default=False, strict=True)
 
 
+EXPORT_REQUEST_SCHEMA = {
+    'type': 'object', 'additionalProperties': False, 'required': ['options'],
+    'properties': {
+        'options': ExportOptions.model_json_schema(),
+        'artwork': {'type': 'string', 'description': 'Optional base64 PNG with the two label frames. Omit it for a comparison without labels.'},
+    },
+}
+EXPORT_OPENAPI = {'requestBody': {'required': True, 'content': {'application/json': {'schema': EXPORT_REQUEST_SCHEMA}}}}
+
+
 def _geometry(pair: Comparison, options: ExportOptions) -> tuple[int, int, bool]:
     sizes = pair.info['source_sizes']
     width, height = sizes[int(options.swapped)]
@@ -95,7 +105,7 @@ async def read_export_request(request: Request) -> dict:
         body.extend(chunk)
     try:
         data = json.loads(body)
-        if not isinstance(data, dict) or set(data) - {'options', 'artwork'}:
+        if not isinstance(data, dict) or set(data) - EXPORT_REQUEST_SCHEMA['properties'].keys():
             raise ValueError('Invalid export')
         return data
     except (ValueError, UnicodeDecodeError) as exc:

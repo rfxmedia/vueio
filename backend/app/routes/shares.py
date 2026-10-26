@@ -16,6 +16,7 @@ from app.config import get_settings
 from app.db import get_db
 from app.limiter import client_rate_limit_key, enforce_rate_limit
 from app.models import ShareLink
+from app.services.user_access import is_restricted_project_member
 from app.services.auth import get_user_from_session, require_admin
 from app.services.download_audit import create_download_event
 from app.services.horizons_fresh import (
@@ -106,39 +107,39 @@ def _horizons_virtual_folder_exists(project_id: str, path: str, db: Session) -> 
 
 
 class ShareCreateRequest(BaseModel):
-    path: str
-    expires_at: Optional[float] = None
-    password: Optional[str] = ''
+    path: str = Field(description='A file or folder path, relative to the media root.')
+    expires_at: Optional[float] = Field(None, description='Unix time in seconds when the link stops working. Empty or 0 means no end.')
+    password: Optional[str] = Field('', description='A password for the link. Empty means no password.')
     allow_download: bool = False
-    allow_upload: bool = False
-    request_files: bool = False
+    allow_upload: bool = Field(False, description='Let visitors upload files. Folders only.')
+    request_files: bool = Field(False, description='Make an upload-only file request link. Folders only. Turns off downloads.')
 
 
 class ProjectShareCreateRequest(BaseModel):
-    expires_at: Optional[float] = None
-    password: Optional[str] = ''
+    expires_at: Optional[float] = Field(None, description='Unix time in seconds when the link stops working. Empty or 0 means no end.')
+    password: Optional[str] = Field('', description='A password for the link. Empty means no password.')
     allow_download: bool = False
-    tracker_id: Optional[str] = None
-    tracker_name: Optional[str] = None
-    page_id: Optional[str] = None
+    tracker_id: Optional[str] = Field(None, description='Share only this tracker. The tracker id, slug or name.')
+    tracker_name: Optional[str] = Field(None, description='Old name for tracker_id. Ignored when tracker_id is given.')
+    page_id: Optional[str] = Field(None, description='Share only this project page. Do not combine with a tracker.')
 
 
 class ProjectContentShareRequest(BaseModel):
-    path: str
-    is_folder: bool = False
-    expires_at: Optional[float] = None
-    password: Optional[str] = ''
+    path: str = Field(description='A file or folder path, relative to the project folder.')
+    is_folder: bool = Field(False, description='True when path is a folder.')
+    expires_at: Optional[float] = Field(None, description='Unix time in seconds when the link stops working. Empty or 0 means no end.')
+    password: Optional[str] = Field('', description='A password for the link. Empty means no password.')
     allow_download: bool = False
-    allow_upload: bool = False
-    request_files: bool = False
+    allow_upload: bool = Field(False, description='Let visitors upload files. Folders only.')
+    request_files: bool = Field(False, description='Make an upload-only file request link. Folders only. Turns off downloads.')
 
 
 class ProjectShareUpdateRequest(BaseModel):
-    expires_at: Optional[float] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
+    expires_at: Optional[float] = Field(None, description='Unix time in seconds when the link stops working. 0 removes the end time.')
+    password: Optional[str] = Field(None, description='A new password. An empty string removes the password.')
+    is_active: Optional[bool] = Field(None, description='false turns the link off; true turns it on again.')
     allow_download: Optional[bool] = None
-    allow_upload: Optional[bool] = None
+    allow_upload: Optional[bool] = Field(None, description='Let visitors upload files. Only folder and page links accept uploads.')
 
 
 class SharedShotStatusUpdate(BaseModel):
@@ -212,7 +213,14 @@ def _share_access_payload(share: ShareLink) -> dict:
     return {'access_granted': True, 'share_id': share.id} if share.password_hash else {}
 
 
-@router.get('/api/projects/{project_id}/shares')
+def _require_project_share_manager(db: Session, project_id: str, user: dict) -> None:
+    """Share links can reach the whole project, so restricted members cannot see or manage them."""
+    require_horizon_project_access(db, project_id, user, auth_mode='session', required_role='owner')
+    if is_restricted_project_member(user):
+        raise HTTPException(status_code=403, detail='Only people who manage project content can manage share links.')
+
+
+@router.get('/api/projects/{project_id}/shares', summary='List project share links')
 def list_project_shares(
     project_id: str,
     active_only: bool = True,
@@ -221,10 +229,15 @@ def list_project_shares(
     db: Session = Depends(get_db),
     vueio_session: str | None = Cookie(None),
 ):
-    user = get_user_from_session(vueio_session)
+    """List the share links of a project, newest first.
+
+    With `active_only` true, turned-off and expired links are left out.
+    `limit` is 1 to 200. Use `offset` to page.
+    """
+    user =get_user_from_session(vueio_session)
     if not user:
         raise HTTPException(status_code=401, detail='Authentication required')
-    require_horizon_project_access(db, project_id, user, auth_mode='session', required_role='owner')
+    _require_project_share_manager(db, project_id, user)
 
     page_limit = max(1, min(limit, 200))
     page_offset = max(0, offset)
@@ -245,7 +258,7 @@ def list_project_shares(
     }
 
 
-@router.put('/api/projects/{project_id}/shares/{share_id}')
+@router.put('/api/projects/{project_id}/shares/{share_id}', summary='Update a share link')
 def update_project_share(
     project_id: str,
     share_id: str,
@@ -253,10 +266,15 @@ def update_project_share(
     db: Session = Depends(get_db),
     vueio_session: str | None = Cookie(None),
 ):
-    user = get_user_from_session(vueio_session)
+    """Change the end time, password, state or permissions of a share link.
+
+    Send only the fields to change. A file request link never allows
+    downloads.
+    """
+    user =get_user_from_session(vueio_session)
     if not user:
         raise HTTPException(status_code=401, detail='Authentication required')
-    require_horizon_project_access(db, project_id, user, auth_mode='session', required_role='owner')
+    _require_project_share_manager(db, project_id, user)
 
     share = db.query(ShareLink).filter(ShareLink.id == share_id, ShareLink.project_id == project_id).first()
     if not share:
@@ -273,6 +291,32 @@ def update_project_share(
     db.commit()
     db.refresh(share)
     return {'status': 'updated', 'share': serialize_share_for_management(share, db, {})}
+
+
+@router.delete('/api/projects/{project_id}/shares/{share_id}', summary='Delete a share link')
+def delete_project_share(
+    project_id: str,
+    share_id: str,
+    db: Session = Depends(get_db),
+    vueio_session: str | None = Cookie(None),
+):
+    """Delete a share link of a project. The link stops working at once.
+
+    This is permanent. To stop a link and keep its record, use
+    update_project_share with `is_active` false.
+    """
+    user = get_user_from_session(vueio_session)
+    if not user:
+        raise HTTPException(status_code=401, detail='Authentication required')
+    _require_project_share_manager(db, project_id, user)
+
+    share = db.query(ShareLink).filter(ShareLink.id == share_id, ShareLink.project_id == project_id).first()
+    if not share:
+        raise HTTPException(status_code=404, detail='Share not found')
+
+    db.delete(share)
+    db.commit()
+    return {'status': 'deleted'}
 
 
 
@@ -588,9 +632,14 @@ def apply_share_tracker_payload(payload: dict, share: ShareLink) -> dict:
     return _public_tracker_payload(payload)
 
 
-@router.post('/api/share')
+@router.post('/api/share', summary='Share a media root item')
 def create_share(data: ShareCreateRequest, db: Session = Depends(get_db), vueio_session: str | None = Cookie(None)):
-    user = require_admin(vueio_session)
+    """Create a share link for a file or folder in the media root.
+
+    Admins only. For files in a project, use share_project_content. Returns
+    the share `id` and its `url`.
+    """
+    user =require_admin(vueio_session)
     if not data.path and data.path != '':
         raise HTTPException(status_code=400, detail='Path is required')
 
@@ -691,14 +740,20 @@ async def unlock_share(
     return _share_access_payload(share)
 
 
-@router.post('/api/projects/{project_id}/share')
+@router.post('/api/projects/{project_id}/share', summary='Share a project, tracker or page')
 def share_project(project_id: str, data: ProjectShareCreateRequest | None = None, db: Session = Depends(get_db), vueio_session: str | None = Cookie(None)):
-    session_user = get_user_from_session(vueio_session)
+    """Create a review link for a whole project, one tracker or one page.
+
+    Give `tracker_id` or `page_id` to share less than the project. Visitors
+    see only published versions. A page link accepts uploads when the page
+    has upload targets. Returns the share `id` and its `url`.
+    """
+    session_user =get_user_from_session(vueio_session)
     if not session_user:
         raise HTTPException(status_code=401, detail='Authentication required')
     project = get_horizon_project(db, project_id)
     if project is not None:
-        _project, _access_role = require_horizon_project_access(db, project_id, session_user, auth_mode='session', required_role='owner')
+        _require_project_share_manager(db, project_id, session_user)
         user = session_user
     else:
         user = require_admin(vueio_session)
@@ -845,14 +900,22 @@ def get_shared_project(share_id: str, share_token: str | None = None, db: Sessio
     return payload
 
 
-@router.post('/api/projects/{project_id}/share-content')
+@router.post('/api/projects/{project_id}/share-content', summary='Share a project file or folder')
 def share_project_content(project_id: str, data: ProjectContentShareRequest, db: Session = Depends(get_db), vueio_session: str | None = Cookie(None)):
-    session_user = get_user_from_session(vueio_session)
+    """Create a share link for one file or folder of a project.
+
+    A file request link needs a real folder that the server can write to.
+    Returns the share `id` and its `url`.
+    """
+    session_user =get_user_from_session(vueio_session)
     if not session_user:
         raise HTTPException(status_code=401, detail='Authentication required')
     project = get_horizon_project(db, project_id)
     if project is not None:
         _project, _access_role = require_horizon_project_access(db, project_id, session_user, auth_mode='session', required_role='owner')
+        # Restricted members cannot share files or open file requests, as in the interface.
+        if is_restricted_project_member(session_user):
+            raise HTTPException(status_code=403, detail='Only people who manage project content can share project files.')
         user = session_user
     else:
         user = require_admin(vueio_session)

@@ -143,8 +143,26 @@ def resolve_agent_key_record(db: Session, token: str | None) -> AgentApiKey | No
 
 
 def touch_agent_key(record: AgentApiKey, db: Session) -> AgentApiKey:
-    record.last_used_at = time.time()
+    now = time.time()
+    if record.last_used_at and now - record.last_used_at < 60:
+        return record
+    record.last_used_at = now
     db.add(record)
     db.commit()
     db.refresh(record)
     return record
+
+
+def delete_user_agent_keys(user_id: str) -> int:
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        key_ids = [key_id for (key_id,) in db.query(AgentApiKey.id).filter(AgentApiKey.user_id == user_id).all()]
+        if key_ids:
+            db.query(AgentMutationReceipt).filter(AgentMutationReceipt.agent_key_id.in_(key_ids)).delete(synchronize_session=False)
+            db.query(AgentApiKey).filter(AgentApiKey.id.in_(key_ids)).delete(synchronize_session=False)
+            db.commit()
+        return len(key_ids)
+    finally:
+        db.close()

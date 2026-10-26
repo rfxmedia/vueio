@@ -25,7 +25,7 @@
             <svg class="icon"><use href="#icon-copy" /></svg>
             Copy token
           </button>
-          <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="$emit('copy-token-skill')">Copy skill</button>
+          <button class="v-btn v-btn-secondary v-btn-sm" type="button" @click="$emit('copy-token-setup')">Copy MCP setup</button>
           <button class="v-btn v-btn-ghost v-btn-sm" type="button" @click="$emit('dismiss-token')">Done</button>
         </div>
       </div>
@@ -78,10 +78,10 @@
                 class="v-btn v-btn-ghost v-btn-sm"
                 type="button"
                 title="Makes a new token and copies setup text for your agent. The old token stops working."
-                @click="$emit('reissue-agent-key-skill', entry)"
+                @click="$emit('reissue-agent-key-setup', entry)"
               >
                 <svg class="icon"><use href="#icon-copy" /></svg>
-                Copy skill
+                Copy MCP setup
               </button>
               <VMenu
                 :open="openActionKey === entry.key"
@@ -106,12 +106,15 @@
       </template>
       </div>
     </section>
+
+    <AdminConnectedAppsCard :format-date-label="formatDateLabel" />
   </section>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
 import { VMenu, VMenuActionList, VOverflowButton } from '../primitives'
+import AdminConnectedAppsCard from './AdminConnectedAppsCard.vue'
 import AdminSettingsHeader from './AdminSettingsHeader.vue'
 
 const openActionKey = ref('')
@@ -128,12 +131,12 @@ const props = defineProps({
 
 const emit = defineEmits([
   'copy-token',
-  'copy-token-skill',
+  'copy-token-setup',
   'delete-unified-agent-key',
   'dismiss-token',
   'open-create-key-modal',
   'open-edit-agent-key',
-  'reissue-agent-key-skill',
+  'reissue-agent-key-setup',
   'reissue-unified-agent-key',
   'toggle-unified-agent-key',
   'update:agent-key-scope',

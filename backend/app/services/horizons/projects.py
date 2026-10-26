@@ -30,7 +30,7 @@ from app.services.projects import (
     resolve_storage_location,
     storage_location_is_read_only,
 )
-from app.services.user_access import is_admin_user
+from app.services.user_access import has_app_access, is_admin_user
 
 from .common import DELETED_PROJECT_STATUS, ROLE_RANK, _normalize_project_status, _normalize_visibility, is_deleted_horizon_project
 
@@ -230,6 +230,8 @@ def get_horizon_project_access_role(db: Session, project: HorizonProject, user: 
         return None
     if is_admin_user(user):
         return 'admin'
+    if not has_app_access(user, 'project_manager'):
+        return None
 
     subjects = _subject_candidates_for_user(user)
     owner_candidates = {value for _stype, value in subjects}
@@ -247,6 +249,9 @@ def require_horizon_project_access(db: Session, project_id: str, user: dict, aut
     from .team import _role_meets
 
     project = get_horizon_project(db, project_id)
+    if not is_admin_user(user) and not has_app_access(user, 'project_manager'):
+        # Projects is an app-level permission; the interface hides it entirely.
+        raise HTTPException(status_code=403, detail='Your account does not have access to Projects.')
     role = get_horizon_project_access_role(db, project, user, auth_mode=auth_mode)
     if not _role_meets(required_role, role):
         raise HTTPException(status_code=403, detail='Horizons project access required')
@@ -258,6 +263,8 @@ def list_visible_horizon_projects(db: Session, user: dict, auth_mode: str | None
 
     if is_admin_user(user):
         return list_horizon_projects(db)
+    if not has_app_access(user, 'project_manager'):
+        return []
     subjects = _subject_candidates_for_user(user)
     if not subjects:
         return []

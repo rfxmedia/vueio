@@ -43,21 +43,31 @@ def lock_library(db):
         db.execute(text('BEGIN IMMEDIATE'))
 
 
-@router.get('/api/luts')
+@router.get('/api/luts', summary='List LUTs')
 def list_luts(response: Response, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """List the color LUTs of the workspace, by name.
+
+    Each LUT has its id, name, cube size and file size in bytes.
+    """
     require_auth(vueio_session)
     response.headers['Cache-Control'] = 'private, no-store'
     return library(db)
 
 
-@router.get('/api/luts/{lut_id}')
+@router.get('/api/luts/{lut_id}', summary='Get a LUT file')
 def read_lut(lut_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Return the text of one .cube LUT file."""
     require_auth(vueio_session)
     return cube_response(get_lut(db, lut_id))
 
 
-@router.post('/api/admin/luts', status_code=201)
+@router.post('/api/admin/luts', status_code=201, summary='Upload a LUT')
 def upload_lut(file: UploadFile = File(...), vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Add a 3D .cube LUT file to the workspace for everyone.
+
+    The file must be UTF-8 text and 32 MiB or smaller. The LUT name comes from
+    the file name. The workspace holds at most 64 LUTs and 256 MiB.
+    """
     require_admin(vueio_session)
     if not (file.filename or '').lower().endswith('.cube'):
         raise HTTPException(status_code=400, detail='Select a .cube LUT file.')
@@ -81,8 +91,9 @@ def upload_lut(file: UploadFile = File(...), vueio_session: str | None = Cookie(
     return metadata(lut)
 
 
-@router.delete('/api/admin/luts/{lut_id}', status_code=204)
+@router.delete('/api/admin/luts/{lut_id}', status_code=204, summary='Delete a LUT')
 def delete_lut(lut_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Delete a LUT from the workspace for everyone. This is permanent."""
     require_admin(vueio_session)
     lock_library(db)
     db.delete(get_lut(db, lut_id))

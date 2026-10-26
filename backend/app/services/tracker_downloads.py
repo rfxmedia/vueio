@@ -14,7 +14,7 @@ from app.services.horizons.version_publication import (
     VERSION_SHARE_STATE_PUBLISHED,
     version_publication_sort_key,
 )
-from app.services.naming import safe_name_part
+from app.services.naming import safe_name_part, tracker_version_file_name
 from app.services.project_content_gateway import resolve_horizons_object_auth, resolve_horizons_object_share
 from app.services.zip_utils import build_zip_entries, start_zip_package_job
 
@@ -88,10 +88,19 @@ def _filter_shots_by_refs(shots: list[HorizonShot], shot_refs: list[str] | None)
     return [shot for shot in shots if str(shot.id or '') in refs or str(shot.shot_code or '') in refs]
 
 
-def tracker_latest_entry_arcname(shot: HorizonShot, full_path: Path) -> str:
-    shot_part = safe_name_part(getattr(shot, 'shot_code', None) or getattr(shot, 'id', None), 'shot')
-    file_part = safe_name_part(full_path.name, 'version')
-    return f'{shot_part} - {file_part}'
+def tracker_latest_entry_arcname(shot: HorizonShot, version: HorizonShotVersion, full_path: Path) -> str:
+    return tracker_version_file_name(getattr(shot, 'shot_code', None), version.label, full_path.name)
+
+
+def tracker_version_download_name(db: Session, version_id: str, full_path: Path | None) -> str | None:
+    """The name a downloaded shot version gets: its shot's tracker name and version, such as glow shot_V8.mov."""
+    if not full_path:
+        return None
+    version = db.query(HorizonShotVersion).filter(HorizonShotVersion.id == version_id).first()
+    shot = db.query(HorizonShot).filter(HorizonShot.id == version.shot_id).first() if version else None
+    if version is None or shot is None:
+        return None
+    return tracker_version_file_name(shot.shot_code, version.label, full_path.name)
 
 
 def collect_tracker_latest_version_entries(
@@ -141,7 +150,7 @@ def collect_tracker_latest_version_entries(
         if not full_path or not full_path.exists() or not full_path.is_file():
             missing_count += 1
             continue
-        entries.append((full_path, tracker_latest_entry_arcname(shot, full_path)))
+        entries.append((full_path, tracker_latest_entry_arcname(shot, latest, full_path)))
         included_version_ids.append(latest.id)
 
     if not entries:

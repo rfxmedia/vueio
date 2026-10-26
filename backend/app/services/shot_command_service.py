@@ -17,10 +17,13 @@ from app.services.horizons.shots import (
     list_horizon_shot_versions,
     set_horizon_shot_assignees,
 )
+from app.services.horizons.common import _normalize_horizon_tracker_tags
 from app.services.horizons.team import (
+    apply_horizon_assignee_changes,
     get_horizon_shot_assignee_ids,
     serialize_horizon_shot_assignees,
 )
+from app.services.horizons.trackers import _deserialize_horizon_tracker_tags, _serialize_horizon_tracker_tags, update_horizon_tracker
 from app.services.horizons.projects import require_horizon_project_writable
 from app.services.horizons.version_publication import (
     initial_version_publication,
@@ -326,6 +329,19 @@ class ShotCommandService(ShotCommandBase):
             })
         return result
 
+    def delete_version(self, ctx: ShotCommandContext, shot_ref: str | HorizonShot, version_id: str, *, created_by: str | None = None) -> ShotCommandResult:
+        self._lock_history(ctx)
+        shot = self._shot(ctx, shot_ref)
+        shot = self.db.query(HorizonShot).filter(HorizonShot.id == shot.id).with_for_update().one()
+        versions = list_horizon_shot_versions(self.db, ctx.project_id, shot.id)
+        if not any(version.id == version_id for version in versions):
+            raise HTTPException(status_code=404, detail='Horizons version not found')
+        # The list the app sends when a person deletes a version: the others,
+        # in order, numbered again from 1.
+        remaining = [version for version in versions if version.id != version_id]
+        desired = [{'id': version.id, 'label': str(index + 1)} for index, version in enumerate(remaining)]
+        return self.sync_versions(ctx, shot, desired, created_by=created_by)
+
     def update_version(self, ctx: ShotCommandContext, shot_ref: str | HorizonShot, version_id: str, *, media_asset_id: str | None = None, notes: str | None = None, fields_set: set[str] | None = None) -> ShotCommandResult:
         self._require_update_shot(ctx)
         self._lock_history(ctx)
@@ -462,7 +478,7 @@ class ShotCommandService(ShotCommandBase):
         result.response_hint = {'deleted': len(deleted), 'source_files_deleted': False}
         return result
 
-    def bulk_update_shots(self, ctx: ShotCommandContext, shot_refs: list[str], *, fields_set: set[str], status: str | None = None, category: str | None = None, assignee_user_id: str | None = None, assignee_user_ids: list[str] | None = None, event_type: str = 'shots_bulk_updated') -> ShotCommandResult:
+    def bulk_update_shots(self, ctx: ShotCommandContext, shot_refs: list[str], *, fields_set: set[str], status: str | None = None, category: str | None = None, assignee_user_id: str | None = None, assignee_user_ids: list[str] | None = None, add_assignee_user_ids: list[str] | None = None, remove_assignee_user_ids: list[str] | None = None, event_type: str = 'shots_bulk_updated') -> ShotCommandResult:
         self._require_update_shot(ctx)
         fields = set(fields_set or set()) & {'status', 'category', 'assignee_user_id', 'assignee_user_ids'}
         if not fields:
@@ -472,7 +488,9 @@ class ShotCommandService(ShotCommandBase):
         self._lock_history(ctx)
         next_status = normalize_shot_status(status) if 'status' in fields else None
         next_category = category if 'category' in fields else None
-        next_assignee_ids, next_assignees = self._resolve_assignees(assignee_user_id, assignee_user_ids, fields)
+        # Added and removed people apply to each shot's own assignees.
+        changes_assignees = add_assignee_user_ids is not None or remove_assignee_user_ids is not None
+        next_assignee_ids, next_assignees = ([], []) if changes_assignees else self._resolve_assignees(assignee_user_id, assignee_user_ids, fields)
         now = time.time()
         changed: list[dict] = []
         unchanged: list[dict] = []
@@ -487,6 +505,12 @@ class ShotCommandService(ShotCommandBase):
             if {'assignee_user_id', 'assignee_user_ids'} & fields:
                 old_ids = get_horizon_shot_assignee_ids(shot)
                 old_assignees = serialize_horizon_shot_assignees(shot)
+                if changes_assignees:
+                    next_assignee_ids, next_assignees = self._resolve_assignees(
+                        None,
+                        apply_horizon_assignee_changes(old_ids, add_assignee_user_ids, remove_assignee_user_ids),
+                        {'assignee_user_ids'},
+                    )
                 if old_ids != next_assignee_ids:
                     old_assignee_user_id = shot.assignee_user_id or None
                     set_horizon_shot_assignees(self.db, shot, next_assignee_ids, assigned_by=ctx.actor.actor_id)
@@ -668,6 +692,61 @@ class ShotCommandService(ShotCommandBase):
         self._touch(ctx)
         result = ShotCommandResult(shots=ordered, response_hint={'status': 'reordered'})
         self._emit(result, ctx, 'shot_reordered', payload={'count': len(ordered), 'shots': [{'id': item.id, 'shot_code': item.shot_code} for item in ordered]})
+        return result
+
+    def replace_tag(self, ctx: ShotCommandContext, tag: str, new_tag: str | None) -> ShotCommandResult:
+        """Rename a tag, or delete it when new_tag is None, in the tracker tag list and on every shot."""
+        self._require_update_shot(ctx)
+        if ctx.restricted_artist:
+            raise HTTPException(status_code=403, detail='Project content management access required')
+        tracker = self._lock_history(ctx)
+        # Archived shots too, so a restored shot does not bring the old tag back.
+        shots = (
+            self.db.query(HorizonShot)
+            .filter(HorizonShot.project_id == ctx.project_id)
+            .filter(HorizonShot.tracker_id == ctx.tracker_id)
+            .order_by(HorizonShot.created_at.asc(), HorizonShot.id.asc())
+            .populate_existing()
+            .with_for_update()
+            .all()
+        )
+        tags = _serialize_horizon_tracker_tags(tracker, shots)
+        key = str(tag or '').strip().casefold()
+        old_tag = next((item for item in tags if key and item.casefold() == key), None)
+        if old_tag is None:
+            raise HTTPException(status_code=404, detail='This tracker has no such tag')
+        target = None
+        if new_tag is not None:
+            normalized = _normalize_horizon_tracker_tags([new_tag])
+            if not normalized:
+                raise HTTPException(status_code=400, detail='The new tag name is empty or reserved')
+            # A name that another tag already has merges the two tags.
+            target = next((item for item in tags if item.casefold() == normalized[0].casefold() and item.casefold() != key), normalized[0])
+        next_tags = [target if item == old_tag else item for item in tags if item != old_tag or target]
+
+        before_tags = tracker.tags_json
+        tracker = update_horizon_tracker(self.db, ctx.project_id, ctx.tracker_id, tags=next_tags, fields_set={'tags'}, commit=False)
+        now = time.time()
+        changed: list[dict] = []
+        for shot in shots:
+            if (shot.category or '').strip().casefold() != key or shot.category == target:
+                continue
+            changed.append({
+                'shot_id': shot.id,
+                'shot_code': shot.shot_code,
+                'changes': {'category': {'old_value': shot.category, 'new_value': target, 'old_tag': shot.category, 'tag': target}},
+            })
+            shot.category = target
+            shot.updated_at = now
+            self.db.add(shot)
+        self.db.flush()
+        result = ShotCommandResult(response_hint={'tag': old_tag, 'new_tag': target, 'tags': _deserialize_horizon_tracker_tags(tracker), 'updated_shots': len(changed)})
+        # The same events as the app's tag list edit and bulk tag edit. Both
+        # are recorded after every change, so each History point is complete.
+        if tracker.tags_json != before_tags:
+            self._emit(result, ctx, 'tracker_updated', payload={'fields': ['tags']})
+        if changed:
+            self._emit(result, ctx, 'shots_bulk_updated', payload={'count': len(changed), 'fields': ['category'], 'shots': changed})
         return result
 
     def create_or_append_from_media(self, ctx: ShotCommandContext, *, source_path: str, shot_ref: str | None, shot_code: str | None, create_shot_if_missing: bool, description: str | None = None, status: str | None = None, category: str | None = None, version_label: str | None = None, notes: str | None = None, created_by: str | None = None) -> ShotCommandResult:

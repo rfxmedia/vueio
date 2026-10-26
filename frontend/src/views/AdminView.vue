@@ -190,12 +190,12 @@
           @update:agent-key-scope="agentKeyScope = $event"
           @update:key-search="keySearch = $event"
           @copy-token="copyText(visibleAgentToken.token, 'Token copied')"
-          @copy-token-skill="copyVisibleAgentSkill"
+          @copy-token-setup="copyVisibleAgentSetup"
           @dismiss-token="visibleAgentToken = null"
           @delete-unified-agent-key="deleteUnifiedAgentKeyConfirm"
           @open-create-key-modal="openCreateKeyModal"
           @open-edit-agent-key="openEditAgentKey"
-          @reissue-agent-key-skill="reissueAndCopyAgentKeySkill"
+          @reissue-agent-key-setup="reissueAndCopyAgentKeySetup"
           @reissue-unified-agent-key="reissueUnifiedAgentKey"
           @toggle-unified-agent-key="toggleUnifiedAgentKey"
         />
@@ -815,7 +815,7 @@ import {
 import AdminSettingsHeader from '../components/admin/AdminSettingsHeader.vue'
 import { formatDateMMDDYYYYFromEpoch as formatDateLabel, formatSizeBytes } from '../utils/formatters'
 import { notify } from '../utils/toasts'
-import { buildVueioAgentSkill, resolveVueioApiBaseUrl } from '../utils/vueioAgentSkill'
+import { buildVueioMcpSetup, resolveVueioApiBaseUrl } from '../utils/vueioAgentSetup'
 import { useAppIdentityStore } from '../ownership/appIdentity'
 import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useUpdateStatusStore } from '../ownership/updateStatus'
@@ -1392,22 +1392,22 @@ function agentApiBaseUrl() {
   return resolveVueioApiBaseUrl()
 }
 
-function agentSkillIdentity(key = {}) {
+function agentSetupIdentity(key = {}) {
   return key.user_display_name || key.user_id || currentUserName()
 }
 
-async function copyAgentSkillWithToken(key, token) {
-  await copyText(buildVueioAgentSkill({
+async function copyAgentSetupWithToken(key, token) {
+  await copyText(buildVueioMcpSetup({
     baseUrl: agentApiBaseUrl(),
     keyName: key?.name || 'Vueio agent key',
-    userName: agentSkillIdentity(key),
+    userName: agentSetupIdentity(key),
     token,
-  }), 'Agent skill copied')
+  }), 'MCP setup copied')
 }
 
-async function copyVisibleAgentSkill() {
+async function copyVisibleAgentSetup() {
   if (!visibleAgentToken.value?.token) return
-  await copyAgentSkillWithToken(visibleAgentToken.value.key || {}, visibleAgentToken.value.token)
+  await copyAgentSetupWithToken(visibleAgentToken.value.key || {}, visibleAgentToken.value.token)
 }
 
 function buildShareUrl(share) {
@@ -1566,7 +1566,7 @@ async function saveMyPassword() {
       new_password: passwordForm.value.new,
     })
     passwordForm.value = { current: '', new: '', confirm: '' }
-    passwordMessage.value = 'Password changed.'
+    passwordMessage.value = 'Password changed. Other sessions are signed out. Reconnect your agents in Settings.'
   } catch (error) {
     passwordMessage.value = getApiErrorMessage(error, 'Failed to change password.')
   } finally {
@@ -1948,7 +1948,7 @@ async function saveAgentKey() {
       agentKeyScope.value = 'mine'
       visibleAgentToken.value = {
         title: `${data.key?.name || 'Agent key'} is ready`,
-        subtitle: 'Give it to your agent, or copy the skill for setup text that includes it.',
+        subtitle: 'Copy the MCP setup to connect an agent. It includes this key.',
         token: data.token || '',
         key: data.key,
       }
@@ -1976,14 +1976,14 @@ async function reissueAgentKey(key) {
   }
 }
 
-async function reissueAndCopyManagedAgentSkill(key) {
-  if (!confirm(`Copy the skill for "${key.name}"? Vueio makes a new token for the skill. The old token stops working at once.`)) return
+async function reissueAndCopyManagedAgentSetup(key) {
+  if (!confirm(`Copy the MCP setup for "${key.name}"? Vueio makes a new token for the setup. The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/admin/agent-keys/${key.id}/reissue`)
-    await copyAgentSkillWithToken(data.key || key, data.token || '')
+    await copyAgentSetupWithToken(data.key || key, data.token || '')
     await reloadAgentKeys()
   } catch (error) {
-    notify(`Failed to copy skill: ${getApiErrorMessage(error)}`)
+    notify(`Failed to copy MCP setup: ${getApiErrorMessage(error)}`)
   }
 }
 
@@ -1995,12 +1995,12 @@ async function reissueUnifiedAgentKey(entry) {
   await reissueAgentKey(entry.record)
 }
 
-async function reissueAndCopyAgentKeySkill(entry) {
+async function reissueAndCopyAgentKeySetup(entry) {
   if (entry.kind === 'personal') {
-    await reissueAndCopyPersonalAgentSkill(entry.record)
+    await reissueAndCopyPersonalAgentSetup(entry.record)
     return
   }
-  await reissueAndCopyManagedAgentSkill(entry.record)
+  await reissueAndCopyManagedAgentSetup(entry.record)
 }
 
 async function toggleUnifiedAgentKey(entry) {
@@ -2058,14 +2058,14 @@ async function reissuePersonalAgentKey(key) {
   }
 }
 
-async function reissueAndCopyPersonalAgentSkill(key) {
-  if (!confirm(`Copy the skill for "${key.name}"? Vueio makes a new token for the skill. The old token stops working at once.`)) return
+async function reissueAndCopyPersonalAgentSetup(key) {
+  if (!confirm(`Copy the MCP setup for "${key.name}"? Vueio makes a new token for the setup. The old token stops working at once.`)) return
   try {
     const { data } = await api.post(`/api/me/agent-keys/${key.id}/reissue`)
-    await copyAgentSkillWithToken(data.key || key, data.token || '')
+    await copyAgentSetupWithToken(data.key || key, data.token || '')
     await reloadAgentKeys()
   } catch (error) {
-    notify(`Failed to copy skill: ${getApiErrorMessage(error)}`)
+    notify(`Failed to copy MCP setup: ${getApiErrorMessage(error)}`)
   }
 }
 

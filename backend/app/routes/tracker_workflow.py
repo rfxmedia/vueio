@@ -9,7 +9,7 @@ import uuid
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, File, Form, Header, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, get_db
@@ -47,12 +47,14 @@ from app.services.horizons.version_publication import (
     version_media_is_publishable,
 )
 from app.services.horizons.projects import require_horizon_project_writable
+from app.services.horizons.team import apply_horizon_assignee_changes
 from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_tracker
 from app.services.shot_commands import ShotCommandActor, ShotCommandContext, ShotCommandResult, ShotCommandService
 from app.services.media_pipeline import trigger_auto_hls_package
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.share_access import validate_share
 from app.services.uploads import write_bounded_upload
+from app.services.scrub_sprites import queue_scrub_sprites_for_assets
 from app.services.trackers import queue_thumbnail_warmup_for_paths
 from app.services.tracker_downloads import build_tracker_latest_versions_zip, start_tracker_latest_versions_zip_job
 from app.services.zip_utils import get_zip_package_job, get_zip_package_job_download, get_zip_package_job_record
@@ -68,6 +70,13 @@ def _is_project_artist(user: dict | None) -> bool:
     return is_restricted_project_member(user)
 
 
+def _require_project_content_manager(user: dict | None) -> None:
+    # The interface reserves these actions for people who manage project
+    # content; the server enforces it so agents cannot step around the screen.
+    if _is_project_artist(user):
+        raise HTTPException(status_code=403, detail='Only people who manage project content can do this.')
+
+
 def _ensure_artist_workspace_rel_path(db: Session, project_id: str, user: dict | None, path: str | None, *, allow_workspace_root: bool = True) -> str:
     return require_horizon_user_workspace_path(
         db,
@@ -81,44 +90,46 @@ def _ensure_artist_workspace_rel_path(db: Session, project_id: str, user: dict |
 
 
 class ShotCreate(BaseModel):
-    shot_id: str
+    shot_id: str = Field(description='The code of the new shot. It must be unique in the tracker.')
     description: Optional[str] = ''
-    status: str = 'not_started'
-    category: Optional[str] = None
+    status: str = Field('not_started', description=f"One of: {', '.join(SHOT_STATUS_ORDER)}.")
+    category: Optional[str] = Field(None, description='Old name for tag. Ignored when tag is given.')
     tag: Optional[str] = None
-    file_path: Optional[str] = None
-    version: int = 1
+    file_path: Optional[str] = Field(None, description='A media file path, relative to the project folder. The file becomes the first version.')
+    version: int = Field(1, description='The label number of the first version. Used only with file_path.')
 
 
 class BulkShotImport(BaseModel):
-    files: List[str]
+    files: List[str] = Field(description='Media file paths, relative to the project folder. Each file becomes one new shot.')
 
 
 class BulkVersionUpdateRequest(BaseModel):
-    folder_path: str
+    folder_path: str = Field(description='A folder path, relative to the project folder.')
 
 
 class BulkShotStatusUpdateRequest(BaseModel):
-    shot_ids: List[str]
-    status: str
+    shot_ids: List[str] = Field(description='Shot ids or codes, up to 250.')
+    status: str = Field(description=f"One of: {', '.join(SHOT_STATUS_ORDER)}.")
 
 
 class BulkShotUpdateRequest(BaseModel):
-    shot_ids: List[str]
-    status: Optional[str] = None
-    category: Optional[str] = None
-    tag: Optional[str] = None
-    assignee_user_id: Optional[str] = None
-    assignee_user_ids: Optional[List[str]] = None
+    shot_ids: List[str] = Field(description='Shot ids or codes, up to 250.')
+    status: Optional[str] = Field(None, description=f"One of: {', '.join(SHOT_STATUS_ORDER)}.")
+    category: Optional[str] = Field(None, description='Old name for tag. Ignored when tag is given.')
+    tag: Optional[str] = Field(None, description='The new tag. An empty string removes the tag.')
+    assignee_user_id: Optional[str] = Field(None, description='One user id that replaces all assignees. Ignored when assignee_user_ids is given.')
+    assignee_user_ids: Optional[List[str]] = Field(None, description='User ids of everyone assigned, replacing the current list. An empty list removes all assignees.')
+    add_assignee_user_ids: Optional[List[str]] = Field(None, description="User ids or usernames to add to each shot's assignees. Other assignees stay. Do not send with assignee_user_ids.")
+    remove_assignee_user_ids: Optional[List[str]] = Field(None, description="User ids or usernames to remove from each shot's assignees. Other assignees stay. Do not send with assignee_user_ids.")
 
 
 class BulkShotDeleteRequest(BaseModel):
-    shot_ids: List[str]
+    shot_ids: List[str] = Field(description='Shot ids or codes, up to 250. Every shot must be archived.')
 
 
 class BulkShotArchiveRequest(BaseModel):
-    shot_ids: List[str]
-    reason: Optional[str] = None
+    shot_ids: List[str] = Field(description='Shot ids or codes, up to 250.')
+    reason: Optional[str] = Field(None, description='Why the shots are archived. Ignored on restore.')
 
 
 class ShotArchiveRequest(BaseModel):
@@ -126,12 +137,21 @@ class ShotArchiveRequest(BaseModel):
 
 
 class VersionPublicationRequest(BaseModel):
-    state: str
+    state: str = Field(description="'published' shows the version on share links. 'internal' keeps it off share links.")
+
+
+class TrackerTagRenameRequest(BaseModel):
+    old_name: str = Field(description='The tag to rename. Case does not matter.')
+    new_name: str = Field(description='The new tag name, up to 120 characters. If another tag has this name, the two tags become one.')
+
+
+class TrackerTagDeleteRequest(BaseModel):
+    name: str = Field(description='The tag to delete. Case does not matter.')
 
 
 class TrackerLatestDownloadRequest(BaseModel):
-    shot_ids: Optional[List[str]] = None
-    filename: Optional[str] = None
+    shot_ids: Optional[List[str]] = Field(None, description='Shot ids or codes to include. Leave out to include every shot you can see.')
+    filename: Optional[str] = Field(None, description="The zip file name. '.zip' is added when it is missing.")
 
 
 def _parse_tracker_download_form_shot_ids(raw: str | None) -> list[str] | None:
@@ -148,21 +168,24 @@ def _parse_tracker_download_form_shot_ids(raw: str | None) -> list[str] | None:
 
 
 class ShotUpdate(BaseModel):
-    new_shot_id: Optional[str] = None
+    # Send only the fields to change; a field that is left out keeps its value.
+    new_shot_id: Optional[str] = Field(None, description='A new shot code.')
     description: Optional[str] = None
-    status: Optional[str] = None
+    status: Optional[str] = Field(None, description=f"One of: {', '.join(SHOT_STATUS_ORDER)}.")
     file_path: Optional[str] = None
     version: Optional[int] = None
     version_notes: Optional[str] = None
-    versions: Optional[List[dict]] = None
-    shot_order: Optional[List[str]] = None
+    versions: Optional[List[dict]] = Field(None, description="The shot's full version list, replacing the current one. Read the shot first.")
+    shot_order: Optional[List[str]] = Field(None, description='Every shot id of the tracker in the new order. Reorders the tracker; other fields are ignored.')
     category: Optional[str] = None
-    tag: Optional[str] = None
+    tag: Optional[str] = Field(None, description='The shot tag. An empty string removes it.')
     assignee_user_id: Optional[str] = None
-    assignee_user_ids: Optional[List[str]] = None
+    assignee_user_ids: Optional[List[str]] = Field(None, description='User ids of everyone assigned, replacing the current list.')
+    add_assignee_user_ids: Optional[List[str]] = Field(None, description='User ids or usernames to add to the current assignees. Do not send with assignee_user_ids.')
+    remove_assignee_user_ids: Optional[List[str]] = Field(None, description='User ids or usernames to remove from the current assignees. Do not send with assignee_user_ids.')
     nodePosition: Optional[dict] = None
     brief_refs: Optional[List[dict]] = None
-    expected_values: Optional[dict] = None
+    expected_values: Optional[dict] = Field(None, description='Values read before this change. If the shot changed since, the update is refused with 409.')
 
 
 def _shot_tag_value(data) -> Optional[str]:
@@ -178,6 +201,17 @@ def _shot_update_fields(data) -> set[str]:
         fields.add('category')
         fields.discard('tag')
     return fields
+
+
+ASSIGNEE_CHANGE_FIELDS = {'add_assignee_user_ids', 'remove_assignee_user_ids'}
+
+
+def _uses_assignee_changes(fields: set[str]) -> bool:
+    if not fields & ASSIGNEE_CHANGE_FIELDS:
+        return False
+    if fields & {'assignee_user_id', 'assignee_user_ids'}:
+        raise HTTPException(status_code=400, detail='Send assignee_user_ids, or add_assignee_user_ids and remove_assignee_user_ids, not both')
+    return True
 
 
 def _require_expected_shot_values(shot: HorizonShot, expected: dict | None, assignee_ids: list[str]) -> None:
@@ -332,6 +366,10 @@ def _apply_shot_command_result(db: Session, result: ShotCommandResult, *, projec
     if result.queued_media_paths:
         executor.submit(_queue_bulk_hls_packages, list(result.queued_media_paths), project_id)
         queue_thumbnail_warmup_for_paths(list(result.queued_media_paths), db=db, project_id=project_id, storage_scope='tracker_version')
+    # Hover-scrub sheets are ready before anyone opens the tracker.
+    version_asset_ids = [version.media_asset_id for version in result.versions if version.media_asset_id]
+    if version_asset_ids:
+        executor.submit(queue_scrub_sprites_for_assets, version_asset_ids)
 
 
 def _flatten_version_payloads(data: ShotUpdate) -> list[dict]:
@@ -349,8 +387,14 @@ def _get_or_create_main_tracker(db: Session, project_id: str, *, can_create: boo
     return create_horizon_tracker(db, project_id=project_id, name='Main')
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots', summary='Create a shot')
 def add_shot_to_tracker(project_id: str, tracker_name: str, data: ShotCreate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Create a shot in a tracker, with an optional first version.
+
+    `tracker_name` is the tracker id or name. With `file_path`, the file is
+    added as the first version. Records a shot_created event in tracker
+    activity. Returns the new shot.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
@@ -380,8 +424,14 @@ def add_shot_to_tracker(project_id: str, tracker_name: str, data: ShotCreate, vu
     return _serialize_horizon_shot(db, shot)
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk', summary='Import shots from files')
 def bulk_import_shots(project_id: str, tracker_name: str, data: BulkShotImport, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Create one shot for each media file, with the file as version 1.
+
+    `tracker_name` is the tracker id or name. The shot code is the file name
+    without its extension. If that code is in use, a suffix such as `_1` is
+    added. New shots have the status not_started.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
@@ -394,8 +444,15 @@ def bulk_import_shots(project_id: str, tracker_name: str, data: BulkShotImport, 
     return {'imported': len(imported_shots), 'shots': imported_shots}
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-version-update')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-version-update', summary='Add versions from a folder')
 def bulk_update_shot_versions(project_id: str, tracker_name: str, data: BulkVersionUpdateRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Add new versions to shots from the media files in one folder.
+
+    `tracker_name` is the tracker id or name. Only files directly in the folder
+    are read. A file matches a shot when its name without extension equals the
+    shot code or the name of the latest version file, in any case. Files that a
+    shot already has are skipped. The result lists files that match no shot.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -412,8 +469,14 @@ def bulk_update_shot_versions(project_id: str, tracker_name: str, data: BulkVers
     return result.response_hint
 
 
-@router.put('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}')
+@router.put('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}', summary='Update a shot', openapi_extra={'x-mcp-tool': 'shot_update'})
 def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, data: ShotUpdate, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Change a shot's status, tag, description, assignees or code.
+
+    `tracker_name` is the tracker id or name and `shot_id` is the shot id or
+    code. Send only the fields to change. To assign or unassign people without
+    a full list, use add_assignee_user_ids and remove_assignee_user_ids.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='viewer')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -454,6 +517,12 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
     assignee_user_ids = None
     incoming_fields = _shot_update_fields(data)
     _require_expected_shot_values(shot, data.expected_values, old_assignee_ids)
+    requested_assignee_ids = data.assignee_user_ids
+    if _uses_assignee_changes(incoming_fields):
+        # Applied to the assignees read under the shot lock, so a parallel
+        # assignment is kept.
+        requested_assignee_ids = apply_horizon_assignee_changes(old_assignee_ids, data.add_assignee_user_ids, data.remove_assignee_user_ids)
+        incoming_fields = (incoming_fields - ASSIGNEE_CHANGE_FIELDS) | {'assignee_user_ids'}
 
     ignore_unchanged_artist_assignee = False
     if _is_project_artist(user):
@@ -468,7 +537,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
                 artist_fields.remove('assignee_user_id')
                 ignore_unchanged_artist_assignee = True
         if 'assignee_user_ids' in artist_fields:
-            requested_assignees = [value for value in (data.assignee_user_ids or []) if value]
+            requested_assignees = [value for value in (requested_assignee_ids or []) if value]
             if requested_assignees == old_assignee_ids:
                 artist_fields.remove('assignee_user_ids')
                 ignore_unchanged_artist_assignee = True
@@ -499,8 +568,8 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
     if 'assignee_user_id' in data.model_fields_set and not ignore_unchanged_artist_assignee:
         assignee_user_id = data.assignee_user_id if data.assignee_user_id else None
         update_fields.add('assignee_user_id')
-    if 'assignee_user_ids' in data.model_fields_set and not ignore_unchanged_artist_assignee:
-        assignee_user_ids = data.assignee_user_ids or []
+    if 'assignee_user_ids' in incoming_fields and not ignore_unchanged_artist_assignee:
+        assignee_user_ids = requested_assignee_ids or []
         update_fields.add('assignee_user_ids')
 
     ctx = _shot_command_context(
@@ -509,7 +578,7 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
         access_role=access_role,
         user=user,
         auth_mode=auth_mode,
-        can_delete_versions=_access_role_meets(access_role, 'owner'),
+        can_delete_versions=_access_role_meets(access_role, 'owner') and not _is_project_artist(user),
     )
     service = ShotCommandService(db)
     result = ShotCommandResult(shots=[shot])
@@ -552,8 +621,52 @@ def update_shot_in_tracker(project_id: str, tracker_name: str, shot_id: str, dat
     return _serialize_horizon_shot(db, shot)
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id}/brief/upload')
+def _replace_tracker_tag(db: Session, *, project_id: str, tracker_ref: str, tag: str, new_tag: str | None, vueio_session: str | None, x_vueio_agent_key: str | None) -> dict:
+    user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
+    # The permission of the app's tag list edit: editors who manage project content.
+    _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
+    _require_project_content_manager(user)
+    tracker = get_horizon_tracker_by_ref(db, project_id, tracker_ref)
+    ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role=access_role, user=user, auth_mode=auth_mode)
+    result = ShotCommandService(db).replace_tag(ctx, tag, new_tag)
+    _apply_shot_command_result(db, result, project_id=project_id)
+    return result.response_hint
+
+
+@router.post('/api/projects/{project_id}/trackers/{tracker_ref}/tags/rename', summary='Rename a tracker tag')
+def rename_tracker_tag(project_id: str, tracker_ref: str, data: TrackerTagRenameRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Rename a tag in a tracker and on every shot that has it.
+
+    `tracker_ref` is the tracker id or name. Archived shots change too. All
+    changes are made together. Records a tracker_updated event for the tag
+    list and one shots_bulk_updated event for the shots. Returns the tag list
+    and the number of shots that changed.
+    """
+    hint = _replace_tracker_tag(db, project_id=project_id, tracker_ref=tracker_ref, tag=data.old_name, new_tag=data.new_name, vueio_session=vueio_session, x_vueio_agent_key=x_vueio_agent_key)
+    return {'status': 'renamed', **hint}
+
+
+@router.post('/api/projects/{project_id}/trackers/{tracker_ref}/tags/delete', summary='Delete a tracker tag')
+def delete_tracker_tag(project_id: str, tracker_ref: str, data: TrackerTagDeleteRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete a tag from a tracker. Shots with the tag become untagged.
+
+    `tracker_ref` is the tracker id or name. Archived shots change too. All
+    changes are made together. Records a tracker_updated event for the tag
+    list and one shots_bulk_updated event for the shots. Returns the tag list
+    and the number of shots that changed.
+    """
+    hint = _replace_tracker_tag(db, project_id=project_id, tracker_ref=tracker_ref, tag=data.name, new_tag=None, vueio_session=vueio_session, x_vueio_agent_key=x_vueio_agent_key)
+    return {'status': 'deleted', **hint}
+
+
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id}/brief/upload', deprecated=True, summary='Upload a shot brief file')
 async def upload_shot_brief(project_id: str, tracker_name: str, shot_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Save a brief file for a shot in the project folder.
+
+    `tracker_name` is the tracker id or name; `shot_id` is the shot id or code.
+    The file goes to `brief/<tracker name>/<shot_id>/` in the project folder.
+    The file is not linked to the shot. Records a brief_file_uploaded event.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     if _is_project_artist(user):
@@ -617,8 +730,13 @@ async def upload_shot_brief(project_id: str, tracker_name: str, shot_id: str, vu
     return {'id': uuid.uuid4().hex[:8], 'path': rel_path, 'created_at': time.time(), 'size': bytes_written}
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-status')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-status', summary='Set the status of shots')
 def bulk_update_shot_statuses(project_id: str, tracker_name: str, data: BulkShotStatusUpdateRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Give many shots the same status.
+
+    `tracker_name` is the tracker id or name. Shots that already have the
+    status are counted as unchanged. Records one status_changed_bulk event.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -633,13 +751,22 @@ def bulk_update_shot_statuses(project_id: str, tracker_name: str, data: BulkShot
     }
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-update')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-update', summary='Update shots in bulk')
 def bulk_update_tracker_shots(project_id: str, tracker_name: str, data: BulkShotUpdateRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Set the status, tag or assignees of many shots at once.
+
+    `tracker_name` is the tracker id or name. Send only the fields to change.
+    add_assignee_user_ids and remove_assignee_user_ids change each shot's
+    assignees and keep the others. Records one shots_bulk_updated event.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     shot_refs = _normalize_bulk_shot_refs(data.shot_ids)
     update_fields = _shot_update_fields(data) - {'shot_ids'}
+    changes_assignees = _uses_assignee_changes(update_fields)
+    if changes_assignees:
+        update_fields = (update_fields - ASSIGNEE_CHANGE_FIELDS) | {'assignee_user_ids'}
     allowed_fields = {'status', 'category', 'assignee_user_id', 'assignee_user_ids'}
     update_fields &= allowed_fields
     if not update_fields:
@@ -662,6 +789,8 @@ def bulk_update_tracker_shots(project_id: str, tracker_name: str, data: BulkShot
         category=next_category,
         assignee_user_id=data.assignee_user_id,
         assignee_user_ids=data.assignee_user_ids,
+        add_assignee_user_ids=(data.add_assignee_user_ids or []) if changes_assignees else None,
+        remove_assignee_user_ids=(data.remove_assignee_user_ids or []) if changes_assignees else None,
     )
     _apply_shot_command_result(db, result, project_id=project_id)
     return {
@@ -673,10 +802,17 @@ def bulk_update_tracker_shots(project_id: str, tracker_name: str, data: BulkShot
     }
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-delete')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-delete', summary='Delete archived shots')
 def bulk_delete_shots_from_tracker(project_id: str, tracker_name: str, data: BulkShotDeleteRequest, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete archived shots with their versions, assignees and comments.
+
+    `tracker_name` is the tracker id or name. Archive every shot first. Media
+    files stay on disk. To undo, restore an earlier history point with
+    restore_tracker_activity.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, _access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='owner')
+    _require_project_content_manager(user)
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role='owner', user=user, auth_mode=auth_mode, can_delete=True, can_delete_versions=True)
     result = ShotCommandService(db).bulk_delete_shots(ctx, data.shot_ids)
@@ -725,7 +861,7 @@ def _bulk_set_tracker_shots_archived(
     }
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-archive')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-archive', summary='Archive shots')
 def bulk_archive_tracker_shots(
     project_id: str,
     tracker_name: str,
@@ -734,6 +870,12 @@ def bulk_archive_tracker_shots(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Archive many shots at once.
+
+    `tracker_name` is the tracker id or name. Archived shots leave the active
+    shot list and can be restored. Shots that are already archived are counted
+    as unchanged. Records one shots_bulk_updated event.
+    """
     return _bulk_set_tracker_shots_archived(
         db,
         project_id=project_id,
@@ -745,7 +887,7 @@ def bulk_archive_tracker_shots(
     )
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-restore')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/bulk-restore', summary='Restore archived shots')
 def bulk_restore_tracker_shots(
     project_id: str,
     tracker_name: str,
@@ -754,6 +896,11 @@ def bulk_restore_tracker_shots(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Return many archived shots to the active shot list.
+
+    `tracker_name` is the tracker id or name. Shots that are not archived are
+    counted as unchanged. Records one shots_bulk_updated event.
+    """
     return _bulk_set_tracker_shots_archived(
         db,
         project_id=project_id,
@@ -892,7 +1039,7 @@ def _require_package_job_access(
     return job, user, auth_mode
 
 
-@router.get('/api/package-jobs/{job_id}')
+@router.get('/api/package-jobs/{job_id}', summary='Get a zip package job')
 def get_package_job(
     job_id: str,
     share_token: str | None = None,
@@ -900,6 +1047,12 @@ def get_package_job(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Get the progress of a zip package job.
+
+    `status` is queued, packaging, ready or failed. When it is ready, download
+    the zip with download_package_job. A job expires six hours after its last
+    change. `share_token` is only for jobs started from a share link.
+    """
     _require_package_job_access(
         db,
         job_id,
@@ -986,8 +1139,14 @@ def download_tracker_latest_versions_zip(project_id: str, tracker_name: str, dat
     )
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/download-latest-zip-job')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/download-latest-zip-job', summary='Zip the latest versions')
 def create_tracker_latest_versions_zip_job(project_id: str, tracker_name: str, data: TrackerLatestDownloadRequest, request: Request, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Start a zip of the latest version file of each shot in a tracker.
+
+    `tracker_name` is the tracker id or name. Shots without an available file
+    are skipped and counted in `skipped`. Follow the job with get_package_job
+    and the returned `id`. The download is recorded in tracker activity.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='viewer')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -1047,8 +1206,14 @@ def download_tracker_latest_versions_zip_form(
     )
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}/archive')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}/archive', summary='Archive a shot')
 def archive_shot_from_tracker(project_id: str, tracker_name: str, shot_id: str, data: ShotArchiveRequest | None = None, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Archive a shot. An archived shot leaves the active shot list.
+
+    `tracker_name` is the tracker id or name; `shot_id` is the shot id or code.
+    The shot keeps its versions and comments and can be restored. Records a
+    shot_archived event.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -1058,7 +1223,7 @@ def archive_shot_from_tracker(project_id: str, tracker_name: str, shot_id: str, 
     return {'status': result.response_hint.get('status', 'archived'), 'shot': _serialize_horizon_shot(db, result.shots[0])}
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id}/versions/{version_id}/publication')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id}/versions/{version_id}/publication', summary='Publish or unpublish a version')
 def update_version_publication(
     project_id: str,
     tracker_name: str,
@@ -1069,6 +1234,13 @@ def update_version_publication(
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """Publish a version to share links, or keep it internal.
+
+    `tracker_name` is the tracker id or name; `shot_id` is the shot id or code.
+    Publishing makes older pending versions of the shot internal. Publishing
+    the latest version moves a not_started, in_progress or edits_requested
+    shot to waiting_review. Only a version with available media can publish.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, _access_role = require_horizon_project_access(
         db,
@@ -1080,7 +1252,8 @@ def update_version_publication(
     require_horizon_project_writable(db, project_id)
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     tracker = prepare_tracker_history_mutation(db, project_id=project_id, tracker_id=tracker.id)
-    shot = get_horizon_shot_by_ref(db, project_id, shot_id, tracker_id=tracker.id)
+    # Restricted owners publish only shots assigned to them, as in the interface.
+    shot = require_horizon_shot_view_access(db, project_id, shot_id, tracker_id=tracker.id, user=user, access_role=_access_role)
     shot = db.query(HorizonShot).filter(HorizonShot.id == shot.id).with_for_update().one()
     version = (
         db.query(HorizonShotVersion)
@@ -1176,8 +1349,13 @@ def update_version_publication(
     }
 
 
-@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}/restore')
+@router.post('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}/restore', summary='Restore an archived shot')
 def restore_shot_to_tracker(project_id: str, tracker_name: str, shot_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Return an archived shot to the active shot list.
+
+    `tracker_name` is the tracker id or name; `shot_id` is the shot id or code.
+    Records a shot_restored event.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='editor')
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
@@ -1187,10 +1365,17 @@ def restore_shot_to_tracker(project_id: str, tracker_name: str, shot_id: str, vu
     return {'status': result.response_hint.get('status', 'active'), 'shot': _serialize_horizon_shot(db, result.shots[0])}
 
 
-@router.delete('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}')
+@router.delete('/api/projects/{project_id}/trackers/{tracker_name}/shots/{shot_id:path}', summary='Delete an archived shot')
 def delete_shot_from_tracker(project_id: str, tracker_name: str, shot_id: str, vueio_session: str = Cookie(None), x_vueio_agent_key: str | None = Header(None), db: Session = Depends(get_db)):
+    """Delete an archived shot with its versions, assignees and comments.
+
+    `tracker_name` is the tracker id or name; `shot_id` is the shot id or code.
+    Archive the shot first. Media files stay on disk. To undo, restore an
+    earlier history point with restore_tracker_activity.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     project, _access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='owner')
+    _require_project_content_manager(user)
     tracker = get_horizon_tracker_by_ref(db, project_id, tracker_name)
     ctx = _shot_command_context(project_id=project_id, tracker=tracker, access_role='owner', user=user, auth_mode=auth_mode, can_delete=True, can_delete_versions=True)
     result = ShotCommandService(db).delete_shot(ctx, shot_id)

@@ -121,7 +121,7 @@
         :user-name-input="userNameInput"
         :drawing-color="drawingColor"
         :current-user="currentUser"
-        :is-admin="isAdmin"
+        :can-delete-any-comment="canDeleteAnyComment"
         v-bind="commentsPanelProps"
         @update:new-comment="$emit('update:newComment', $event)"
         @update:user-name-input="$emit('update:userNameInput', $event)"
@@ -189,8 +189,12 @@ defineEmits([
 ])
 
 const { currentProject, currentTracker } = useProjectTrackerSelectionStore()
-const { currentUser, isAdmin } = useSessionAuthStore()
+const { currentUser, isAdmin, isRestrictedMember } = useSessionAuthStore()
 const { shareMode } = useShareAccessContext()
+// Mirrors the server: admins, and project owners who are not restricted members.
+const canDeleteAnyComment = computed(() => !shareMode.value && (
+  isAdmin.value || (!isRestrictedMember.value && currentProject.value?.access_role === 'owner')
+))
 
 const hostAriaLabel = computed(() => {
   if (shareMode.value) return 'Shared media viewer'

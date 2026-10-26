@@ -118,7 +118,7 @@
               <div class="td-peek-copy">
                 <p class="td-peek-summary">{{ item.summary }}</p>
                 <p class="td-peek-meta">
-                  <span>{{ item.actor_name || 'Someone' }}</span>
+                  <span>{{ activityActorName(item) }}</span>
                   <span aria-hidden="true">·</span>
                   <span>{{ relativeTimestamp(item.created_at) }}</span>
                 </p>
@@ -258,7 +258,7 @@
                       :style="avatarStyle(item.actor_id || item.actor_name)"
                       aria-hidden="true"
                     >{{ initialsFor(item.actor_name) }}</span>
-                    <span class="td-actor-name v-truncate">{{ item.actor_name || 'Someone' }}</span>
+                    <span class="td-actor-name v-truncate">{{ activityActorName(item) }}</span>
                     <span v-if="isCurrentUser(item.actor_id)" class="td-actor-you">You</span>
                   </span>
                   <span class="td-timeline-when" :title="absoluteTimestamp(item.created_at)">{{ relativeTimestamp(item.created_at) }}</span>
@@ -561,6 +561,7 @@ import {
   getTrackerStatusLabel,
 } from '../../lib/trackerCatalogs'
 import { getIdentityColor } from '../../utils/semanticColors'
+import { activityActorName } from '../../utils/activityActor'
 
 const props = defineProps({
   closeable: { type: Boolean, default: false },

@@ -97,6 +97,7 @@ A reverse proxy or tunnel can impose lower limits than Vue.io.
 
 For project-linked shares, open the share dialog and select **Active shares**.
 Use **Edit** to change access options. Use **Revoke** to stop future access.
+Use **Delete** to remove a link and its record permanently.
 Administrators can manage workspace links in **Settings → Shared links**.
 
 The edit form can remove expiration: a blank expiration leaves the link available until revoked.

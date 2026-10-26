@@ -96,6 +96,21 @@ def _resolve_horizon_assignee_ids(user_refs: list[str | None] | None) -> list[st
     return _dedupe_ordered(assignee_ids)
 
 
+def apply_horizon_assignee_changes(current_ids: list[str], add_refs: list[str] | None, remove_refs: list[str] | None) -> list[str]:
+    """Return a shot's assignee ids after removing and adding people by user id or username."""
+    removed: set[str] = set()
+    for ref in remove_refs or []:
+        value = str(ref or '').strip()
+        if not value:
+            continue
+        user = get_horizon_assignable_user(value)
+        if user is None and value not in current_ids:
+            raise HTTPException(status_code=400, detail='Assignable team account not found')
+        removed.add(_canonical_user_id(user) if user else value)
+    kept = [user_id for user_id in current_ids if user_id not in removed]
+    return _dedupe_ordered(kept + _resolve_horizon_assignee_ids(add_refs))
+
+
 def _ensure_horizon_project_memberships_for_assignees(db: Session, *, project_id: str, user_ids: list[str]) -> None:
     from .projects import get_horizon_project
 
@@ -404,6 +419,23 @@ def remove_horizon_project_membership_for_user(db: Session, *, project_id: str, 
         'user_id': canonical_user_id,
         'workspace_path': get_horizon_user_workspace_path(user),
     }
+
+
+def revoke_horizon_project_grant_of_person(db: Session, *, project_id: str, subject_type: str, subject_id: str) -> dict:
+    """Delete a grant with every other grant of the same person, as removing a member does."""
+    from .projects import revoke_horizon_project_access
+
+    normalized_type = (subject_type or '').strip().lower()
+    normalized_id = (subject_id or '').strip()
+    user = get_horizon_assignable_user(normalized_id)
+    if user is not None and (normalized_type, normalized_id) in _subject_candidates_for_user(user):
+        # A person can have a user id grant and a username grant; access
+        # through the other one must not remain.
+        return remove_horizon_project_membership_for_user(db, project_id=project_id, user_ref=_canonical_user_id(user))
+    # A grant for an account that no longer exists.
+    if not revoke_horizon_project_access(db, project_id=project_id, subject_type=normalized_type, subject_id=normalized_id):
+        raise HTTPException(status_code=404, detail='Grant not found')
+    return {'removed': True}
 
 
 def serialize_horizon_shot_assignee(shot: HorizonShot) -> dict | None:

@@ -7,12 +7,12 @@ from fastapi import APIRouter, Body, Cookie, HTTPException
 from pydantic import BaseModel, Field
 
 from app.services.auth import (
-    destroy_user_sessions,
     hash_password,
     load_users,
     mutate_users,
     mutate_users_and_revoke_sessions,
     require_auth,
+    require_signed_in_user,
 )
 from app.services.user_access import (
     NEW_MEMBER_APP_ACCESS,
@@ -34,26 +34,26 @@ router = APIRouter(tags=['users'])
 
 class AppAccess(BaseModel):
     file_browser: bool = False
-    project_manager: bool = False
-    manage_project_content: bool = False
-    create_projects: bool = False
-    delete_projects: bool = False
+    project_manager: bool = Field(False, description='Open the projects that the member is added to. When false, manage_project_content, create_projects and delete_projects are also false.')
+    manage_project_content: bool = Field(False, description='Create and organize trackers, shots, assignments and project settings.')
+    create_projects: bool = Field(False, description='Create projects. Also turns on manage_project_content.')
+    delete_projects: bool = Field(False, description='Delete projects that the member can manage. Also turns on manage_project_content.')
     manage_members: bool = False
 
 
 class UserCreate(BaseModel):
-    username: str = Field(max_length=48)
-    password: str = Field(max_length=1024)
+    username: str = Field(max_length=48, description='3 to 48 letters, digits, dots, dashes or underscores. It is also the user id.')
+    password: str = Field(max_length=1024, description='At least 8 characters.')
     display_name: str = Field(max_length=120)
-    role: str = 'member'
-    app_access: Optional[AppAccess] = None
+    role: str = Field('member', description="'admin' or 'member'.")
+    app_access: Optional[AppAccess] = Field(None, description='Access flags for a member. Without it, the member can open projects only. Admins get all access.')
 
 
 class UserUpdate(BaseModel):
     display_name: Optional[str] = Field(default=None, max_length=120)
-    password: Optional[str] = Field(default=None, max_length=1024)
-    role: Optional[str] = None
-    app_access: Optional[AppAccess] = None
+    password: Optional[str] = Field(default=None, max_length=1024, description='At least 8 characters. Signs the user out everywhere.')
+    role: Optional[str] = Field(None, description="'admin' or 'member'.")
+    app_access: Optional[AppAccess] = Field(None, description='Replaces all access flags. Flags that you leave out become false.')
 
 
 def _require_member_manager(vueio_session: str | None) -> dict:
@@ -100,15 +100,26 @@ def _serialize_user(entry: dict, actor: dict) -> dict:
     }
 
 
-@router.get('/api/users')
+@router.get('/api/users', summary='List user accounts')
 def list_users(vueio_session: str | None = Cookie(None)):
+    """List every user account with its role and app access.
+
+    `can_manage` tells whether you can change or delete that account.
+    """
     actor = _require_member_manager(vueio_session)
     users = load_users()
     return [_serialize_user(entry, actor) for entry in users.values()]
 
 
-@router.post('/api/users')
+@router.post('/api/users', summary='Create a user account')
 def create_user(data: UserCreate = Body(...), vueio_session: str | None = Cookie(None)):
+    """Create a user account with a password.
+
+    Agent keys cannot do this, because the account has a password. The person
+    must create it in Vue.io. The username becomes the user id.
+    """
+    # A new account has a password, which is a credential: people only.
+    require_signed_in_user(vueio_session)
     actor = _require_member_manager(vueio_session)
 
     role = _validated_role(data.role)
@@ -144,9 +155,17 @@ def create_user(data: UserCreate = Body(...), vueio_session: str | None = Cookie
     return {'status': 'created', 'id': username}
 
 
-@router.put('/api/users/{user_id}')
+@router.put('/api/users/{user_id}', summary='Update a user account')
 def update_user(user_id: str, data: UserUpdate = Body(...), vueio_session: str | None = Cookie(None)):
+    """Change the display name, role, app access or password of a user account.
+
+    Fields that you leave out keep their value. Agent keys can change the
+    display name, role and app access, but cannot set a password. At least one
+    admin account must remain.
+    """
     actor = _require_member_manager(vueio_session)
+    if data.password:
+        require_signed_in_user(vueio_session)
     next_password = validate_password(data.password) if data.password else None
 
     def mutator(users: dict) -> None:
@@ -182,8 +201,13 @@ def update_user(user_id: str, data: UserUpdate = Body(...), vueio_session: str |
     return {'status': 'updated'}
 
 
-@router.delete('/api/users/{user_id}')
+@router.delete('/api/users/{user_id}', summary='Delete a user account')
 def delete_user(user_id: str, vueio_session: str | None = Cookie(None)):
+    """Delete a user account. This is permanent.
+
+    The user is signed out everywhere, and the agent keys of the user are
+    deleted. You cannot delete your own account or the last admin account.
+    """
     current_user = _require_member_manager(vueio_session)
     if user_id == current_user['id']:
         raise HTTPException(status_code=400, detail='Cannot delete your own account')
@@ -197,6 +221,5 @@ def delete_user(user_id: str, vueio_session: str | None = Cookie(None)):
         del users[user_id]
         _require_remaining_admin(users)
 
-    mutate_users(mutator)
-    destroy_user_sessions(user_id)
+    mutate_users_and_revoke_sessions(mutator, user_id)
     return {'status': 'deleted'}

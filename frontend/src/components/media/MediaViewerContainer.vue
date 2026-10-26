@@ -250,6 +250,7 @@ const commentsPanelProps = computed(() => ({
   onHandleCommentClick: viewerActions.handleCommentClick,
   onToggleResolve: comments.toggleResolve,
   onDeleteComment: comments.deleteComment,
+  onUpdateComment: comments.updateComment,
   onOpenAttachmentLightbox: comments.openAttachmentLightbox,
   onClearCanvas: annotations.clearCanvas,
   onCancelDrawing: annotations.cancelDrawing,

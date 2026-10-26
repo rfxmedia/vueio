@@ -47,10 +47,17 @@ def create_tracker_event(
 ) -> TrackerEvent:
     from app.services.tracker_history import TRACKER_STATE_EVENT_TYPES, lock_tracker_for_history
 
+    from app.services.auth import get_request_agent_identity
+
     if event_type in TRACKER_STATE_EVENT_TYPES:
         # All restorable mutations share this row lock with full History
         # restores, giving snapshots one unambiguous order under concurrency.
         lock_tracker_for_history(db, project_id=project_id, tracker_id=tracker_id)
+    agent = get_request_agent_identity()
+    if agent:
+        # Agent work is attributed to the person and the key that acted for them.
+        source = 'agent'
+        payload = {**(payload or {}), 'agent': {'key_id': agent['key_id'], 'name': agent['name']}}
     event = TrackerEvent(
         project_id=project_id,
         tracker_id=tracker_id,
@@ -313,6 +320,8 @@ def _summary_for_event(event_type: str, payload: dict[str, Any]) -> str:
         return f'Deleted {payload.get("count", 0)} shots'
     if event_type == 'comment_added':
         return f'Added comment on {shot_code}'
+    if event_type == 'comment_edited':
+        return f'Edited comment on {shot_code}'
     if event_type == 'comment_resolved':
         return f'Resolved comment on {shot_code}'
     if event_type == 'comment_deleted':
@@ -781,7 +790,7 @@ def record_comment_tracker_event(
         'shot_code': context['shot_code'],
         'version_label': context['version_label'],
     }
-    if event_type == 'comment_added':
+    if event_type in {'comment_added', 'comment_edited'}:
         payload['comment_preview'] = (comment.text or '').strip()[:160]
 
     return create_tracker_event(

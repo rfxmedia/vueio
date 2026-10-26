@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, Cookie, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -14,7 +14,7 @@ from app.models import (
     HorizonTracker,
     RecentlyViewed,
 )
-from app.services.auth import get_request_user, get_user_from_session
+from app.services.auth import get_request_agent_identity, get_request_user, get_user_from_session, serialize_auth_user
 from app.services.file_access import check_folder_read_permission
 from app.services.horizons.projects import list_visible_horizon_projects
 from app.services.horizons.team import _horizon_shot_assignment_clause, _subject_candidates_for_user
@@ -33,12 +33,29 @@ class RecentlyViewedItem(BaseModel):
     subtitle: str | None = None
 
 
-@router.get('/api/home/assigned-edits')
+@router.get('/api/me', summary='Who am I', openapi_extra={'x-mcp-tool': 'whoami'})
+def get_me(vueio_session: str | None = Cookie(None), x_vueio_agent_key: str | None = Header(None)):
+    """Return the signed-in person: id, name, role and app access.
+
+    For an agent, `agent` names the agent key in use. An agent has exactly the
+    permissions of this person.
+    """
+    user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
+    agent = get_request_agent_identity() if auth_mode == 'agent_key' else None
+    return {**serialize_auth_user(user), 'agent': {'name': agent['name']} if agent else None}
+
+
+@router.get('/api/home/assigned-edits', summary='My assigned shots', openapi_extra={'x-mcp-tool': 'my_assigned_shots'})
 def get_home_assigned_edits(
     vueio_session: str | None = Cookie(None),
     x_vueio_agent_key: str | None = Header(None),
     db: Session = Depends(get_db),
 ):
+    """List open shots assigned to this person, grouped by project and tracker.
+
+    Includes shots that are in progress or have edits requested, in projects
+    that are not done.
+    """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     subject_ids = {value for _subject_type, value in _subject_candidates_for_user(user)}
     visible_projects = list_visible_horizon_projects(db, user, auth_mode=auth_mode)
@@ -205,8 +222,13 @@ def clear_recently_viewed(vueio_session: str | None = Cookie(None)):
         db.close()
 
 
-@router.get('/api/search')
-def search_everything(q: str, vueio_session: str | None = Cookie(None)):
+@router.get('/api/search', summary='Search projects, trackers and files', openapi_extra={'x-mcp-tool': 'search'})
+def search_everything(q: str = Query(description='Part of a name, at least 2 characters.'), vueio_session: str | None = Cookie(None)):
+    """Find projects, trackers and files by name. Returns up to 10 of each.
+
+    Use a tracker's `name` with `projectId` wherever a tracker_ref is asked
+    for; its `id` here is a search key, not a tracker id.
+    """
     user = get_user_from_session(vueio_session)
     if not user:
         raise HTTPException(status_code=401, detail='Authentication required')

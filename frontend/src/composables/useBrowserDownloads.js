@@ -2,6 +2,7 @@ import api, { buildShareCredentialQuery, getApiErrorDetail } from '../lib/api'
 import { computed, ref } from 'vue'
 
 import { buildBrowserDownloadUrl } from '../lib/browserDownloadUrls'
+import { getBrowserResourceRefs } from '../lib/browserResourceRefs'
 import { normalizeMediaEntity } from '../lib/mediaEntity'
 import { zipNameFromPath } from '../utils/filenames'
 import { notify } from '../utils/toasts'
@@ -67,13 +68,16 @@ export function useBrowserDownloads({
   function triggerBrowserDownload(url, fileName) {
     const link = document.createElement('a')
     link.href = url
-    if (fileName) link.download = fileName
+    // An empty name still downloads, and keeps the name the server sends.
+    link.download = fileName || ''
     document.body.appendChild(link)
     link.click()
     link.remove()
   }
 
   function getDownloadFilename(item) {
+    // The server names shot versions after the tracker, such as "glow shot_V8.mov".
+    if (getBrowserResourceRefs(item).shotVersionId) return ''
     const filePath = item?.path || ''
     const pathBase = filePath.split('/').pop() || 'download'
     const name = (item?.name || '').toString().trim()

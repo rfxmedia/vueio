@@ -35,7 +35,7 @@
       <div
         v-if="versions.length"
         class="version-card v-card"
-        :class="{ 'is-unavailable': latestVersion?.exists === false }"
+        :class="{ 'is-unavailable': latestVersion?.exists === false, 'is-scrubbing': scrubbing }"
         :title="hoverActionLabel"
         role="button"
         tabindex="0"
@@ -45,6 +45,7 @@
         @keydown.space.stop.prevent="openShotVideo(shot)"
       >
         <VMediaThumbnail :src="getThumbnailUrl(latestVersion)" :alt="shot.shot_id" :fallback-icon="isModelVersion ? '#icon-model' : '#icon-image'" />
+        <MediaScrubPreview v-if="scrubUrl" :src="scrubUrl" @active="scrubbing = $event" />
         <div v-if="latestVersion?.exists === false" class="version-unavailable-label">
           <svg class="icon"><use href="#icon-file" /></svg>
           <span>Version unavailable</span>
@@ -72,6 +73,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getMediaKind } from '../../lib/mediaEntity'
 import VMediaThumbnail from '../media/VMediaThumbnail.vue'
+import MediaScrubPreview from '../media/MediaScrubPreview.vue'
 import MediaVersionSwitcher from '../media/MediaVersionSwitcher.vue'
 
 const props = defineProps({
@@ -92,6 +94,7 @@ const props = defineProps({
   deleteShotVersion: { type: Function, default: null },
   downloadVersion: { type: Function, default: null },
   getThumbnailUrl: { type: Function, required: true },
+  getScrubPreviewUrl: { type: Function, default: () => '' },
   getShotDurationLabel: { type: Function, required: true },
   getMediaDurationLabel: { type: Function, default: () => '' },
   fetchBatchMediaInfo: { type: Function, default: null },
@@ -105,6 +108,12 @@ const latestVersion = computed(() => versions.value[versions.value.length - 1] |
 const versionsDescending = computed(() => [...versions.value].reverse())
 const isImageVersion = computed(() => latestVersion.value?.is_image === true)
 const isModelVersion = computed(() => getMediaKind(latestVersion.value) === 'model')
+const scrubUrl = computed(() => (
+  latestVersion.value?.exists !== false && getMediaKind(latestVersion.value) === 'video'
+    ? props.getScrubPreviewUrl(latestVersion.value)
+    : ''
+))
+const scrubbing = ref(false)
 const hoverActionLabel = computed(() => isModelVersion.value ? 'Review model' : isImageVersion.value ? 'View Image' : 'Play Video')
 const switcherId = computed(() => `shot-version-switcher:${props.shot?.id || props.shot?.shot_id || props.shot?.shot_code || ''}`)
 const currentVersionLabel = computed(() => {
@@ -246,7 +255,8 @@ onUnmounted(() => {
   height: 24px;
 }
 
-.version-card.is-unavailable .version-hover {
+.version-card.is-unavailable .version-hover,
+.version-card.is-scrubbing .version-hover {
   display: none;
 }
 

@@ -270,6 +270,7 @@ def source_signature(path: Path) -> str:
 
 GENERATED_THUMBNAIL_CACHE_VERSION = 'thumb-v3-960w-square-pixels'
 DELIVERY_POSTER_CACHE_VERSION = 'delivery-poster-v1-1920w-square-pixels'
+SCRUB_SPRITE_CACHE_VERSION = 'scrub-v1-6x5-320x180'
 
 
 def thumbnail_cache_path_for_identity(cache_identity: str) -> Path:
@@ -282,6 +283,10 @@ def generated_thumbnail_cache_path_for_identity(cache_identity: str) -> Path:
 
 def delivery_poster_cache_path_for_identity(cache_identity: str) -> Path:
     return thumbnail_cache_path_for_identity(f'{DELIVERY_POSTER_CACHE_VERSION}:{cache_identity}')
+
+
+def scrub_sprite_cache_path_for_identity(cache_identity: str) -> Path:
+    return thumbnail_cache_path_for_identity(f'{SCRUB_SPRITE_CACHE_VERSION}:{cache_identity}')
 
 
 def thumbnail_cache_path_for_browser(file_path: str) -> Path:

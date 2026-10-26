@@ -42,8 +42,8 @@ def _require_project_creator(vueio_session: str | None) -> dict:
 
 
 class StorageFolderCreate(BaseModel):
-    root: str
-    path: str = ''
+    root: str = Field(description='A location id from list_storage_roots.')
+    path: str = Field('', description='The parent folder, relative to the location. Empty for the top folder.')
     name: str
 
 
@@ -93,25 +93,25 @@ def connect_storage_device(data: StorageConnectRequest, request: Request, vueio_
 
 
 class ProjectRelocateRequest(BaseModel):
-    root: str
-    path: str
-    dry_run: bool = True
-    revoke_shares: bool = False
-    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    root: str = Field(description='data or a location id from list_storage_roots.')
+    path: str = Field(description='The project folder, relative to the storage location.')
+    dry_run: bool = Field(True, description='True returns a plan and changes nothing.')
+    revoke_shares: bool = Field(False, description='True turns off all share links of the project.')
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$', description='The plan_id from the dry run. If anything changed since then, nothing is applied.')
 
 
 class ProjectMigrateStorageRequest(BaseModel):
-    root: str = 'projects'
-    path: str
-    dry_run: bool = True
-    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    root: str = Field('projects', description='A location id from list_storage_roots.')
+    path: str = Field(description='The new project folder, relative to the storage location.')
+    dry_run: bool = Field(True, description='True returns a plan and changes nothing.')
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$', description='The plan_id from the dry run. If anything changed since then, nothing is applied.')
 
 
 class MissingMediaRelinkRequest(BaseModel):
-    root: str
-    path: str
-    dry_run: bool = True
-    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$')
+    root: str = Field(description="The project's current storage_root.")
+    path: str = Field(description="The project's storage_path, or a subfolder of it.")
+    dry_run: bool = Field(True, description='True returns a plan and changes nothing.')
+    plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$', description='The plan_id from the dry run. If anything changed since then, nothing is applied.')
 
 
 def _root_payload(name: str, item: dict) -> dict:
@@ -136,14 +136,26 @@ def _root_payload(name: str, item: dict) -> dict:
     }
 
 
-@router.get('/api/storage/roots')
+@router.get('/api/storage/roots', summary='List storage locations')
 def list_storage_roots(vueio_session: str = Cookie(None)):
+    """List the external storage locations that can hold project folders.
+
+    Each location has its `id`, label, free space, and whether it is available
+    and read-only. Use the `id` as `storage_root` in create_project. The app's
+    own storage, `data`, is not in this list.
+    """
     _require_project_creator(vueio_session)
     return [_root_payload(name, item) for name, item in configured_project_storage_catalog().items()]
 
 
-@router.get('/api/storage/browse')
+@router.get('/api/storage/browse', summary='Browse storage folders')
 def browse_storage(root: str, path: str = '', vueio_session: str = Cookie(None)):
+    """List the subfolders of a folder in a storage location.
+
+    `root` is a location id from list_storage_roots. `path` is relative to the
+    location. Leave it empty for the top folder. Files and hidden folders are
+    not listed.
+    """
     _require_project_creator(vueio_session)
     root = root.strip().lower()
     normalized = normalize_project_storage_path(path, allow_empty=True)
@@ -169,8 +181,12 @@ def browse_storage(root: str, path: str = '', vueio_session: str = Cookie(None))
     return {'root': root, 'path': normalized, 'read_only': storage_location_is_read_only(target), 'folders': folders}
 
 
-@router.post('/api/storage/folders')
+@router.post('/api/storage/folders', summary='Create a storage folder')
 def create_storage_folder(data: StorageFolderCreate, vueio_session: str = Cookie(None)):
+    """Create a folder in a storage location, for example for a new project.
+
+    The app's own storage, `data`, is not allowed.
+    """
     _require_project_creator(vueio_session)
     root = data.root.strip().lower()
     configured_roots = configured_project_storage_roots()
@@ -192,8 +208,15 @@ def create_storage_folder(data: StorageFolderCreate, vueio_session: str = Cookie
     return {'root': root, 'path': relative, 'name': safe_name}
 
 
-@router.post('/api/projects/{project_id}/relocate')
+@router.post('/api/projects/{project_id}/relocate', summary='Relocate a project')
 def relocate_project(project_id: str, data: ProjectRelocateRequest, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """Point a project at another folder that already holds its files.
+
+    Vue.io does not copy files. It matches media records to files in the new
+    folder by content. Media without a match becomes missing. With `dry_run`
+    true (the default), it only returns a plan. To apply the plan, call again
+    with `dry_run` false and its `plan_id`. Administrators only.
+    """
     user = require_admin(vueio_session)
     project = get_horizon_project(db, project_id)
     root = data.root.strip().lower()
@@ -209,8 +232,15 @@ def relocate_project(project_id: str, data: ProjectRelocateRequest, vueio_sessio
     return {**result, 'project': serialize_horizon_project(db, project, user=user)}
 
 
-@router.post('/api/projects/{project_id}/relink-media')
+@router.post('/api/projects/{project_id}/relink-media', summary='Find moved project media')
 def relink_missing_project_media(project_id: str, data: MissingMediaRelinkRequest, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """Search the project folder for media files that moved, and relink them.
+
+    Vue.io matches missing media records to files by size and content. `root`
+    is the project's `storage_root`. `path` is its `storage_path` or a subfolder
+    of it (see get_project). Use `dry_run` and `plan_id` as in relocate_project.
+    Administrators only.
+    """
     user = require_admin(vueio_session)
     project = get_horizon_project(db, project_id)
     root = data.root.strip().lower()
@@ -225,8 +255,15 @@ def relink_missing_project_media(project_id: str, data: MissingMediaRelinkReques
     return {**result, 'project': serialize_horizon_project(db, project, user=user)}
 
 
-@router.post('/api/projects/{project_id}/migrate-storage')
+@router.post('/api/projects/{project_id}/migrate-storage', summary='Copy a project to external storage')
 def migrate_project_storage(project_id: str, data: ProjectMigrateStorageRequest, background_tasks: BackgroundTasks, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """Copy a project from the app's own storage to a folder in a storage location.
+
+    After the copy, the project uses the new folder. The original folder stays.
+    With `dry_run` true (the default), Vue.io only returns a plan. Otherwise it
+    starts a background job and returns its `job_id`. Check the job with
+    project_storage_migration_status. Administrators only.
+    """
     user = require_admin(vueio_session)
     project = get_horizon_project(db, project_id)
     root = data.root.strip().lower()
@@ -240,8 +277,14 @@ def migrate_project_storage(project_id: str, data: ProjectMigrateStorageRequest,
     return job
 
 
-@router.get('/api/projects/{project_id}/migrate-storage/status')
+@router.get('/api/projects/{project_id}/migrate-storage/status', summary='Get storage copy status')
 def project_storage_migration_status(project_id: str, job_id: str, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    """Get the state of a project storage copy job.
+
+    `job_id` comes from migrate_project_storage. `status` is queued, running,
+    complete or error. Vue.io keeps jobs in memory, so a restart loses them.
+    Administrators only.
+    """
     user = require_admin(vueio_session)
     project = get_horizon_project(db, project_id)
     job = get_project_migration_job(project_id, job_id)

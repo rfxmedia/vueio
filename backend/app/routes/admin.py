@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Request, Response, UploadFile
+from fastapi import APIRouter, Cookie, Depends, File, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -19,7 +19,8 @@ from app.services.agent_keys import (
     serialize_agent_key,
     update_agent_key,
 )
-from app.services.auth import load_users, require_admin
+from app.services.auth import load_users, require_admin, require_signed_in_user
+from app.services.user_access import is_admin_user
 from app.services.download_audit import list_download_events
 from app.services.horizons_fresh import get_horizon_project
 from app.services.host_updates import get_host_update_status, require_host_admin, require_host_origin, start_host_update, switch_host_channel
@@ -47,9 +48,9 @@ settings = get_settings()
 
 
 class ShareUpdate(BaseModel):
-    expires_at: Optional[float] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
+    expires_at: Optional[float] = Field(None, description='Expiry as Unix time in seconds. 0 removes the expiry.')
+    password: Optional[str] = Field(None, description='New share password. An empty string removes the password.')
+    is_active: Optional[bool] = Field(None, description='False turns the link off without deleting it.')
     allow_download: Optional[bool] = None
     allow_upload: Optional[bool] = None
 
@@ -66,16 +67,23 @@ class AgentKeyUpdate(BaseModel):
 
 
 class ThemeUpdate(BaseModel):
-    colors: dict[str, str]
+    colors: dict[str, str] = Field(
+        description=(
+            'CSS variable name to hex color (#rgb or #rrggbb). Allowed keys: '
+            '--v-bg-base, --v-surface-panel, --v-surface-inline, --v-text, '
+            '--v-text-secondary, --v-accent, --v-danger, --v-warning, --v-info. '
+            'Other keys and bad colors are ignored.'
+        ),
+    )
 
 
 class AppIdentityUpdate(BaseModel):
-    team_name: Optional[str] = None
-    website_url: Optional[str] = None
+    team_name: Optional[str] = Field(None, description="Up to 120 characters. A blank name resets it to 'Vue'.")
+    website_url: Optional[str] = Field(None, description='An http or https URL. An empty string removes it.')
 
 
 class IdentityLogoSourceRequest(BaseModel):
-    source_path: str
+    source_path: str = Field(description='Image file path, relative to the media root (the File Browser root).')
 
 
 class InstallUpdateRequest(BaseModel):
@@ -119,24 +127,42 @@ def _require_admin_session(vueio_session: str | None) -> dict:
     return require_admin(vueio_session)
 
 
-@router.get('/api/identity')
+def _require_admin_person(vueio_session: str | None) -> dict:
+    """Agent keys are credentials; only a signed-in admin manages them."""
+    user = require_signed_in_user(vueio_session)
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail='Admin access required')
+    return user
+
+
+@router.get('/api/identity', summary='Get team identity')
 def get_identity(db: Session = Depends(get_db)):
+    """Return the team name, website URL and logo URL that the app shows."""
     return serialize_app_identity(get_app_identity_record(db))
 
 
-@router.get('/api/identity/logo')
+@router.get('/api/identity/logo', summary='Get team logo')
 def get_identity_logo(db: Session = Depends(get_db)):
+    """Return the team logo image file. Returns 404 when no logo is set."""
     record = get_app_identity_record(db)
     return build_team_logo_response(record.logo_upload_name)
 
 
-@router.get('/api/theme')
+@router.get('/api/theme', summary='Get app theme')
 def get_theme(db: Session = Depends(get_db)):
+    """Return the app color theme as CSS variable names and hex colors.
+
+    Colors that an admin did not set have their default value.
+    """
     return serialize_app_theme(get_app_theme_record(db))
 
 
-@router.put('/api/admin/identity')
+@router.put('/api/admin/identity', summary='Update team identity')
 def update_identity(data: AppIdentityUpdate, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Change the team name or website that the app shows.
+
+    Fields that you leave out keep their value.
+    """
     user = _require_admin_session(vueio_session)
     record = save_app_identity(
         db,
@@ -147,36 +173,56 @@ def update_identity(data: AppIdentityUpdate, vueio_session: str | None = Cookie(
     return serialize_app_identity(record)
 
 
-@router.post('/api/admin/identity/logo')
+@router.post('/api/admin/identity/logo', summary='Upload a team logo')
 async def upload_identity_logo(file: UploadFile = File(...), vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Upload an image file as the team logo.
+
+    The image must be 2 MiB or smaller. It replaces the old logo, and the server
+    deletes the old logo file.
+    """
     user = _require_admin_session(vueio_session)
     upload_name = await store_team_logo_upload(file)
     record = set_team_logo(db, upload_name, updated_by=user.get('id') or user.get('username'))
     return serialize_app_identity(record)
 
 
-@router.post('/api/admin/identity/logo/select')
+@router.post('/api/admin/identity/logo/select', summary='Set team logo from storage')
 def select_identity_logo(data: IdentityLogoSourceRequest, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Use an image file from storage as the team logo.
+
+    The server copies the file. It replaces the old logo, and the server deletes
+    the old logo file.
+    """
     user = _require_admin_session(vueio_session)
     upload_name = store_team_logo_source(get_safe_path(data.source_path))
     record = set_team_logo(db, upload_name, updated_by=user.get('id') or user.get('username'))
     return serialize_app_identity(record)
 
 
-@router.delete('/api/admin/identity/logo')
+@router.delete('/api/admin/identity/logo', summary='Remove the team logo')
 def delete_identity_logo(vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Remove the team logo.
+
+    The server deletes the logo file. This is permanent.
+    """
     user = _require_admin_session(vueio_session)
     record = clear_team_logo(db, updated_by=user.get('id') or user.get('username'))
     return serialize_app_identity(record)
 
 
-@router.get('/api/admin/shares')
+@router.get('/api/admin/shares', summary='List all share links')
 def list_all_shares(
-    limit: int = 100,
-    offset: int = 0,
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     vueio_session: str | None = Cookie(None),
     db: Session = Depends(get_db),
 ):
+    """List every share link in the workspace, newest first.
+
+    `limit` is 1 to 500. Use `offset` to page. `total` is the number of all
+    share links. Each share has its target, expiry, password flag, permissions
+    and access count. Use its `id` with the share update and delete routes.
+    """
     _require_admin_session(vueio_session)
 
     total = db.query(ShareLink).count()
@@ -187,7 +233,7 @@ def list_all_shares(
     return {'shares': result, 'total': total, 'limit': limit, 'offset': offset}
 
 
-@router.get('/api/admin/download-events')
+@router.get('/api/admin/download-events', summary='List download events')
 def get_admin_download_events(
     limit: int = 100,
     project_id: str | None = None,
@@ -195,12 +241,23 @@ def get_admin_download_events(
     vueio_session: str | None = Cookie(None),
     db: Session = Depends(get_db),
 ):
+    """List the download history, newest first.
+
+    `limit` is 1 to 500. Use `project_id` or `share_id` to see only the
+    downloads of one project or one share link. Each event has the person,
+    source, resource, file name, size and status.
+    """
     _require_admin_session(vueio_session)
     return list_download_events(db, limit=limit, project_id=project_id, share_id=share_id)
 
 
-@router.put('/api/admin/shares/{share_id}')
+@router.put('/api/admin/shares/{share_id}', summary='Update a share link')
 def update_share(share_id: str, data: ShareUpdate, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Change the expiry, password, active state or permissions of a share link.
+
+    Fields that you leave out keep their value. On a file request share, upload
+    stays on and download stays off.
+    """
     _require_admin_session(vueio_session)
 
     share = db.query(ShareLink).filter(ShareLink.id == share_id).first()
@@ -220,8 +277,9 @@ def update_share(share_id: str, data: ShareUpdate, vueio_session: str | None = C
     return {'status': 'updated'}
 
 
-@router.delete('/api/admin/shares/{share_id}')
+@router.delete('/api/admin/shares/{share_id}', summary='Delete a share link')
 def delete_share(share_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Delete a share link. The link stops working. This is permanent."""
     _require_admin_session(vueio_session)
 
     share = db.query(ShareLink).filter(ShareLink.id == share_id).first()
@@ -235,7 +293,7 @@ def delete_share(share_id: str, vueio_session: str | None = Cookie(None), db: Se
 
 @router.get('/api/admin/agent-keys')
 def get_admin_agent_keys(vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    _require_admin_session(vueio_session)
+    _require_admin_person(vueio_session)
     users = load_users()
     return {
         'keys': [
@@ -250,7 +308,7 @@ def get_admin_agent_keys(vueio_session: str | None = Cookie(None), db: Session =
 
 @router.post('/api/admin/agent-keys')
 def post_admin_agent_key(data: AgentKeyCreate, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    user = _require_admin_session(vueio_session)
+    user = _require_admin_person(vueio_session)
     users = load_users()
     if data.user_id is not None and data.user_id not in users:
         raise HTTPException(status_code=400, detail='Agent key user not found')
@@ -266,7 +324,7 @@ def post_admin_agent_key(data: AgentKeyCreate, vueio_session: str | None = Cooki
 
 @router.put('/api/admin/agent-keys/{key_id}')
 def put_admin_agent_key(key_id: str, data: AgentKeyUpdate, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    _require_admin_session(vueio_session)
+    _require_admin_person(vueio_session)
     users = load_users()
     if data.user_id is not None and data.user_id not in users:
         raise HTTPException(status_code=400, detail='Agent key user not found')
@@ -281,7 +339,7 @@ def put_admin_agent_key(key_id: str, data: AgentKeyUpdate, vueio_session: str | 
 
 @router.post('/api/admin/agent-keys/{key_id}/reissue')
 def post_admin_agent_key_reissue(key_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    _require_admin_session(vueio_session)
+    _require_admin_person(vueio_session)
     users = load_users()
     record, token = reissue_agent_key(db, key_id)
     return {
@@ -295,7 +353,7 @@ def post_admin_agent_key_reissue(key_id: str, vueio_session: str | None = Cookie
 
 @router.post('/api/admin/agent-keys/{key_id}/revoke')
 def post_admin_agent_key_revoke(key_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    _require_admin_session(vueio_session)
+    _require_admin_person(vueio_session)
     users = load_users()
     record = revoke_agent_key(db, key_id)
     return {
@@ -308,7 +366,7 @@ def post_admin_agent_key_revoke(key_id: str, vueio_session: str | None = Cookie(
 
 @router.delete('/api/admin/agent-keys/{key_id}')
 def delete_admin_agent_key(key_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
-    _require_admin_session(vueio_session)
+    _require_admin_person(vueio_session)
     delete_agent_key(db, key_id)
     return {'status': 'deleted', 'id': key_id}
 
@@ -429,8 +487,14 @@ def reset_transcodes(vueio_session: str | None = Cookie(None), db: Session = Dep
     return clear_transcode_cache(db)
 
 
-@router.post('/api/admin/projects/{project_id}/media-warmup')
+@router.post('/api/admin/projects/{project_id}/media-warmup', summary='Prepare project review media')
 def warm_project_review_media(project_id: str, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Prepare streaming video and thumbnails for each shot's latest version.
+
+    Only video files are prepared. The work runs in the background. The result
+    gives the number of latest-version files, of videos sent to streaming
+    preparation, and of thumbnails queued.
+    """
     _require_admin_session(vueio_session)
     get_horizon_project(db, project_id)
 
@@ -465,15 +529,21 @@ def warm_project_review_media(project_id: str, vueio_session: str | None = Cooki
     return {'status': 'queued', 'assets': len(assets), 'hls': hls_count, 'thumbnails': thumbnail_count}
 
 
-@router.put('/api/admin/theme')
+@router.put('/api/admin/theme', summary='Set the app theme')
 def put_admin_theme(data: ThemeUpdate, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Set the app color theme for everyone.
+
+    This replaces the whole saved theme. Colors that you leave out go back to
+    their default value.
+    """
     user = _require_admin_session(vueio_session)
     record = save_app_theme(db, data.colors, updated_by=user['id'])
     return serialize_app_theme(record)
 
 
-@router.delete('/api/admin/theme')
+@router.delete('/api/admin/theme', summary='Reset the app theme')
 def delete_admin_theme(vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
+    """Reset the app color theme to the default colors for everyone."""
     user = _require_admin_session(vueio_session)
     record = reset_app_theme(db, updated_by=user['id'])
     return serialize_app_theme(record)

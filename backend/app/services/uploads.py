@@ -115,10 +115,13 @@ def _public_client_batch_id(batch_id: str, client_key: str | None) -> str:
 
 
 def _transaction_lock(db: Session, key: str) -> None:
-    """Serialize a small critical section when PostgreSQL is available."""
+    """Lock before reading upload state, including before touching staging files."""
     bind = db.get_bind()
     if bind.dialect.name == 'postgresql':
         db.execute(text('SELECT pg_advisory_xact_lock(hashtext(:key))'), {'key': key})
+    elif bind.dialect.name == 'sqlite':
+        # A no-op write takes SQLite's writer lock for this transaction.
+        db.execute(text('UPDATE upload_sessions SET updated_at = updated_at WHERE 0'))
 
 
 def _enforce_public_upload_concurrency(
@@ -160,21 +163,21 @@ def _enforce_public_share_allocation(db: Session, *, share_id: str | None, addit
         raise HTTPException(status_code=413, detail='This file request has reached its configured upload limit')
 
 
-async def read_limited_upload_chunk(request: Request) -> bytes:
+async def read_limited_upload_chunk(request: Request, *, max_bytes: int = UPLOAD_MAX_CHUNK_SIZE) -> bytearray:
     """Read one resumable-upload chunk without buffering an unbounded body."""
     content_length = request.headers.get('content-length')
     if content_length:
         try:
-            if int(content_length) > UPLOAD_MAX_CHUNK_SIZE:
+            if int(content_length) > max_bytes:
                 raise HTTPException(status_code=413, detail='Chunk too large')
         except ValueError as exc:
             raise HTTPException(status_code=400, detail='Invalid Content-Length') from exc
     body = bytearray()
     async for part in request.stream():
-        if len(body) + len(part) > UPLOAD_MAX_CHUNK_SIZE:
+        if len(body) + len(part) > max_bytes:
             raise HTTPException(status_code=413, detail='Chunk too large')
         body.extend(part)
-    return bytes(body)
+    return body
 
 
 def validate_uploader_name(value: str | None) -> str:
@@ -735,6 +738,7 @@ def append_upload_chunk(
     root_dir: Path,
     offset: int,
     chunk: bytes,
+    max_chunk_bytes: int = UPLOAD_MAX_CHUNK_SIZE,
 ) -> tuple[UploadSession, list[UploadItem], UploadItem]:
     _transaction_lock(db, f'upload-session:{session.id}')
     _transaction_lock(db, f'upload-item:{item.id}')
@@ -748,9 +752,9 @@ def append_upload_chunk(
         return session, items, item
     if item.status == 'canceled':
         raise HTTPException(status_code=409, detail='Upload item was canceled')
-    if item.size_bytes and len(chunk) > UPLOAD_MAX_CHUNK_SIZE:
+    if item.size_bytes and len(chunk) > max_chunk_bytes:
         raise HTTPException(status_code=413, detail='Upload chunk is too large')
-    if not chunk:
+    if not chunk and offset != item.size_bytes:
         raise HTTPException(status_code=400, detail='Upload chunk cannot be empty')
 
     temp_path = Path(item.temp_path or _create_temp_path(_target_path_for_item(root_dir, item.final_path or join_upload_path(session.base_path, item.rel_path)), item.id))
@@ -882,6 +886,71 @@ def create_authorized_upload_session(
         project_id=scope.project_id,
         owner_user_id=scope.owner_user_id,
         client_key=client_key,
+    )
+
+
+def resolve_project_upload_base_path(db: Session, project_id: str, user: dict, access_role: str, target_path: str | None) -> str:
+    """Return a person's upload folder in a project. Review-only Members upload only into their workspace."""
+    from app.services.horizons.team import ensure_horizon_project_user_workspace
+    from app.services.user_access import is_restricted_project_member
+
+    normalized_target_path = (target_path or '').strip().strip('/')
+    if is_restricted_project_member(user):
+        workspace_path = ensure_horizon_project_user_workspace(db, project_id, user)
+        if not normalized_target_path:
+            normalized_target_path = workspace_path
+        if normalized_target_path != workspace_path and not normalized_target_path.startswith(f'{workspace_path}/'):
+            raise HTTPException(status_code=403, detail='Members with review access can only upload into their workspace')
+    elif access_role not in {'admin', 'owner', 'editor'}:
+        raise HTTPException(status_code=403, detail='Editor access required')
+    return normalized_target_path
+
+
+def revalidate_project_upload_write_access(db: Session, *, project_id: str, user: dict, access_role: str, session: UploadSession) -> None:
+    session_base_path = (session.base_path or '').strip().strip('/')
+    if resolve_project_upload_base_path(db, project_id, user, access_role, session_base_path) != session_base_path:
+        raise HTTPException(status_code=403, detail='Upload target is no longer authorized')
+
+
+def project_upload_scope(db: Session, project_id: str, user: dict, base_path: str = '') -> AuthorizedUploadScope:
+    from app.services.horizons.projects import ensure_horizon_project_runtime_dir
+
+    return AuthorizedUploadScope(
+        scope_type=UPLOAD_SCOPE_PROJECT,
+        root_dir=ensure_horizon_project_runtime_dir(db, project_id).resolve(),
+        base_path=base_path,
+        project_id=project_id,
+        owner_user_id=user.get('id'),
+    )
+
+
+def create_project_upload_session(
+    db: Session,
+    *,
+    project_id: str,
+    user: dict,
+    access_role: str,
+    target_path: str | None,
+    uploader_name: str,
+    client_batch_id: str,
+    manifest: list[dict],
+) -> tuple[UploadSession, list[UploadItem]]:
+    from app.services.project_access import verify_path_in_project
+
+    base_path = resolve_project_upload_base_path(db, project_id, user, access_role, target_path)
+    scope = project_upload_scope(db, project_id, user, base_path)
+    target_dir = scope.root_dir / base_path if base_path else scope.root_dir
+    verify_path_in_project(target_dir, scope.root_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    make_project_path_smb_mutable(target_dir)
+    if not os.access(target_dir, os.W_OK):
+        raise HTTPException(status_code=403, detail='Upload target is not writable by the server')
+    return create_authorized_upload_session(
+        db,
+        scope,
+        uploader_name=validate_uploader_name(uploader_name),
+        client_batch_id=client_batch_id,
+        manifest=manifest,
     )
 
 

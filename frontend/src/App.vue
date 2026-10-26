@@ -371,6 +371,7 @@ const {
 const {
   isViewingVideo,
   getThumbnailUrl,
+  getScrubPreviewUrl,
   isProjectRenderPath,
   isProjectScopedPath,
   getProjectThumbnailUrl,
@@ -851,6 +852,7 @@ trackerControllerContext.presentation = {
   getMediaDurationLabel: (...args) => getMediaDurationLabel(...args),
   getShotDurationLabel,
   getThumbnailUrl,
+  getScrubPreviewUrl,
   isAdmin,
   isBriefPreviewEmpty,
   isLatestPreviewEmpty,

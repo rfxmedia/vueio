@@ -1,5 +1,6 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import api, { getApiErrorDetail, getApiErrorMessage } from '../lib/api'
+import { getBrowserResourceRefs } from '../lib/browserResourceRefs'
 import { getMediaKind, mediaEntitiesMatch } from '../lib/mediaEntity'
 import { formatVersionDateLabel, formatVersionDateShortLabel } from '../utils/formatters'
 import { formatVersionLabel } from '../utils/versionLabels'
@@ -271,7 +272,8 @@ export function useTrackerViewerController({
     const url = buildDownloadUrl(downloadTarget)
     const link = document.createElement('a')
     link.href = url
-    link.download = downloadTarget.name
+    // The server names shot versions after the tracker, such as "glow shot_V8.mov".
+    link.download = getBrowserResourceRefs(downloadTarget).shotVersionId ? '' : downloadTarget.name
     document.body.appendChild(link)
     link.click()
     link.remove()

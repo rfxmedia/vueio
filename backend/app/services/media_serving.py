@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.services.hls_streaming import get_hls_asset_response, get_hls_manifest_response, get_hls_status, get_hls_thumbnail_source
 from app.services.media import THUMBNAIL_WIDTH, build_thumbnail_response, thumbnail_placeholder_response
 from app.services.media_resolution import generated_thumbnail_cache_path_for_identity
+from app.services.scrub_sprites import scrub_sprite_response
 from app.services.streaming import stream_file_response
 from app.services.upload_payloads import read_bounded_upload, require_valid_image
 from app.services.download_audit import create_download_event
@@ -285,6 +286,12 @@ def get_object_hls_asset(resolve_payload: ResolveObjectPayload, *, asset_path: s
     )
 
 
+def get_object_scrub_sprite(resolve_payload: ResolveObjectPayload, db: Session):
+    full_path, cache_key, _payload = resolve_payload()
+    db.close()
+    return scrub_sprite_response(full_path, cache_key)
+
+
 def get_object_thumbnail(resolve_payload: ResolveObjectPayload, db: Session, *, not_found_detail: str, queue_missing: bool = True):
     full_path, cache_key, _payload = resolve_payload()
     db.close()
@@ -299,17 +306,24 @@ def get_object_thumbnail(resolve_payload: ResolveObjectPayload, db: Session, *, 
 
 async def set_object_thumbnail(resolve_payload: ResolveObjectPayload, *, file, not_found_detail: str):
     full_path, cache_key, _payload = resolve_payload()
-    _require_existing_file(full_path, detail=not_found_detail)
-    if not cache_key:
-        raise HTTPException(status_code=409, detail='Thumbnail target is missing a cache identity')
-
+    require_thumbnail_target(full_path, cache_key, not_found_detail=not_found_detail)
     contents = await read_bounded_upload(
         file,
         max_bytes=MAX_CUSTOM_THUMBNAIL_BYTES,
         empty_detail='Thumbnail image is empty',
         too_large_detail='Thumbnail image is too large',
     )
+    return save_object_thumbnail(cache_key, contents)
 
+
+def require_thumbnail_target(full_path: Path | None, cache_key: str | None, *, not_found_detail: str) -> None:
+    _require_existing_file(full_path, detail=not_found_detail)
+    if not cache_key:
+        raise HTTPException(status_code=409, detail='Thumbnail target is missing a cache identity')
+
+
+def save_object_thumbnail(cache_key: str, contents: bytes) -> dict:
+    """Store an image as the custom thumbnail of a media object."""
     require_valid_image(contents, detail='Thumbnail image is invalid')
     image = Image.open(BytesIO(contents))
     image = ImageOps.exif_transpose(image)
