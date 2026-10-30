@@ -2,7 +2,7 @@
 
 [Documentation home](README.md) · [Quick start](GETTING_STARTED.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
-This guide covers **v0.1.0-alpha.13** on an installer-managed host.
+This guide covers **Vueio 1.0 alpha** on an installer-managed host.
 Docker Compose runs the website, media engine, and PostgreSQL database on one host.
 Read the [release notes](https://github.com/rfxmedia/vueio/releases/latest) before installation or an update.
 
@@ -18,7 +18,7 @@ Intel Mac and native Windows installers are not supported.
 The alpha does not provide Kubernetes, clusters, high availability, Podman support, or a built-in internet tunnel.
 Hardware acceleration is optional. CPU processing is the default.
 
-Use trusted users and media. Alpha.13 includes known third-party security advisories described in its release notes.
+Use trusted users and media. Each release lists its known third-party security advisories in its release notes.
 An installation check does not establish security or reliability in every environment.
 Keep independent database and file backups.
 
@@ -267,7 +267,7 @@ Selecting a drive in Vue.io does not bypass macOS privacy or file-sharing permis
 The host helper runs as the Mac user through a LaunchAgent.
 Its authenticated endpoint is local; do not expose it to the network.
 
-Mac support remains experimental in alpha.13.
+Mac support remains experimental in 1.0 alpha.
 Sleep/wake, login startup, and the complete upgrade path are unverified.
 Do not assume that a sleeping or logged-out laptop remains a server.
 Use test media and check USB reconnection, data-drive loss, backup, and restore on your actual Mac.
@@ -516,7 +516,7 @@ Database backups are not a complete host backup.
 
 ## Upload safety limits
 
-These are alpha.13 defaults for the released Compose configuration.
+These are the 1.0 alpha defaults for the released Compose configuration.
 GiB, MiB, and TiB are binary units.
 
 | Limit | Default |

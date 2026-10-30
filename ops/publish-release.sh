@@ -4,7 +4,7 @@ set -Eeuo pipefail
 PROGRAM=${0##*/}
 STABLE_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)$'
 NIGHTLY_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-alpha\.(0|[1-9][0-9]*)\.dev\.(0|[1-9][0-9]*)$'
-RELEASE_SERIES=${VUEIO_RELEASE_SERIES:-v0.1.0-alpha}
+RELEASE_SERIES=${VUEIO_RELEASE_SERIES:-v1.0.0-alpha}
 
 die() {
   printf 'Error: %s\n' "$*" >&2
@@ -65,7 +65,7 @@ if [[ $RELEASE_SERIES.0 =~ $STABLE_PATTERN ]]; then
   series_minor=${BASH_REMATCH[2]}
   series_patch=${BASH_REMATCH[3]}
 else
-  die "VUEIO_RELEASE_SERIES must look like v0.1.0-alpha"
+  die "VUEIO_RELEASE_SERIES must look like v1.0.0-alpha"
 fi
 
 if ! git diff --quiet || ! git diff --cached --quiet; then

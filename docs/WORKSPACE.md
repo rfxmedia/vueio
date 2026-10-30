@@ -13,7 +13,7 @@ Changing project status does not publish shot versions.
 
 Administrators can use **Search workspace** to find projects, trackers, and files.
 Enter at least two characters and select a result.
-This global search control is not available to members or share visitors in alpha.13.
+This global search control is not available to members or share visitors in this release.
 Use project navigation and tracker filters for those accounts.
 
 ## Add team members

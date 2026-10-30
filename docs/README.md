@@ -18,7 +18,7 @@ and deliver files from storage you control.
 
 ## Version covered
 
-These guides describe **v0.1.0-alpha.13**. Check your installed version in **Settings → Updates**.
+These guides describe **Vueio 1.0 alpha**. Check your installed version in **Settings → Updates**.
 Read the release notes if your version differs.
 
 ## Before using the alpha

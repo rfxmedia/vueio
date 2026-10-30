@@ -36,7 +36,7 @@ The host, media storage, and network must remain available.
 
 A password protects entry to the link. It does not identify a particular person.
 Anyone who receives the link and password can use them until access ends.
-Disabling downloads restricts source-file downloads. It does not disable frame capture in alpha.13.
+Disabling downloads restricts source-file downloads. It does not disable frame capture in this release.
 It also cannot prevent screen recording or copying displayed material.
 
 ## Review as a recipient

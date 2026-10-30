@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="dark"><meta name="description" content="Vue.io documentation. A free, self-hosted alternative to Frame.io for review, version history, shot tracking, and delivery."><title>Administrator reference · Vue.io Docs</title><link rel="stylesheet" href="site.css"><script src="site.js" defer></script></head>
 <body><a class="skip" href="#content">Skip to content</a><header class="topbar"><a class="brand" href="index.html" aria-label="Vue.io documentation home"><span>v</span>vue.io</a><span class="divider"></span><span class="toplabel">Documentation</span><div class="toplinks"><span class="tag">PUBLIC ALPHA</span><a class="release-link" href="https://github.com/rfxmedia/vueio/releases">Releases ↗</a><a href="https://github.com/rfxmedia/vueio">GitHub ↗</a><button class="menu-toggle" aria-controls="sidebar" aria-expanded="false" aria-label="Toggle documentation navigation">Menu</button></div></header>
-<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="workspace.html" >Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" aria-current="page">Administrator reference</a></nav><div class="side-note">Guide version<br>v0.1.0-alpha.13<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
+<div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="workspace.html" >Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" aria-current="page">Administrator reference</a></nav><div class="side-note">Guide version<br>1.0 alpha<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
 <main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="self-hosting-vueio-alpha">Self-hosting Vue.io alpha</h1>
 <p><a href="index.html">Documentation home</a> · <a href="get-started.html">Quick start</a> · <a href="troubleshooting.html">Troubleshooting</a></p>
-<p>This guide covers <strong>v0.1.0-alpha.13</strong> on an installer-managed host.
+<p>This guide covers <strong>Vueio 1.0 alpha</strong> on an installer-managed host.
 Docker Compose runs the website, media engine, and PostgreSQL database on one host.
 Read the <a href="https://github.com/rfxmedia/vueio/releases/latest">release notes</a> before installation or an update.</p>
 <h2 id="alpha-support-boundary">Alpha support boundary</h2>
@@ -16,7 +16,7 @@ Configure HTTPS separately for remote access.</p>
 Intel Mac and native Windows installers are not supported.
 The alpha does not provide Kubernetes, clusters, high availability, Podman support, or a built-in internet tunnel.
 Hardware acceleration is optional. CPU processing is the default.</p>
-<p>Use trusted users and media. Alpha.13 includes known third-party security advisories described in its release notes.
+<p>Use trusted users and media. Each release lists its known third-party security advisories in its release notes.
 An installation check does not establish security or reliability in every environment.
 Keep independent database and file backups.</p>
 <h2 id="before-you-install">Before you install</h2>
@@ -232,7 +232,7 @@ It opens Docker Desktop when needed and opens browser setup when ready.</p>
 Selecting a drive in Vue.io does not bypass macOS privacy or file-sharing permissions.
 The host helper runs as the Mac user through a LaunchAgent.
 Its authenticated endpoint is local; do not expose it to the network.</p>
-<p>Mac support remains experimental in alpha.13.
+<p>Mac support remains experimental in 1.0 alpha.
 Sleep/wake, login startup, and the complete upgrade path are unverified.
 Do not assume that a sleeping or logged-out laptop remains a server.
 Use test media and check USB reconnection, data-drive loss, backup, and restore on your actual Mac.
@@ -471,7 +471,7 @@ Set <code>VUEIO_BACKUP_KEEP</code> to a positive count when invoking the control
 A manual archive outside the managed backup directory is not included in that pruning.
 Database backups are not a complete host backup.</p>
 <h2 id="upload-safety-limits">Upload safety limits</h2>
-<p>These are alpha.13 defaults for the released Compose configuration.
+<p>These are the 1.0 alpha defaults for the released Compose configuration.
 GiB, MiB, and TiB are binary units.</p>
 <table>
 <thead>
@@ -601,5 +601,5 @@ Rollback restores the newest pre-update database backup and selects its matching
 <strong>Database changes after that backup are lost.</strong>
 Current uploads, attachments, application files, and project media remain unchanged.
 Rollback does not restore or remove those files.</p>
-<footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/SELF_HOSTING.md">View this guide on GitHub ↗</a></footer></main>
+<footer class="page-footer"><span>Guide version: 1.0 alpha · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/SELF_HOSTING.md">View this guide on GitHub ↗</a></footer></main>
 <aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#alpha-support-boundary">Alpha support boundary</a><a href="#before-you-install">Before you install</a><a href="#install">Install</a><a href="#storage">Storage</a><a href="#mac-installer-preview">Mac installer preview</a><a href="#preview-processing">Preview processing</a><a href="#voice-note-transcription">Voice note transcription</a><a href="#internet-exposure">Internet exposure</a><a href="#operations">Operations</a><a href="#automatic-folder-updates">Automatic folder updates</a><a href="#workspace-preview-luts">Workspace preview LUTs</a><a href="#backups-and-restores">Backups and restores</a><a href="#upload-safety-limits">Upload safety limits</a><a href="#updates">Updates</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
