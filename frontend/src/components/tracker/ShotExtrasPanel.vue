@@ -104,7 +104,17 @@
           </button>
           <template v-if="slot.file">
             <button
-              v-if="canCopyFilePaths"
+              v-if="canViewShotExtra(slot.file)"
+              type="button"
+              class="extras-panel-icon-btn"
+              :aria-label="`View ${slot.name}`"
+              title="View"
+              @click="open(slot)"
+            >
+              <svg class="icon"><use href="#icon-play" /></svg>
+            </button>
+            <button
+              v-if="canCopyFilePaths && !shareMode"
               type="button"
               class="extras-panel-icon-btn"
               :aria-label="`Copy the path of ${slot.name}`"
@@ -115,6 +125,7 @@
               <svg class="icon"><use href="#icon-copy" /></svg>
             </button>
             <button
+              v-if="canDownload"
               type="button"
               class="extras-panel-icon-btn"
               :disabled="slot.file.exists === false"
@@ -162,9 +173,9 @@
       </li>
     </ol>
 
-    <footer class="extras-panel-foot">
-      <span>{{ slots.length > 1 ? 'Extras with the same name are numbered in this order.' : 'A new version starts with this extra needed.' }}</span>
-      <button v-if="filledCount" type="button" class="v-btn v-btn-primary v-btn-sm" @click="downloadShotVersionPackage(shot, version); emit('close')">
+    <footer v-if="!shareMode || (filledCount && canDownload)" class="extras-panel-foot">
+      <span v-if="!shareMode">{{ slots.length > 1 ? 'Extras with the same name are numbered in this order.' : 'A new version starts with this extra needed.' }}</span>
+      <button v-if="filledCount && canDownload" type="button" class="v-btn v-btn-primary v-btn-sm" @click="downloadShotVersionPackage(shot, version); emit('close')">
         <svg class="icon"><use href="#icon-download" /></svg>Download {{ versionLabel }} with extras
       </button>
     </footer>
@@ -204,6 +215,8 @@ const {
   openShotExtra,
   prefetchExtraPath,
   removeExtra,
+  shareMode,
+  showShotDownloads,
   updateExtra,
 } = useTrackerStore()
 
@@ -218,6 +231,8 @@ const failedThumbs = reactive({})
 const versionLabel = computed(() => (props.version ? formatVersionLabel(props.version) : 'this version'))
 const slots = computed(() => getExtraSlots(props.shot, props.version))
 const filledCount = computed(() => slots.value.filter(slot => slot.file).length)
+// Share links can turn downloads off; the team can always download.
+const canDownload = computed(() => !shareMode.value || showShotDownloads.value)
 const summary = computed(() => {
   const needed = slots.value.length - filledCount.value
   const files = `${filledCount.value} ${filledCount.value === 1 ? 'file' : 'files'}`
@@ -456,13 +471,20 @@ function remove(slot) {
   font-weight: 650;
 }
 
+/* When space is short, the note gives way before the name. */
 .extras-panel-name > span:first-child {
+  flex: 0 1 auto;
+  min-width: 4ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .extras-panel-note {
+  flex: 0 10000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--v-text-dim);
   font-weight: 500;
   white-space: nowrap;
@@ -630,9 +652,41 @@ function remove(slot) {
   font-size: var(--v-text-xs);
 }
 
+.extras-panel-foot > .v-btn {
+  margin-left: auto;
+}
+
 @media (hover: none) {
   .extras-panel-name .extras-panel-icon-btn {
     opacity: 1;
+  }
+}
+
+/* On phones the actions take their own line under each extra, so names stay readable. */
+@media (max-width: 640px) {
+  .extras-panel-row {
+    grid-template-columns: auto 64px minmax(0, 1fr);
+    row-gap: 6px;
+  }
+
+  .extras-panel-actions {
+    grid-column: 2 / -1;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .extras-panel-icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+
+  .extras-panel-order button {
+    width: 28px;
+    height: 24px;
+  }
+
+  .extras-panel-foot {
+    flex-wrap: wrap;
   }
 }
 </style>

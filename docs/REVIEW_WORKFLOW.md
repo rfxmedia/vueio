@@ -65,16 +65,16 @@ Keep a separate source file for each revision. Overwriting that file does not pr
 An extra is a file that goes with a shot version, such as an alpha matte, a holdout matte, a clean plate, an element, or a reference.
 The extra belongs to the shot. Each version has its own file for it.
 
-1. Select **Add an extra** on the shot card, or **Add → Add files** in the **Extras** row.
+1. Select **Add an extra** on the shot card. If the shot has extras, select its **Extras** row, then **Add**.
 2. Drop the files, or select **Upload from computer** or **Choose project files**.
 3. Select what each file is, or type a name. Add a note if needed, such as Window.
 4. Select **Add 2 extras**. The button shows the number of files.
 
 You can also drop files on a shot card. Drop a file on a **Needed** extra to give the file to that extra.
-To ask for a file that does not exist yet, select **Add → Ask for an extra**. The extra shows **Needed** until it gets a file.
+To ask for a file that does not exist yet, select **Ask for** in the **Extras** panel. The extra shows **Needed** until it gets a file.
 
 When a shot gets a new version, its extras stay. Each one shows **Needed** for the new version.
-Select a needed extra to upload a file, choose a project file, or use the file of an earlier version.
+In the **Extras** panel, a needed extra lets you upload a file, choose a project file, or use the file of an earlier version.
 Adding an extra never replaces another one. To change a file, select **Replace file** on that extra.
 
 Downloads name each extra after the shot and version, such as `SH010_V3_Alpha matte.mov`.
@@ -83,7 +83,8 @@ Extras with the same name get numbers: `Alpha matte 1`, `Alpha matte 2`.
 Each extra has its own client visibility. A reference starts as team only; the other types start visible to clients.
 Share visitors see an extra only on a published version.
 
-Select the arrow at the end of the **Extras** row to rename, reorder, replace, download, or remove extras.
+The **Extras** row on the card shows the extras of the latest version. Select the row to open the **Extras** panel.
+In the panel, you can view, download, rename, reorder, replace, or remove extras.
 Assigned artists can add extras with files, and give files to needed extras.
 They cannot ask for an extra, rename it, change its visibility, or remove it.
 

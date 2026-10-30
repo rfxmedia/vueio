@@ -47,7 +47,7 @@ Enter a name if Vue.io asks for one. A visitor-supplied name is not a verified a
 Viewer tools depend on the share target, media type, and tracker settings.
 
 Extras, such as mattes, show on the shot when the team lets clients see them.
-Select an extra to open or download it.
+Select the **Extras** row of a shot to view or download its extras.
 
 If a new version is missing, ask the owner to check its publication state.
 **Awaiting publication** and **Internal** versions do not appear in shares.
