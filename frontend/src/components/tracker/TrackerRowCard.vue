@@ -219,7 +219,7 @@
             </svg>
           </span>
         </button>
-        <TrackerShotExtras :shot="shot" />
+        <TrackerShotExtras :shot="shot" :stacked="isMobileCard" />
       </div>
     </div>
 
@@ -557,8 +557,8 @@ const latestCommentCount = computed(() => {
 /* ─── Card shell ─────────────────────────────────────────── */
 .tracker-row-card {
   --tracker-row-thumb-width: 296px;
-  --trc-mobile-brief-height: 48px;
-  --trc-mobile-note-height: 54px;
+  /* Brief, Latest notes and Extras share one height on stacked cards. */
+  --trc-mobile-row-height: 54px;
   --trc-mobile-copy-line-height: 16px;
   --tracker-row-status-border: var(--v-surface-border-strong);
   --tracker-row-status-border-hover: color-mix(in srgb, var(--tracker-row-status-surface) 88%, white);
@@ -1753,10 +1753,10 @@ const latestCommentCount = computed(() => {
     margin: 0;
     width: auto;
     padding: 6px 12px 4px 8px;
-    gap: 10px;
-    height: var(--trc-mobile-brief-height);
-    min-height: var(--trc-mobile-brief-height);
-    max-height: var(--trc-mobile-brief-height);
+    gap: 8px;
+    height: var(--trc-mobile-row-height);
+    min-height: var(--trc-mobile-row-height);
+    max-height: var(--trc-mobile-row-height);
     border: 0;
     border-radius: 0;
     overflow: hidden;
@@ -1806,9 +1806,9 @@ const latestCommentCount = computed(() => {
     margin: 0;
     width: auto;
     padding: 4px 12px 6px 8px;
-    height: var(--trc-mobile-note-height);
-    min-height: var(--trc-mobile-note-height);
-    max-height: var(--trc-mobile-note-height);
+    height: var(--trc-mobile-row-height);
+    min-height: var(--trc-mobile-row-height);
+    max-height: var(--trc-mobile-row-height);
     border: 0;
     border-radius: 0;
     box-shadow: none;

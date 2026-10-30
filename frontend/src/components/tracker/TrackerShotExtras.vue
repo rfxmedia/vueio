@@ -17,7 +17,7 @@
         v-bind="triggerProps"
         type="button"
         class="trc-extras"
-        :class="{ 'is-open': panelOpen }"
+        :class="{ 'is-open': panelOpen, 'is-stacked': stacked }"
         :aria-label="`Open the extras of ${shot.shot_id}: ${summary}`"
         @click.stop="panelOpen = !panelOpen"
       >
@@ -27,7 +27,7 @@
         </span>
         <div class="trc-extras-main">
           <span class="trc-extras-tag">Extras</span>
-          <span class="trc-extras-chips" aria-hidden="true">
+          <span ref="chipsRef" class="trc-extras-chips" :class="{ 'is-overflowing': overflowing }" aria-hidden="true">
             <template v-for="slot in slots" :key="slot.id">
               <span
                 v-if="slot.file"
@@ -71,13 +71,15 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useTrackerStore } from '../../ownership/tracker'
 import { VMenu } from '../primitives'
 import ShotExtrasPanel from './ShotExtrasPanel.vue'
 
 const props = defineProps({
   shot: { type: Object, required: true },
+  // Phones and grid cards stack the label above the chips, like the Brief row.
+  stacked: { type: Boolean, default: false },
 })
 
 const {
@@ -89,6 +91,8 @@ const {
 
 const panelOpen = ref(false)
 const failedThumbs = reactive({})
+const chipsRef = ref(null)
+const overflowing = ref(false)
 
 const version = computed(() => props.shot?.versions?.at(-1) || null)
 const slots = computed(() => getExtraSlots(props.shot, version.value))
@@ -109,6 +113,26 @@ function uploadFor(slot) {
 function thumbnail(slot) {
   return failedThumbs[slot.id] ? '' : getExtraThumbnailUrl(version.value, slot.file)
 }
+
+// The row keeps one line of chips. When they run past its end, the end
+// fades out to show that the panel has more.
+function measureOverflow() {
+  const el = chipsRef.value
+  overflowing.value = Boolean(el && el.scrollWidth > el.clientWidth + 1)
+}
+
+let resizeObserver = null
+watch(chipsRef, el => {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+  if (el && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(measureOverflow)
+    resizeObserver.observe(el)
+  }
+  measureOverflow()
+})
+watch([slots, newUploads], () => nextTick(measureOverflow), { deep: true })
+onBeforeUnmount(() => resizeObserver?.disconnect())
 </script>
 
 <style scoped>
@@ -118,6 +142,7 @@ function thumbnail(slot) {
 }
 
 /* Looks and behaves like the Brief and Latest notes rows above it. */
+/* Always the height of the Brief and Latest notes rows: 22px chips plus padding make 33px. */
 .trc-extras {
   position: relative;
   display: grid;
@@ -125,7 +150,7 @@ function thumbnail(slot) {
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 34px;
+  height: 33px;
   padding: 5px 12px 6px 10px;
   border: 0;
   border-radius: 0;
@@ -204,9 +229,15 @@ function thumbnail(slot) {
 
 .trc-extras-chips {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
+}
+
+.trc-extras-chips.is-overflowing {
+  -webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 40px), transparent 100%);
+          mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 40px), transparent 100%);
 }
 
 .trc-open-hint {
@@ -241,12 +272,12 @@ function thumbnail(slot) {
 /* Chips only preview the extras; the row is what you click. */
 .extra-chip {
   position: relative;
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  max-width: 100%;
-  height: 26px;
-  padding: 0 9px 0 3px;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px 0 3px;
   border-radius: var(--v-radius-sm);
   background: var(--v-surface-inline);
   box-shadow: inset 0 0 0 1px var(--v-surface-border-soft);
@@ -263,8 +294,8 @@ function thumbnail(slot) {
 }
 
 .extra-chip-thumb {
-  width: 34px;
-  height: 20px;
+  width: 28px;
+  height: 16px;
   flex: none;
   display: inline-flex;
   align-items: center;
@@ -290,19 +321,7 @@ function thumbnail(slot) {
   height: 12px;
 }
 
-/* When a chip is short of space, the note gives way before the name. */
-.extra-chip-name {
-  flex: 0 1 auto;
-  min-width: 4ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .extra-chip-note {
-  flex: 0 10000 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--v-text-dim);
   font-weight: 500;
 }
@@ -328,7 +347,7 @@ function thumbnail(slot) {
 }
 
 .extra-chip.is-needed {
-  padding: 0 9px;
+  padding: 0 8px;
   border: 1px dashed color-mix(in srgb, var(--v-warning) 55%, transparent);
   background: transparent;
   box-shadow: none;
@@ -341,7 +360,7 @@ function thumbnail(slot) {
 }
 
 .extra-chip.is-uploading {
-  padding: 0 9px;
+  padding: 0 8px;
   color: var(--v-text);
 }
 
@@ -352,25 +371,27 @@ function thumbnail(slot) {
   pointer-events: none;
 }
 
-/* On phones the label sits above the chips, as in the Brief row. */
-@media (max-width: 768px) {
-  .trc-extras {
-    grid-template-columns: var(--trc-lead-width, 36px) minmax(0, 1fr);
-    align-items: start;
-    padding: 8px 12px 8px 8px;
-  }
+/* Stacked: the label sits above one line of chips, at the shared height
+   of the Brief and Latest notes rows on these cards. */
+.trc-extras.is-stacked {
+  grid-template-columns: var(--trc-lead-width, 36px) minmax(0, 1fr);
+  align-items: stretch;
+  height: var(--trc-mobile-row-height, 54px);
+  padding: 4px 12px 6px 8px;
+}
 
-  .trc-extras-lead {
-    height: 20px;
-  }
+.trc-extras.is-stacked .trc-extras-lead {
+  align-self: center;
+}
 
-  .trc-extras-main {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 6px;
-  }
+.trc-extras.is-stacked .trc-extras-main {
+  grid-template-columns: minmax(0, 1fr);
+  align-content: center;
+  gap: 5px;
+  min-height: 0;
+}
 
-  .trc-open-hint {
-    display: none;
-  }
+.trc-extras.is-stacked .trc-open-hint {
+  display: none;
 }
 </style>
