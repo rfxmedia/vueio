@@ -10,7 +10,8 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libffmpeg-nvenc-dev libzimg-dev libsoxr-dev zlib1g-dev libbz2-dev liblzma-dev
 WORKDIR /build
 # This hash was checked against FFmpeg's signed 9.0.1 release archive.
-RUN curl --fail --show-error --silent --location --retry 3 \
+# ffmpeg.org sometimes resets connections; retry every error. The checksum still guards the file.
+RUN curl --fail --show-error --silent --location --connect-timeout 30 --retry 6 --retry-all-errors --retry-delay 15 \
         https://ffmpeg.org/releases/ffmpeg-9.0.1.tar.xz -o ffmpeg-9.0.1.tar.xz && \
     echo 'cf38e0e28c7e5605942c4a77755349b0145804a397af37eb1fb4c77cb237f635  ffmpeg-9.0.1.tar.xz' | sha256sum -c - && \
     tar -xf ffmpeg-9.0.1.tar.xz
