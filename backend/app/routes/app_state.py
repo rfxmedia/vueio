@@ -16,6 +16,7 @@ from app.models import (
 )
 from app.services.auth import get_request_agent_identity, get_request_user, get_user_from_session, serialize_auth_user
 from app.services.file_access import check_folder_read_permission
+from app.services.horizons.extras import summarize_version_extras
 from app.services.horizons.projects import list_visible_horizon_projects
 from app.services.horizons.team import _horizon_shot_assignment_clause, _subject_candidates_for_user
 from app.services.recently_viewed import exclude_deleted_project_recently_viewed
@@ -54,7 +55,8 @@ def get_home_assigned_edits(
     """List open shots assigned to this person, grouped by project and tracker.
 
     Includes shots that are in progress or have edits requested, in projects
-    that are not done.
+    that are not done. `extras_needed` names the extras, such as mattes, that
+    the latest version has no file for yet.
     """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     subject_ids = {value for _subject_type, value in _subject_candidates_for_user(user)}
@@ -98,6 +100,7 @@ def get_home_assigned_edits(
         for version in versions:
             latest_version_ids.setdefault(version.shot_id, version.id)
 
+    extras = summarize_version_extras(db, {version_id: shot_id for shot_id, version_id in latest_version_ids.items()})
     grouped: dict[str, dict] = {}
     for shot, tracker, project in rows:
         project_group = grouped.setdefault(project.id, {
@@ -122,6 +125,9 @@ def get_home_assigned_edits(
             'latest_version_id': latest_version_ids.get(shot.id),
             'updated_at': shot.updated_at,
         })
+        needed = [extra['name'] for extra in extras.get(latest_version_ids.get(shot.id), []) if extra['needed']]
+        if needed:
+            project_group['shots'][-1]['extras_needed'] = needed
 
     projects = sorted(grouped.values(), key=lambda project: (
         -float(project['updated_at'] or 0),

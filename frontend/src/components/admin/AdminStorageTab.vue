@@ -96,6 +96,32 @@
             <p v-if="root.available && root.read_only" class="storage-location-note">
               Vueio can read this drive but cannot create or move project files on it.
             </p>
+
+            <form class="storage-network-path" @submit.prevent="saveNetworkPath(root)">
+              <VField
+                label="Network path"
+                optional
+                :error="networkPathErrors[root.id] || ''"
+                hint="How computers on your network open this drive. Then people can copy the full path of a file on Mac and Windows."
+              >
+                <div class="storage-network-path-row">
+                  <input
+                    v-model="networkPathDrafts[root.id]"
+                    class="v-input"
+                    placeholder="\\nas\Media"
+                    spellcheck="false"
+                    autocomplete="off"
+                  />
+                  <button
+                    class="v-btn v-btn-secondary v-btn-sm"
+                    type="submit"
+                    :disabled="networkPathSavingId === root.id || (networkPathDrafts[root.id] || '') === (root.network_path || '')"
+                  >
+                    Save
+                  </button>
+                </div>
+              </VField>
+            </form>
           </article>
         </div>
 
@@ -144,10 +170,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import api from '../../lib/api'
+import api, { getApiErrorMessage } from '../../lib/api'
+import { useSessionAuthStore } from '../../ownership/sessionAuth'
 import { formatSizeBytes } from '../../utils/formatters'
+import { notify } from '../../utils/toasts'
+import { VField } from '../primitives'
 import AdminSettingsHeader from './AdminSettingsHeader.vue'
 import StorageDevicePicker from './StorageDevicePicker.vue'
 
@@ -175,6 +204,34 @@ onMounted(async () => {
   }
 })
 onBeforeUnmount(() => dataRequest.abort())
+
+const { checkAuth } = useSessionAuthStore()
+const networkPathDrafts = reactive({})
+const networkPathErrors = reactive({})
+const networkPathSavingId = ref('')
+
+watch(() => props.storageRoots, roots => {
+  for (const root of roots) networkPathDrafts[root.id] = root.network_path || ''
+}, { immediate: true })
+
+async function saveNetworkPath(root) {
+  networkPathSavingId.value = root.id
+  networkPathErrors[root.id] = ''
+  try {
+    const { data } = await api.put(`/api/admin/storage/${encodeURIComponent(root.id)}/network-path`, {
+      network_path: networkPathDrafts[root.id] || '',
+    })
+    networkPathDrafts[root.id] = data.network_path || ''
+    notify(data.network_path ? 'Network path saved' : 'Network path removed')
+    emit('refresh-storage-roots')
+    // Copy path buttons appear or disappear for everyone after this.
+    checkAuth(true)
+  } catch (error) {
+    networkPathErrors[root.id] = getApiErrorMessage(error)
+  } finally {
+    networkPathSavingId.value = ''
+  }
+}
 
 function refreshStorage() {
   emit('refresh-storage-roots')
@@ -421,6 +478,23 @@ function rootClass(root) {
 .storage-location-message {
   margin: 12px 0 0;
   line-height: 1.45;
+}
+
+.storage-network-path {
+  margin: 12px 0 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--v-divider-subtle);
+}
+
+.storage-network-path-row {
+  display: flex;
+  gap: 8px;
+}
+
+.storage-network-path-row .v-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--v-font-mono);
 }
 
 .storage-location-note {

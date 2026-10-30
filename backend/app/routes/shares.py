@@ -149,6 +149,8 @@ class SharedShotStatusUpdate(BaseModel):
 class SharedTrackerLatestDownloadRequest(BaseModel):
     shot_ids: list[str] | None = None
     filename: str | None = None
+    include_extras: bool = True
+    version_id: str | None = None
 
 
 class ShareUnlockRequest(BaseModel):
@@ -389,6 +391,12 @@ def _public_assignee_payload(payload: dict | None) -> dict | None:
     return _allowlisted_dict(payload, ('id', 'display_name'))
 
 
+SHARE_EXTRA_FILE_FIELDS = (
+    'extra_id', 'name', 'note', 'download_name', 'file_name', 'media_asset_id', 'horizons_media_asset_id',
+    'media_entity_type', 'media_entity_key', 'exists', 'file_size', 'extension', 'is_video', 'is_image', 'is_pdf',
+)
+
+
 def _public_version_payload(payload: dict) -> dict:
     result = _allowlisted_dict(payload, (
         'id',
@@ -409,12 +417,15 @@ def _public_version_payload(payload: dict) -> dict:
         'is_video',
         'is_image',
         'is_pdf',
+        'download_name',
     ))
     # Shared media is resolved by stable object IDs. Keep only the display name
     # expected by the current tracker UI, never an internal directory path.
     display_name = Path(str(payload.get('file_path') or payload.get('path') or '')).name
     result['path'] = display_name
     result['file_path'] = display_name
+    # The tracker serializer already left out team-only extras for shares.
+    result['extras'] = [_allowlisted_dict(extra, SHARE_EXTRA_FILE_FIELDS) for extra in (payload.get('extras') or [])]
     return result
 
 
@@ -456,6 +467,7 @@ def _public_shot_payload(payload: dict) -> dict:
         _public_version_payload(version)
         for version in (payload.get('versions') or [])
     ]
+    # Clients see only the files of each version, never the extras a shot still needs.
     return result
 
 
@@ -860,7 +872,7 @@ def get_shared_project(share_id: str, share_token: str | None = None, db: Sessio
         payload['_open_tracker'] = False
     elif share.share_type == 'tracker' and (share.tracker_id or share.tracker_name):
         tracker = get_horizon_tracker_for_share(db, share)
-        tracker_payload = apply_share_tracker_payload(serialize_horizon_tracker_detail(db, tracker), share)
+        tracker_payload = apply_share_tracker_payload(serialize_horizon_tracker_detail(db, tracker, share=True), share)
         payload['shots'] = tracker_payload.get('shots', [])
         payload['categories'] = tracker_payload.get('categories', [])
         payload['tags'] = tracker_payload.get('tags', [])
@@ -1011,7 +1023,7 @@ def get_shared_tracker(share_id: str, tracker_name: str, share_token: str | None
     else:
         project = _get_shared_horizon_project(share, db)
         tracker = get_horizon_tracker_by_ref(db, project.id, tracker_name)
-    return apply_share_tracker_payload(serialize_horizon_tracker_detail(db, tracker), share)
+    return apply_share_tracker_payload(serialize_horizon_tracker_detail(db, tracker, share=True), share)
 
 
 @router.post('/api/projects/shared/{share_id}/tracker/{tracker_name}/views')
@@ -1083,9 +1095,9 @@ def download_shared_tracker_latest_versions_zip(share_id: str, tracker_name: str
         share_id=share.id,
         project_id=project.id,
         tracker_id=tracker.id,
-        event_type='download_all',
-        resource_type='tracker_latest_zip',
-        resource_id=tracker.id,
+        event_type='download_file' if data.version_id else 'download_all',
+        resource_type='shot_version_zip' if data.version_id else 'tracker_latest_zip',
+        resource_id=data.version_id or tracker.id,
         resource_name=tracker.name,
         filename=data.filename,
         paths=data.shot_ids or [],
@@ -1101,6 +1113,8 @@ def download_shared_tracker_latest_versions_zip(share_id: str, tracker_name: str
         shot_refs=data.shot_ids,
         filename=data.filename,
         share=share,
+        include_extras=data.include_extras,
+        version_id=data.version_id,
     )
 
 
@@ -1121,9 +1135,9 @@ def create_shared_tracker_latest_versions_zip_job(share_id: str, tracker_name: s
         share_id=share.id,
         project_id=project.id,
         tracker_id=tracker.id,
-        event_type='download_all',
-        resource_type='tracker_latest_zip_job',
-        resource_id=tracker.id,
+        event_type='download_file' if data.version_id else 'download_all',
+        resource_type='shot_version_zip' if data.version_id else 'tracker_latest_zip_job',
+        resource_id=data.version_id or tracker.id,
         resource_name=tracker.name,
         filename=data.filename,
         paths=data.shot_ids or [],
@@ -1138,6 +1152,8 @@ def create_shared_tracker_latest_versions_zip_job(share_id: str, tracker_name: s
         shot_refs=data.shot_ids,
         filename=data.filename,
         share=share,
+        include_extras=data.include_extras,
+        version_id=data.version_id,
     )
 
 

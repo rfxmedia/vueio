@@ -13,6 +13,7 @@ from app.services.auth import require_admin, require_auth
 from app.services.host_updates import host_request_json, require_host_admin, require_host_origin
 from app.services.horizons.projects import get_horizon_project, serialize_horizon_project
 from app.services.missing_media_relink import commit_missing_media_relink, plan_missing_media_relink
+from app.services.network_paths import NETWORK_PATH_MAX_LENGTH, network_paths_by_root, set_network_path
 from app.services.project_relocation import (
     commit_project_relocation,
     get_project_migration_job,
@@ -92,6 +93,23 @@ def connect_storage_device(data: StorageConnectRequest, request: Request, vueio_
     return host_request_json('POST', '/storage', payload)
 
 
+class StorageNetworkPathUpdate(BaseModel):
+    network_path: str = Field('', max_length=NETWORK_PATH_MAX_LENGTH, description='Such as \\\\nas\\Media or smb://nas/Media. Empty clears it.')
+
+
+@router.put('/api/admin/storage/{root_id}/network-path')
+def update_storage_network_path(root_id: str, data: StorageNetworkPathUpdate, vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
+    user = require_admin(vueio_session)
+    root_id = root_id.strip().lower()
+    if root_id not in configured_project_storage_catalog():
+        raise HTTPException(status_code=404, detail='Storage location not found')
+    try:
+        network_path = set_network_path(db, root_id, data.network_path, user.get('username'))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {'id': root_id, 'network_path': network_path}
+
+
 class ProjectRelocateRequest(BaseModel):
     root: str = Field(description='data or a location id from list_storage_roots.')
     path: str = Field(description='The project folder, relative to the storage location.')
@@ -114,7 +132,7 @@ class MissingMediaRelinkRequest(BaseModel):
     plan_id: str | None = Field(default=None, pattern=r'^[a-f0-9]{64}$', description='The plan_id from the dry run. If anything changed since then, nothing is applied.')
 
 
-def _root_payload(name: str, item: dict) -> dict:
+def _root_payload(name: str, item: dict, network_path: str | None = None) -> dict:
     path = item['path']
     available = storage_root_is_available(item)
     total_bytes = None
@@ -133,19 +151,22 @@ def _root_payload(name: str, item: dict) -> dict:
         'available': available,
         'total_bytes': total_bytes,
         'free_bytes': free_bytes,
+        'network_path': network_path,
     }
 
 
 @router.get('/api/storage/roots', summary='List storage locations')
-def list_storage_roots(vueio_session: str = Cookie(None)):
+def list_storage_roots(vueio_session: str = Cookie(None), db: Session = Depends(get_db)):
     """List the external storage locations that can hold project folders.
 
     Each location has its `id`, label, free space, and whether it is available
     and read-only. Use the `id` as `storage_root` in create_project. The app's
-    own storage, `data`, is not in this list.
+    own storage, `data`, is not in this list. `network_path` is how computers
+    on the network reach the location, if an administrator entered it.
     """
     _require_project_creator(vueio_session)
-    return [_root_payload(name, item) for name, item in configured_project_storage_catalog().items()]
+    network_paths = network_paths_by_root(db)
+    return [_root_payload(name, item, network_paths.get(name)) for name, item in configured_project_storage_catalog().items()]
 
 
 @router.get('/api/storage/browse', summary='Browse storage folders')

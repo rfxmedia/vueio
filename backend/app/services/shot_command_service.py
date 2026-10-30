@@ -9,6 +9,7 @@ import uuid
 from fastapi import HTTPException
 
 from app.models import HorizonShot, HorizonShotVersion, HorizonTracker, MediaAsset
+from app.services.horizons.extras import delete_extra_files_for_versions
 from app.services.horizons.shots import (
     _create_horizon_shot_no_commit,
     _create_horizon_shot_version_no_commit,
@@ -233,6 +234,7 @@ class ShotCommandService(ShotCommandBase):
         stale = [version for version in existing_versions if version.id not in claimed_existing_ids]
         if stale:
             self._delete_comments_for_versions([version.id for version in stale])
+            delete_extra_files_for_versions(self.db, [version.id for version in stale])
             for version in stale:
                 self.db.delete(version)
             # Release unique shot/label slots before a surviving version inherits

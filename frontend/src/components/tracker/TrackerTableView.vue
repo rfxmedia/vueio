@@ -95,9 +95,7 @@
             :picker-flip-up="dropdownFlipUp"
             :toggle-shot-selected="toggleActiveShotSelected || toggleShotSelected"
             :shot="item.shot"
-            :version-drop-active="versionDropShotRef === getShotRef(item.shot)"
-            :version-drop-blocked-reason="versionDropBlockedReason"
-            :version-drop-item-name="versionDropItemName"
+            :drop="cardDrop?.shotRef === getShotRef(item.shot) ? cardDrop : null"
           />
         </template>
       </div>
@@ -196,9 +194,7 @@
               :picker-flip-up="dropdownFlipUp"
               :toggle-shot-selected="toggleArchivedShotSelected || toggleShotSelected"
               :shot="item.shot"
-              :version-drop-active="versionDropShotRef === getShotRef(item.shot)"
-              :version-drop-blocked-reason="versionDropBlockedReason"
-              :version-drop-item-name="versionDropItemName"
+              :drop="cardDrop?.shotRef === getShotRef(item.shot) ? cardDrop : null"
             />
           </template>
         </div>
@@ -219,17 +215,10 @@ const props = defineProps({
     type: String,
     default: 'list',
   },
-  versionDropShotRef: {
-    type: String,
-    default: '',
-  },
-  versionDropBlockedReason: {
-    type: String,
-    default: '',
-  },
-  versionDropItemName: {
-    type: String,
-    default: '',
+  // The drag over a card: { shotRef, kind, zone, fileCount, extras, blockedReason, itemName }.
+  cardDrop: {
+    type: Object,
+    default: null,
   },
 })
 

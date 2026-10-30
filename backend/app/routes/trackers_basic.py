@@ -17,6 +17,7 @@ from app.services.horizons.trackers import _serialize_horizon_tracker_tags, seri
 from app.services.media_resolution import resolve_media_asset_path
 from app.services.file_access import require_user_file_browser_read_access
 from app.services.horizons.common import SHOT_STATUS_ORDER
+from app.services.horizons.extras import summarize_version_extras
 from app.services.horizons_fresh import (
     compute_horizon_tracker_stats,
     create_horizon_tracker,
@@ -194,9 +195,12 @@ def get_tracker_overview(
     """One tracker in compact form, for reading many shots at once.
 
     Each shot has its code, status, tag, description, assignees, version count
-    and latest version with its open comment threads. Archived shots are left
-    out. Use a latest version's `id` with frame_get, comments_list or
-    comment_post. get_tracker returns every field and every version.
+    and latest version with its open comment threads. A latest version lists
+    its extras, such as mattes: `needed` is true while an extra has no file on
+    that version. Archived shots are left out. Use a latest version's `id`
+    with frame_get, comments_list or comment_post, and an extra's `id` with
+    extra_file_set or extra_upload. get_tracker returns every field and every
+    version.
     """
     user, auth_mode = get_request_user(vueio_session, x_vueio_agent_key)
     _project, access_role = require_horizon_project_access(db, project_id, user, auth_mode=auth_mode, required_role='viewer')
@@ -244,6 +248,7 @@ def get_tracker_overview(
         ).filter(Comment.project_id == project_id, Comment.horizons_shot_version_id.in_([version.id for version, _, _ in versions]))
         .group_by(Comment.horizons_shot_version_id).all()
     } if versions else {}
+    extras = summarize_version_extras(db, {version.id: version.shot_id for version, _, _ in versions})
     items = []
     for shot in page:
         version, version_count = latest.get(shot.id, (None, 0))
@@ -274,6 +279,8 @@ def get_tracker_overview(
                 'open_comment_threads': open_threads,
                 'comment_count': comment_count,
             }
+            if version['id'] in extras:
+                item['latest_version']['extras'] = extras[version['id']]
         items.append(item)
     return {
         'tracker': {

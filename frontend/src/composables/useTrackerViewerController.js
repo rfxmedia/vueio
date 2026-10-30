@@ -1,8 +1,9 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import api, { getApiErrorDetail, getApiErrorMessage } from '../lib/api'
 import { getBrowserResourceRefs } from '../lib/browserResourceRefs'
-import { getMediaKind, mediaEntitiesMatch } from '../lib/mediaEntity'
+import { getMediaKind, mediaEntitiesMatch, normalizeMediaEntity } from '../lib/mediaEntity'
 import { formatVersionDateLabel, formatVersionDateShortLabel } from '../utils/formatters'
+import { copyFilePath, loadNetworkPath } from '../utils/networkPath'
 import { formatVersionLabel } from '../utils/versionLabels'
 import { notify } from '../utils/toasts'
 
@@ -61,6 +62,7 @@ export function useTrackerViewerController({
   openVideo,
   openImage,
   openPdf,
+  openRelatedMedia,
   openTracker,
   recordTrackerMediaView = () => {},
   invalidateTrackerPayloads = () => {},
@@ -279,6 +281,65 @@ export function useTrackerViewerController({
     link.remove()
   }
 
+  function versionDetailsUrl(version) {
+    const projectId = currentProjectRef.value?.id
+    if (!projectId || !version?.id || version?.exists === false) return ''
+    return `/api/horizons/projects/${encodeURIComponent(projectId)}/shot-versions/${encodeURIComponent(version.id)}/file-info`
+  }
+
+  function prefetchVersionPath(version) {
+    const url = versionDetailsUrl(version)
+    if (url) loadNetworkPath(url).catch(() => {})
+  }
+
+  function copyVersionPath(version) {
+    const url = versionDetailsUrl(version)
+    return copyFilePath(url ? loadNetworkPath(url) : '')
+  }
+
+  // An extra opens in the viewer by itself. From an open version, the back
+  // button returns to that version's Extras tab.
+  function buildShotExtraMedia(shot, version, file) {
+    const projectId = currentProjectRef.value?.id || null
+    const shared = shareMode()
+    const label = formatVersionLabel(version)
+    return normalizeMediaEntity({
+      name: `${shot?.shot_id || 'Shot'} ${label} · ${file.name}`,
+      path: shared ? file.file_name : (file.path || file.file_name),
+      file_path: shared ? file.file_name : (file.path || file.file_name),
+      extension: file.extension,
+      is_video: file.is_video,
+      is_image: file.is_image,
+      is_pdf: file.is_pdf,
+      exists: file.exists,
+      media_asset_id: file.media_asset_id,
+      horizons_media_asset_id: file.media_asset_id,
+      version_id: null,
+      horizons_shot_version_id: null,
+      media_entity_type: 'media_asset',
+      media_entity_id: file.media_asset_id,
+      media_entity_key: `asset:${file.media_asset_id}`,
+      _projectId: projectId,
+      _projectFile: true,
+      ...(shared ? { _openedFromTracker: true } : {}),
+    })
+  }
+
+  function canViewShotExtra(file) {
+    return Boolean(file && file.exists !== false && (file.is_video || file.is_image || file.is_pdf))
+  }
+
+  async function openShotExtra(shot, version, file) {
+    if (!canViewShotExtra(file)) return false
+    const item = buildShotExtraMedia(shot, version, file)
+    if (currentMedia() && typeof openRelatedMedia === 'function') {
+      await openRelatedMedia(item, { returnTab: 'extras' })
+    } else if (item.is_image) openImage(item)
+    else if (item.is_pdf) openPdf?.(item)
+    else await openVideo(item)
+    return true
+  }
+
   function buildTrackerVersionPayload(version, name) {
     return {
       ...version,
@@ -297,6 +358,8 @@ export function useTrackerViewerController({
   const versionCompareMode = ref('side-by-side')
   const versionComparePrimaryVersion = ref(null)
   const versionCompareSecondaryVersion = ref(null)
+  // Comparing a version with one of its extras, such as its alpha matte.
+  const versionCompareExtra = ref(null)
   const compareImageExtensions = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'tiff', 'tif', 'heic', 'heif', 'exr', 'dpx'])
 
   function getTrackerPlaybackVersion(shot, mode = 'latest') {
@@ -453,7 +516,7 @@ export function useTrackerViewerController({
       version?.media_asset_id || version?.path || version?.file_path || '')
   }
 
-  const versionCompareOptions = computed(() => [...currentTrackerViewerComparableVersions.value]
+  const versionCompareOptions = computed(() => versionCompareExtra.value ? [] : [...currentTrackerViewerComparableVersions.value]
     .reverse()
     .map(version => ({ value: getTrackerVersionCompareKey(version), label: getTrackerVersionCompareLabel(version) }))
     .filter(option => option.value))
@@ -462,15 +525,26 @@ export function useTrackerViewerController({
       ? buildTrackerViewerItem(currentTrackerViewerShot.value, trackerViewerMode.value || 'latest', versionComparePrimaryVersion.value)
       : null
   ))
-  const versionCompareSecondaryMedia = computed(() => (
-    currentTrackerViewerShot.value && versionCompareSecondaryVersion.value
+  const versionCompareSecondaryMedia = computed(() => {
+    if (versionCompareExtra.value && currentTrackerViewerShot.value && versionComparePrimaryVersion.value) {
+      return {
+        ...buildShotExtraMedia(currentTrackerViewerShot.value, versionComparePrimaryVersion.value, versionCompareExtra.value),
+        comparison_ref: `extra-${versionCompareExtra.value.extra_id}`,
+      }
+    }
+    return currentTrackerViewerShot.value && versionCompareSecondaryVersion.value
       ? buildTrackerViewerItem(currentTrackerViewerShot.value, trackerViewerMode.value || 'latest', versionCompareSecondaryVersion.value)
       : null
-  ))
+  })
   const versionComparePrimaryLabel = computed(() => getTrackerVersionCompareLabel(versionComparePrimaryVersion.value))
-  const versionCompareSecondaryLabel = computed(() => getTrackerVersionCompareLabel(versionCompareSecondaryVersion.value))
+  const versionCompareSecondaryLabel = computed(() => (
+    versionCompareExtra.value ? versionCompareExtra.value.name : getTrackerVersionCompareLabel(versionCompareSecondaryVersion.value)
+  ))
   const versionComparePrimaryKey = computed(() => getTrackerVersionCompareKey(versionComparePrimaryVersion.value))
-  const versionCompareSecondaryKey = computed(() => getTrackerVersionCompareKey(versionCompareSecondaryVersion.value))
+  const versionCompareSecondaryKey = computed(() => (
+    versionCompareExtra.value ? `extra-${versionCompareExtra.value.extra_id}` : getTrackerVersionCompareKey(versionCompareSecondaryVersion.value)
+  ))
+  const versionCompareOverlayAvailable = computed(() => Boolean(versionCompareExtra.value))
 
   function findCompareVersionIndex(version) {
     const key = getTrackerVersionCompareKey(version)
@@ -552,6 +626,33 @@ export function useTrackerViewerController({
     versionCompareActive.value = false
     versionComparePrimaryVersion.value = null
     versionCompareSecondaryVersion.value = null
+    versionCompareExtra.value = null
+  }
+
+  // A plate and its extra must both be videos or both be images.
+  function canCompareShotExtra(version, file) {
+    if (!trackerToolEnabledForContext(currentTrackerRef.value, 'comparison') || !file || file.exists === false) return false
+    const plate = getComparableVersionFamily(version)
+    const extra = file.is_video ? 'video' : file.is_image ? 'image' : 'unsupported'
+    return plate !== 'unsupported' && plate === extra
+  }
+
+  async function startShotExtraCompare(shot, version, file) {
+    if (!shot || !version || !canCompareShotExtra(version, file)) return
+    if (!currentMediaRef.value?._openedFromTracker || !versionMatchesCurrentMedia(version)) {
+      openTrackerViewerVersion(shot, version, { mode: 'latest', preserveSidebar: true })
+      await nextTick()
+    }
+    videoEl.value?.pause?.()
+    dismissTrackerViewerVersionSwitcher()
+    showStatusPicker.value = null
+    isDrawingMode.value = false
+    versionComparePrimaryVersion.value = version
+    versionCompareSecondaryVersion.value = version
+    versionCompareExtra.value = file
+    // A matte reads best on top of its plate; other extras side by side.
+    versionCompareMode.value = /matte|mask|alpha|holdout|roto/i.test(file.name) ? 'overlay' : 'side-by-side'
+    versionCompareActive.value = true
   }
 
   const trackerViewerShots = computed(() => {
@@ -768,6 +869,13 @@ export function useTrackerViewerController({
     openShotVideo,
     playShotVersion,
     downloadVersion,
+    copyVersionPath,
+    prefetchVersionPath,
+    openShotExtra,
+    canViewShotExtra,
+    canCompareShotExtra,
+    startShotExtraCompare,
+    versionCompareOverlayAvailable,
     trackerViewerVersionSwitcherOpen,
     trackerViewerMode,
     currentTrackerViewerShot,
@@ -809,7 +917,6 @@ export function useTrackerViewerController({
     dismissTrackerViewerVersionSwitcher,
     toggleTrackerViewerVersionSwitcher,
     selectTrackerViewerVersion,
-    downloadTrackerViewerVersion: downloadVersion,
     deleteTrackerViewerVersion,
     updateTrackerVersionPublication,
     updateCurrentTrackerViewerVersionSummary,

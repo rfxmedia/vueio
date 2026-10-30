@@ -385,6 +385,44 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
         'columns': {'upload_items': {'version_upload_json'}},
         'indexes': {'agent_mutation_receipts': {'ix_agent_mutation_receipts_created_at'}},
     },
+    {
+        'revision': '20261027_0029',
+        'stamp_before': '20261024_0028',
+        'columns': {},
+        'indexes': {},
+        'owned_tables': {'storage_network_paths': {'root_id', 'network_path', 'updated_by', 'updated_at'}},
+    },
+    {
+        'revision': '20261030_0030',
+        'stamp_before': '20261027_0029',
+        'columns': {},
+        'indexes': {
+            'horizons_shot_extras': {
+                'ix_horizons_shot_extras_project_id',
+                'ix_horizons_shot_extras_tracker_id',
+                'ix_horizons_shot_extras_shot_id',
+                'ix_horizons_shot_extras_shot_order',
+            },
+            'horizons_shot_extra_files': {
+                'ix_horizons_shot_extra_files_project_id',
+                'ix_horizons_shot_extra_files_tracker_id',
+                'ix_horizons_shot_extra_files_shot_id',
+                'ix_horizons_shot_extra_files_extra_id',
+                'ix_horizons_shot_extra_files_version_id',
+                'ix_horizons_shot_extra_files_media_asset_id',
+            },
+        },
+        'owned_tables': {
+            'horizons_shot_extras': {
+                'id', 'project_id', 'tracker_id', 'shot_id', 'name', 'note', 'client_visible', 'sort_order',
+                'created_by', 'created_at', 'updated_at',
+            },
+            'horizons_shot_extra_files': {
+                'id', 'project_id', 'tracker_id', 'shot_id', 'extra_id', 'version_id', 'media_asset_id',
+                'created_by', 'created_at', 'updated_at',
+            },
+        },
+    },
 )
 
 

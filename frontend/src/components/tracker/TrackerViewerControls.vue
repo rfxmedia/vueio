@@ -24,7 +24,7 @@
     @toggle="toggleTrackerViewerVersionSwitcher"
     @close="dismissTrackerViewerVersionSwitcher"
     @select-version="selectTrackerViewerVersion"
-    @download-version="downloadTrackerViewerVersion"
+    @download-version="downloadShotVersion(currentTrackerViewerShot, $event)"
     @delete-version="deleteTrackerViewerVersion"
     @compare-versions="startTrackerVersionCompare"
     @add-version="openViewerVersionUpload"
@@ -117,7 +117,7 @@ const {
   toggleTrackerViewerVersionSwitcher,
   dismissTrackerViewerVersionSwitcher,
   selectTrackerViewerVersion,
-  downloadTrackerViewerVersion,
+  downloadShotVersion,
   deleteTrackerViewerVersion,
   updateCurrentTrackerViewerVersionPublication,
   startTrackerVersionCompare,

@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Body, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from app.config import get_settings
+from app.db import get_db
 from app.limiter import limiter
 from app.services.auth import (
     authenticate_and_create_session,
@@ -9,6 +11,7 @@ from app.services.auth import (
     get_user_from_session,
     serialize_auth_user,
 )
+from app.services.network_paths import user_has_network_paths
 
 router = APIRouter(tags=['auth'])
 settings = get_settings()
@@ -45,10 +48,11 @@ def logout(response: Response, vueio_session: str | None = Cookie(None)):
 
 
 @router.get('/api/auth/check')
-def check_auth(vueio_session: str | None = Cookie(None)):
+def check_auth(vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
     """Check if user is authenticated."""
     user = get_user_from_session(vueio_session)
     if not user:
         raise HTTPException(status_code=401, detail='Not authenticated')
 
-    return serialize_auth_user(user)
+    # True when this person can copy the full network path of files.
+    return {**serialize_auth_user(user), 'network_paths': user_has_network_paths(db, user)}

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import HorizonShotVersion, MediaAsset, ShareLink
+from app.services.horizons.extras import shared_extra_uses
 from app.services.file_metadata import build_file_metadata
 from app.services.media import IMAGE_EXTENSIONS, VIDEO_EXTENSIONS, format_size
 from app.services.media_assets import attach_canonical_media_identity, merge_media_asset_metadata, merge_storage_scope_metadata, register_media_asset
@@ -564,6 +565,7 @@ def resolve_shared_horizons_object_target(
         raise HTTPException(status_code=404, detail='Horizons shared media object not found')
     shared_version = None
     asset_versions = []
+    extra_versions = []
     if share.share_type in {'project', 'project-folder', 'project-file', 'tracker', 'page'}:
         asset_versions = (
             db.query(HorizonShotVersion)
@@ -582,10 +584,16 @@ def resolve_shared_horizons_object_target(
             shared_version is None or not version_is_published(shared_version)
         ):
             raise HTTPException(status_code=403, detail='This version is not published to shares')
-        if not horizons_shot_version_id and asset_versions and not any(
-            version_is_published(version) for version in asset_versions
-        ):
-            raise HTTPException(status_code=403, detail='This version is not published to shares')
+        if not horizons_shot_version_id:
+            # An extra's file is shared only while the extra is visible to
+            # clients and its version is published.
+            extra_uses = shared_extra_uses(db, share.project_id, asset.id)
+            extra_versions = [version for extra, version in extra_uses if extra.client_visible and version_is_published(version)]
+            published_plate = any(version_is_published(version) for version in asset_versions)
+            if extra_uses and not extra_versions and not published_plate:
+                raise HTTPException(status_code=403, detail='This file is not shared')
+            if asset_versions and not published_plate and not extra_versions:
+                raise HTTPException(status_code=403, detail='This version is not published to shares')
     asset_virtual_paths = (
         linked_virtual_paths_for_source(load_project_links(share.project_id).get('links', []), asset.file_path)
         if asset and asset.storage_scope == 'media_root'
@@ -599,20 +607,23 @@ def resolve_shared_horizons_object_target(
     ):
         raise HTTPException(status_code=403, detail='Access denied - path outside shared folder')
     if share.share_type == 'tracker':
-        if not horizons_shot_version_id:
-            raise HTTPException(status_code=409, detail='Tracker shares require a horizons shot version id')
         from app.services.horizons_fresh import get_horizon_tracker_for_share
 
         shared_tracker = get_horizon_tracker_for_share(db, share)
-        version = shared_version
-        if version is None or version.tracker_id != shared_tracker.id:
-            raise HTTPException(status_code=403, detail='This share does not grant access to the requested tracker media')
+        if not horizons_shot_version_id:
+            # Only an extra of a version in this tracker can be opened by its file.
+            if not any(version.tracker_id == shared_tracker.id for version in extra_versions):
+                raise HTTPException(status_code=409, detail='Tracker shares require a horizons shot version id')
+        else:
+            version = shared_version
+            if version is None or version.tracker_id != shared_tracker.id:
+                raise HTTPException(status_code=403, detail='This share does not grant access to the requested tracker media')
     if share.share_type == 'page':
         from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_media_asset
 
         page = get_horizon_page_by_ref(db, share.project_id, share.page_id or '')
-        version = shared_version
-        if not page_allows_media_asset(db, page, asset, version):
+        candidates = [shared_version] if horizons_shot_version_id else [*extra_versions, None]
+        if not any(page_allows_media_asset(db, page, asset, version) for version in candidates):
             raise HTTPException(status_code=403, detail='This page does not grant access to the requested media')
 
     return full_path, cache_key or f'asset:{asset_id}', storage_scope, asset_id, normalized_path

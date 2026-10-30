@@ -17,6 +17,8 @@
     :version-compare-options="versionCompareOptions"
     :version-compare-primary-key="versionComparePrimaryKey"
     :version-compare-secondary-key="versionCompareSecondaryKey"
+    :version-compare-overlay-available="versionCompareOverlayAvailable"
+    :extras-panel-props="extrasPanelProps"
     :resolve-viewer-media-routes="resolveViewerMediaRoutes"
     :format-timecode="formatTimecode"
     :video-frame-rate="videoFrameRate"
@@ -70,6 +72,7 @@ const {
   primaryKey: versionComparePrimaryKey,
   secondaryKey: versionCompareSecondaryKey,
 } = comparison
+const versionCompareOverlayAvailable = computed(() => Boolean(comparison.overlayAvailable?.value))
 
 const resolveViewerMediaRoutes = core.resolveViewerMediaRoutes
 const formatTimecode = viewerActions.formatTimecode
@@ -84,13 +87,21 @@ const publicationNeedsAttention = computed(() => (
   presentation.canManageVersionPublication?.value
   && String(state.currentMedia.value?.share_state || '').trim().toLowerCase() === 'pending'
 ))
-const sidebarTabs = computed(() => (
-  state.sidebarTabs.value.map(tab => (
+// A tracker version with extras gets an Extras tab.
+const extrasPanelProps = computed(() => {
+  const shot = presentation.currentShot?.value
+  const version = presentation.currentVersion?.value
+  const slots = shot && version && presentation.getExtraSlots ? presentation.getExtraSlots(shot, version) : []
+  return slots.length ? { shot, version, count: slots.filter(slot => slot.file).length } : null
+})
+const sidebarTabs = computed(() => [
+  ...state.sidebarTabs.value.map(tab => (
     tab.value === 'info'
       ? { ...tab, attention: publicationNeedsAttention.value }
       : tab
-  ))
-))
+  )),
+  ...(extrasPanelProps.value ? [{ value: 'extras', label: 'Extras', icon: '#icon-layers', count: extrasPanelProps.value.count }] : []),
+])
 const sidebarTabVariant = state.sidebarTabVariant
 const newComment = comments.newComment
 const userNameInput = comments.userNameInput

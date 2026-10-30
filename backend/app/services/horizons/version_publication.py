@@ -8,7 +8,7 @@ from typing import Any
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.models import HorizonShot, HorizonShotVersion, HorizonTracker, MediaAsset
+from app.models import HorizonShot, HorizonShotExtra, HorizonShotExtraFile, HorizonShotVersion, HorizonTracker, MediaAsset
 
 from .tracker_settings import tracker_settings_for
 
@@ -137,8 +137,25 @@ def published_shot_ids_for_tracker(db: Session, project_id: str, tracker_id: str
     }
 
 
+def extra_asset_ids_for_shares(db: Session, project_id: str) -> tuple[set[str], set[str]]:
+    """Assets used as extras, and those clients may see: on a published version and visible to clients."""
+    rows = (
+        db.query(HorizonShotExtraFile.media_asset_id, HorizonShotExtra.client_visible, HorizonShotVersion.share_state)
+        .join(HorizonShotExtra, HorizonShotExtra.id == HorizonShotExtraFile.extra_id)
+        .join(HorizonShotVersion, HorizonShotVersion.id == HorizonShotExtraFile.version_id)
+        .filter(HorizonShotExtraFile.project_id == project_id)
+        .all()
+    )
+    used = {str(asset_id) for asset_id, _visible, _state in rows}
+    shared = {
+        str(asset_id) for asset_id, visible, state in rows
+        if visible and normalize_version_share_state(state) == VERSION_SHARE_STATE_PUBLISHED
+    }
+    return used, shared
+
+
 def held_media_asset_ids_for_project(db: Session, project_id: str) -> set[str]:
-    """Return version-bound assets that have no published use in this project."""
+    """Return version and extra assets that have no published use in this project."""
     referenced = {
         str(media_asset_id)
         for (media_asset_id,) in (
@@ -160,7 +177,8 @@ def held_media_asset_ids_for_project(db: Session, project_id: str) -> set[str]:
             .all()
         )
     }
-    return referenced - published
+    extra_used, extra_shared = extra_asset_ids_for_shares(db, project_id)
+    return (referenced | extra_used) - published - extra_shared
 
 
 def held_media_paths_for_project(db: Session, project_id: str) -> set[Path]:

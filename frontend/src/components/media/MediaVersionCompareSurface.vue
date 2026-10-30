@@ -32,11 +32,11 @@ v-for="option in versionOptions" :key="option.value" :value="option.value"
         <span class="media-compare-rail-divider" aria-hidden="true" />
         <div class="v-view-toggle media-compare-layout" role="group" aria-label="Compare layout">
           <button
-v-for="layout in [{ value: 'side-by-side', label: 'Side by side' }, { value: 'wipe', label: 'Wipe' }]"
+v-for="layout in layouts"
             :key="layout.value" type="button" class="v-view-toggle-btn" :class="{ active: mode === layout.value }"
             :aria-pressed="mode === layout.value" @click="$emit('update:mode', layout.value)">{{ layout.label }}</button>
         </div>
-        <button v-if="ready && family === 'video' && info.can_export" ref="exportTrigger" type="button" class="v-btn v-btn-secondary v-btn-sm media-compare-export" @click="openExport">
+        <button v-if="ready && family === 'video' && info.can_export && mode !== 'overlay'" ref="exportTrigger" type="button" class="v-btn v-btn-secondary v-btn-sm media-compare-export" @click="openExport">
           <svg class="icon" aria-hidden="true"><use href="#icon-download" /></svg><span>Export</span>
         </button>
         <button type="button" class="v-btn v-btn-ghost v-btn-sm media-compare-done" aria-label="Exit comparison" @click="$emit('exit')">
@@ -49,8 +49,8 @@ v-for="layout in [{ value: 'side-by-side', label: 'Side by side' }, { value: 'wi
     <div class="media-compare-preview">
     <div
 ref="stage" class="media-compare-stage" :class="[
-      !exportOpen && mode === 'wipe' ? 'media-compare-wipe' : 'media-compare-split',
-      { 'is-packed': family === 'video', 'is-stacked': stacked },
+      !exportOpen && ['wipe', 'overlay'].includes(mode) ? 'media-compare-wipe' : 'media-compare-split',
+      { 'is-packed': family === 'video', 'is-stacked': stacked, 'is-overlay': !exportOpen && mode === 'overlay' },
     ]" @pointerdown="startWipe">
       <template v-if="family === 'video'">
         <video
@@ -60,7 +60,7 @@ ref="video" class="media-compare-decoder" playsinline preload="auto" :loop="loop
           @error="mediaError" />
         <canvas ref="canvas" class="media-compare-media" role="img" :aria-label="`${primaryLabel} compared with ${secondaryLabel}`" />
         <div v-if="ready && !exportOpen" class="media-compare-labels" aria-hidden="true">
-          <span v-for="(label, index) in labels" :key="index" class="media-compare-pane-label">{{ label }}</span>
+          <span v-for="(label, index) in paneLabels" :key="index" class="media-compare-pane-label">{{ label }}</span>
         </div>
         <div v-if="ready && !exportOpen" class="media-compare-end-markers">
           <div v-for="(end, index) in info.end_frames" :key="index" class="media-compare-end-slot">
@@ -73,7 +73,7 @@ ref="video" class="media-compare-decoder" playsinline preload="auto" :loop="loop
 v-for="(url, index) in imageUrls" :key="index" class="media-compare-pane" :class="index ? 'is-secondary' : 'is-primary'"
           :style="mode === 'wipe' && !index ? { clipPath: `inset(0 ${100 - wipePercent}% 0 0)` } : undefined">
           <img :src="url" :alt="labels[index]" class="media-compare-media" @error="error = 'This image could not load.'" />
-          <div class="media-compare-pane-label">{{ labels[index] }}</div>
+          <div v-if="mode !== 'overlay' || !index" class="media-compare-pane-label">{{ mode === 'overlay' ? paneLabels[0] : labels[index] }}</div>
         </div>
       </template>
       <div v-else class="media-compare-empty"><strong>Choose two videos or two images from the same shot.</strong></div>
@@ -161,6 +161,8 @@ const props = defineProps({
   primaryLabel: { type: String, default: 'A' }, secondaryLabel: { type: String, default: 'B' },
   versionOptions: { type: Array, default: () => [] }, primaryVersionKey: { type: String, default: '' },
   secondaryVersionKey: { type: String, default: '' }, mode: { type: String, default: 'side-by-side' },
+  // An extra, such as an alpha matte, can lie on top of its plate.
+  overlayAvailable: { type: Boolean, default: false },
   resolveMediaRoutes: { type: Function, required: true }, formatTimecode: { type: Function, default: null },
   frameRate: { type: Number, default: 24 },
 })
@@ -174,6 +176,15 @@ const scrubbing = ref(false), compact = ref(false), stageWidth = ref(0), stageHe
 const exportOpen = ref(false), exportBusy = ref(false), exportPreview = shallowRef(null), exportTrigger = ref(null)
 let previousFrame = 0
 const labels = computed(() => [props.primaryLabel, props.secondaryLabel])
+const paneLabels = computed(() => (props.mode === 'overlay' ? [`${props.primaryLabel} + ${props.secondaryLabel}`] : labels.value))
+const layouts = computed(() => [
+  { value: 'side-by-side', label: 'Side by side' },
+  { value: 'wipe', label: 'Wipe' },
+  ...(props.overlayAvailable ? [{ value: 'overlay', label: 'Overlay' }] : []),
+])
+// What the matte keeps stays as it is; the rest of the plate turns dark red.
+const OVERLAY_OUTSIDE = 'rgb(205, 86, 104)'
+let overlayCanvas = null
 const family = computed(() => {
   const first = getMediaKind(props.primaryMedia), second = getMediaKind(props.secondaryMedia)
   return first === second && ['video', 'image'].includes(first) ? first : ''
@@ -181,7 +192,7 @@ const family = computed(() => {
 const routes = computed(() => [props.resolveMediaRoutes(props.primaryMedia), props.resolveMediaRoutes(props.secondaryMedia)])
 const imageUrls = computed(() => routes.value.map(route => route.fileUrl))
 const pairUrl = computed(() => {
-  const otherId = getCanonicalMediaRefs(props.secondaryMedia).shotVersionId
+  const otherId = props.secondaryMedia?.comparison_ref || getCanonicalMediaRefs(props.secondaryMedia).shotVersionId
   const base = routes.value[0]?.comparisonBaseUrl
   return base && otherId ? `${base}/${encodeURIComponent(otherId)}` : ''
 })
@@ -233,6 +244,23 @@ function paint() {
     const cut = Math.round(w * wipePercent.value / 100)
     context.drawImage(source, b, 0, w, h, 0, 0, w, h)
     if (cut) context.drawImage(source, a, 0, cut, h, 0, 0, cut, h)
+  } else if (props.mode === 'overlay') {
+    context.drawImage(source, a, 0, w, h, 0, 0, w, h)
+    overlayCanvas ||= document.createElement('canvas')
+    if (overlayCanvas.width !== w) overlayCanvas.width = w
+    if (overlayCanvas.height !== h) overlayCanvas.height = h
+    // Screen lifts the matte's black to the tint and keeps its white; multiply
+    // then darkens only the plate outside the matte.
+    const tint = overlayCanvas.getContext('2d')
+    tint.globalCompositeOperation = 'source-over'
+    tint.drawImage(source, b, 0, w, h, 0, 0, w, h)
+    tint.globalCompositeOperation = 'screen'
+    tint.fillStyle = OVERLAY_OUTSIDE
+    tint.fillRect(0, 0, w, h)
+    context.save()
+    context.globalCompositeOperation = 'multiply'
+    context.drawImage(overlayCanvas, 0, 0)
+    context.restore()
   } else {
     context.drawImage(source, a, 0, w, h, 0, 0, w, h)
     context.drawImage(source, b, 0, w, h, stacked.value ? 0 : w, stacked.value ? h : 0, w, h)

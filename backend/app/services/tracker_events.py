@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
+from app.services.horizons.extras import EXTRA_EVENT_TYPES
 from app.models import Comment, HorizonProject, HorizonShot, HorizonShotVersion, HorizonTracker, TrackerEvent
 
 
@@ -336,6 +337,22 @@ def _summary_for_event(event_type: str, payload: dict[str, Any]) -> str:
         return f'Restored tracker to {target}'
     if event_type == 'versions_updated':
         return f'Updated versions for {shot_code}'
+    extra_name = payload.get('extra_name') or 'an extra'
+    on_version = f' {version_label}' if version_label else ''
+    if event_type == 'extra_added':
+        return f'Asked for {extra_name} on {shot_code}' if payload.get('needed') else f'Added {extra_name} to {shot_code}{on_version}'
+    if event_type == 'extra_file_set':
+        return f'{"Replaced" if payload.get("replaced") else "Added"} {extra_name} on {shot_code}{on_version}'
+    if event_type == 'extra_file_cleared':
+        return f'Removed the {extra_name} file from {shot_code}{on_version}'
+    if event_type == 'extra_removed':
+        return f'Removed {extra_name} from {shot_code}'
+    if event_type == 'extra_changed':
+        if payload.get('reordered'):
+            return f'Reordered extras on {shot_code}'
+        if payload.get('old_name'):
+            return f'Renamed {payload["old_name"]} to {extra_name} on {shot_code}'
+        return f'Changed {extra_name} on {shot_code}'
     return event_type.replace('_', ' ')
 
 
@@ -418,6 +435,8 @@ def _safe_activity_summary(event_type: str, payload: dict[str, Any], summary: st
         return f'Renamed {shot_code}'
     if event_type == 'download_started':
         return 'Downloaded tracker files'
+    if event_type in EXTRA_EVENT_TYPES:
+        return f'Updated extras on {shot_code}'
     return summary
 
 
@@ -440,6 +459,9 @@ def serialize_tracker_event(
         payload['shots'] = _event_shots_for_visibility(payload, visible_shot_ids, visible_version_ids)
         payload['count'] = len(payload['shots'])
 
+    if audience == 'public' and event.event_type in EXTRA_EVENT_TYPES:
+        # Extras can be team only; share links never see their history.
+        return None
     summary = _summary_for_event(event.event_type, payload)
     target = _navigation_target_for_event(event, payload)
     is_safe_audience = audience in {'public', 'restricted'}

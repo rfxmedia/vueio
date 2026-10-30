@@ -14,6 +14,7 @@ from app.models import (
     Comment,
     HorizonProject,
     HorizonShot,
+    HorizonShotExtraFile,
     HorizonShotVersion,
     MediaAsset,
     MediaMetadata,
@@ -319,6 +320,7 @@ def _media_asset_reference_score(db: Session, asset_id: str) -> int:
         db.query(ShareLink).filter(ShareLink.media_asset_id == asset_id).filter(ShareLink.is_active.isnot(False)).count() * 100
         + db.query(HorizonShot).filter(HorizonShot.latest_media_asset_id == asset_id).count() * 80
         + db.query(HorizonShotVersion).filter(HorizonShotVersion.media_asset_id == asset_id).count() * 60
+        + db.query(HorizonShotExtraFile).filter(HorizonShotExtraFile.media_asset_id == asset_id).count() * 40
         + db.query(Comment).filter(Comment.horizons_media_asset_id == asset_id).count() * 20
         + db.query(ShotRegistryEntry).filter(ShotRegistryEntry.latest_media_asset_id == asset_id).count() * 20
         + db.query(VersionRegistryEntry).filter(VersionRegistryEntry.media_asset_id == asset_id).count() * 20
@@ -364,6 +366,7 @@ def media_asset_reference_clause(db: Session):
         *(db.query(column).filter(column == MediaAsset.id).exists() for column in (
             HorizonShot.latest_media_asset_id,
             HorizonShotVersion.media_asset_id,
+            HorizonShotExtraFile.media_asset_id,
             Comment.horizons_media_asset_id,
             ShareLink.media_asset_id,
             ShotRegistryEntry.latest_media_asset_id,

@@ -51,6 +51,10 @@
             <span class="td-stat-value">{{ shotCountValue }}</span>
             <span class="td-stat-label">{{ shotCountLabel }}</span>
           </li>
+          <li v-if="extraCount" class="td-stat">
+            <span class="td-stat-value">{{ extraCount.toLocaleString() }}</span>
+            <span class="td-stat-label">{{ extraCount === 1 ? 'extra' : 'extras' }}</span>
+          </li>
           <li class="td-stat">
             <span class="td-stat-value">{{ trackerName }}</span>
             <span class="td-stat-label">tracker</span>
@@ -150,6 +154,11 @@ const trackerName = computed(() => props.currentTracker?.name || 'Tracker')
 const shotCount = computed(() => Number(props.currentTracker?.shot_count || props.currentTracker?.shots?.length || 0))
 const shotCountValue = computed(() => shotCount.value.toLocaleString())
 const shotCountLabel = computed(() => (shotCount.value === 1 ? 'shot' : 'shots'))
+// The extras clients get with Download all. A team preview leaves out team-only extras.
+const extraCount = computed(() => (props.currentTracker?.shots || []).reduce(
+  (total, shot) => total + ((shot?.versions || []).at(-1)?.extras || []).filter(extra => extra.client_visible !== false).length,
+  0,
+))
 
 const preparedLabel = computed(() => {
   try {
@@ -163,7 +172,7 @@ const preparedLabel = computed(() => {
 const actionNote = computed(() => {
   if (!props.canDownloadTrackerLatest && !props.trackerDownloadBusy) return 'Downloads are not enabled for this delivery.'
   if (props.trackerDownloadBusy) return 'Preparing the latest versions for download.'
-  return 'Includes the latest versions.'
+  return extraCount.value ? 'Includes the latest versions and their extras.' : 'Includes the latest versions.'
 })
 
 const downloadPercent = computed(() => {

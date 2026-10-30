@@ -93,10 +93,15 @@ class Comparison:
         return transcode_cache_path_for_identity(self.key)
 
 
-def resolve_comparison(db, primary, secondary, *, user=None, access_role=None, share=False) -> Comparison:
-    """Inputs MUST come from the existing authenticated/shared object resolvers."""
-    versions = [db.get(HorizonShotVersion, item.shot_version_id) for item in (primary, secondary)]
-    if (not all(versions) or versions[0].id == versions[1].id
+def resolve_comparison(db, primary, secondary, *, user=None, access_role=None, share=False, secondary_is_extra=False) -> Comparison:
+    """Inputs MUST come from the existing authenticated/shared object resolvers.
+
+    With `secondary_is_extra`, the caller has checked that the secondary is
+    an extra of the primary version, such as its alpha matte.
+    """
+    versions = [db.get(HorizonShotVersion, primary.shot_version_id)]
+    versions.append(versions[0] if secondary_is_extra else db.get(HorizonShotVersion, secondary.shot_version_id))
+    if (not all(versions) or (versions[0].id == versions[1].id and not secondary_is_extra)
             or versions[0].project_id != versions[1].project_id or versions[0].shot_id != versions[1].shot_id):
         raise HTTPException(400, 'Choose two versions of the same shot.')
     tracker = db.get(HorizonTracker, versions[0].tracker_id)

@@ -14,6 +14,8 @@ from app.models import (
     DownloadEvent,
     HorizonShot,
     HorizonShotAssignee,
+    HorizonShotExtra,
+    HorizonShotExtraFile,
     HorizonShotVersion,
     HorizonTracker,
     MediaAsset,
@@ -33,6 +35,7 @@ from .common import SHOT_STATUS_LABELS, SHOT_STATUS_ORDER, _normalize_horizon_tr
 from .projects import get_horizon_project
 from .team import is_restricted_horizon_artist, serialize_horizon_shot_assignments
 from .tracker_settings import normalize_tracker_settings, tracker_settings_for
+from .extras import copy_extras_for_shot, serialize_tracker_extras
 from .version_publication import published_versions_by_shot
 
 TRACKER_DESCRIPTION_MAX_LENGTH = 240
@@ -199,11 +202,15 @@ def serialize_horizon_shot_version_media(version: HorizonShotVersion, asset: Med
 def _serialize_horizon_versions_by_shot(
     db: Session,
     project_id: str,
-    shot_ids: list[str],
+    shots: list[HorizonShot],
     version_limit: int | None = None,
-) -> dict[str, list[dict]]:
+    *,
+    share: bool = False,
+) -> tuple[dict[str, list[dict]], dict[str, list[dict]]]:
+    """Versions of each shot with their extras, and the extras of each shot."""
+    shot_ids = [shot.id for shot in shots]
     if not shot_ids:
-        return {}
+        return {}, {}
     versions_by_shot = {shot_id: [] for shot_id in shot_ids}
     versions = db.query(HorizonShotVersion).filter(
         HorizonShotVersion.project_id == project_id,
@@ -229,10 +236,19 @@ def _serialize_horizon_versions_by_shot(
 
         for asset in asset_map.values():
             resolve_media_asset_path(asset, project_id=project_id, db=db)
-    return {
-        shot_id: [serialize_horizon_shot_version_media(version, asset_map.get(version.media_asset_id)) for version in shot_versions]
+    shot_extras, version_extras, plate_names = serialize_tracker_extras(db, shots, versions_by_shot, asset_map, share=share)
+    serialized = {
+        shot_id: [
+            {
+                **serialize_horizon_shot_version_media(version, asset_map.get(version.media_asset_id)),
+                'download_name': plate_names.get(version.id),
+                'extras': version_extras.get(version.id, []),
+            }
+            for version in shot_versions
+        ]
         for shot_id, shot_versions in versions_by_shot.items()
     }
+    return serialized, shot_extras
 
 
 def serialize_horizon_tracker_detail(
@@ -244,7 +260,9 @@ def serialize_horizon_tracker_detail(
     shot_limit: int | None = None,
     version_limit: int | None = None,
     include_archived: bool = False,
+    share: bool = False,
 ) -> dict:
+    """`share` builds extras for a share link: only client-visible extras of published versions."""
     from .shots import list_visible_horizon_shots
 
     shots = list_visible_horizon_shots(
@@ -266,7 +284,7 @@ def serialize_horizon_tracker_detail(
         shots = shots[:shot_limit]
 
     assignments = serialize_horizon_shot_assignments(db, shots)
-    versions_by_shot = _serialize_horizon_versions_by_shot(db, tracker.project_id, [shot.id for shot in shots], version_limit)
+    versions_by_shot, extras_by_shot = _serialize_horizon_versions_by_shot(db, tracker.project_id, shots, version_limit, share=share)
 
     return {
         'id': tracker.id,
@@ -300,6 +318,7 @@ def serialize_horizon_tracker_detail(
                 'archived_by': shot.archived_by,
                 'archive_reason': shot.archive_reason,
                 'versions': versions_by_shot[shot.id],
+                'extras': extras_by_shot.get(shot.id, []),
                 'created_at': shot.created_at,
                 'updated_at': shot.updated_at,
             }
@@ -620,9 +639,11 @@ def duplicate_horizon_tracker(db: Session, project_id: str, tracker_ref: str) ->
                 updated_at=now,
             ))
 
+        version_map = {}
         for version in versions_by_shot.get(source_shot.id, []):
+            version_map[version.id] = str(uuid.uuid4())
             db.add(HorizonShotVersion(
-                id=str(uuid.uuid4()),
+                id=version_map[version.id],
                 project_id=project_id,
                 tracker_id=duplicate.id,
                 shot_id=shot_id,
@@ -635,6 +656,7 @@ def duplicate_horizon_tracker(db: Session, project_id: str, tracker_ref: str) ->
                 created_at=version.created_at,
                 updated_at=now,
             ))
+        copy_extras_for_shot(db, source_shot.id, copied_shot, version_map, now)
 
     project.updated_at = now
     db.add(project)
@@ -789,6 +811,8 @@ def delete_horizon_tracker(db: Session, project_id: str, tracker_ref: str) -> tu
     ).delete(synchronize_session=False)
 
     db.query(HorizonShotAssignee).filter(HorizonShotAssignee.tracker_id == tracker_id).delete(synchronize_session=False)
+    db.query(HorizonShotExtraFile).filter(HorizonShotExtraFile.tracker_id == tracker_id).delete(synchronize_session=False)
+    db.query(HorizonShotExtra).filter(HorizonShotExtra.tracker_id == tracker_id).delete(synchronize_session=False)
     db.query(HorizonShotVersion).filter(HorizonShotVersion.tracker_id == tracker_id).delete(synchronize_session=False)
     db.query(HorizonShot).filter(HorizonShot.tracker_id == tracker_id).delete(synchronize_session=False)
     db.query(VersionRegistryEntry).filter(VersionRegistryEntry.tracker_id == tracker_id).delete(synchronize_session=False)

@@ -13,7 +13,6 @@ from app.services.horizons_fresh import require_horizon_project_access
 from app.services.media_serving import (
     DownloadAuditSpec,
     HlsRouteBuilder,
-    get_object_file_info,
     get_object_hls_asset,
     get_object_hls_manifest,
     get_object_hls_status,
@@ -32,6 +31,8 @@ from app.services.model_preview import save_model_thumbnail, serve_model
 from app.services.comment_visuals import frame_timestamp, render_media_frame
 from app.services.comparison import comparison_file, comparison_status, resolve_comparison
 from app.services.comparison_export import EXPORT_OPENAPI, cancel_export, read_export_request, resolve_export, start_export
+from app.services.horizons.extras import comparison_extra_file
+from app.services.network_paths import file_network_path
 from app.services.tracker_downloads import tracker_version_download_name
 
 router = APIRouter(tags=['horizons-media-objects'])
@@ -39,9 +40,15 @@ router = APIRouter(tags=['horizons-media-objects'])
 
 def _authorized_comparison(project_id, version_id, other_id, vueio_session, x_vueio_agent_key, db):
     user, role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
-    sources = [resolve_horizons_object_auth(db, project_id, version_id=identity,
-               detail='Shot version not found', user=user, access_role=role) for identity in (version_id, other_id)]
-    return resolve_comparison(db, *sources, user=user, access_role=role), f'user:{user.get("id") or user["username"]}'
+    primary = resolve_horizons_object_auth(db, project_id, version_id=version_id, detail='Shot version not found', user=user, access_role=role)
+    # `other_id` is another version, or extra-<id> to compare the version with one of its extras.
+    extra_file = comparison_extra_file(db, version_id, other_id)
+    secondary = resolve_horizons_object_auth(
+        db, project_id, detail='Shot version not found', user=user, access_role=role,
+        **({'asset_id': extra_file.media_asset_id} if extra_file else {'version_id': other_id}),
+    )
+    pair = resolve_comparison(db, primary, secondary, user=user, access_role=role, secondary_is_extra=extra_file is not None)
+    return pair, f'user:{user.get("id") or user["username"]}'
 
 
 @router.api_route('/api/horizons/projects/{project_id}/shot-versions/{version_id}/comparison/{other_id}/status', methods=['GET', 'POST'], summary='Prepare a version comparison')
@@ -151,17 +158,19 @@ def get_horizons_media_asset_file_info(project_id: str, asset_id: str, vueio_ses
     """Get the details of a project media file.
 
     Returns its name, path, size, dates and kind. A video also has duration,
-    fps, frame count, resolution and codec.
+    fps, frame count, resolution and codec. `network_path` has the full
+    path for Windows, macOS and smb:// when the storage has a network path.
     """
     user, access_role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
-    return get_object_file_info(lambda: _build_horizons_object_payload(
+    full_path, _cache_key, payload = _build_horizons_object_payload(
         db,
         project_id,
         asset_id=asset_id,
         detail='Horizons media asset not found',
         user=user,
         access_role=access_role,
-    ))
+    )
+    return {**payload, 'network_path': file_network_path(db, user, full_path)}
 
 
 @router.get('/api/horizons/projects/{project_id}/media-assets/{asset_id}/stream')
@@ -315,17 +324,19 @@ def get_horizons_shot_version_file_info(project_id: str, version_id: str, vueio_
     """Get the details of the media file of a shot version.
 
     Returns its name, path, size, dates and kind. A video also has duration,
-    fps, frame count, resolution and codec.
+    fps, frame count, resolution and codec. `network_path` has the full
+    path for Windows, macOS and smb:// when the storage has a network path.
     """
     user, access_role = _require_horizons_media_viewer(project_id, vueio_session, x_vueio_agent_key, db)
-    return get_object_file_info(lambda: _build_horizons_object_payload(
+    full_path, _cache_key, payload = _build_horizons_object_payload(
         db,
         project_id,
         version_id=version_id,
         detail='Horizons shot version not found',
         user=user,
         access_role=access_role,
-    ))
+    )
+    return {**payload, 'network_path': file_network_path(db, user, full_path)}
 
 
 @router.get('/api/horizons/projects/{project_id}/shot-versions/{version_id}/stream')

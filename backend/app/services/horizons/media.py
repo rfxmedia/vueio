@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     Comment,
     HorizonShot,
+    HorizonShotExtraFile,
     HorizonShotVersion,
     MediaAsset,
 )
@@ -71,6 +72,13 @@ def _list_visible_horizon_media_asset_ids(db: Session, project_id: str, user: di
             .filter(HorizonShotVersion.media_asset_id.isnot(None))
             .all()
             if asset_id
+        )
+        visible_asset_ids.update(
+            asset_id
+            for (asset_id,) in db.query(HorizonShotExtraFile.media_asset_id)
+            .filter(HorizonShotExtraFile.project_id == project_id)
+            .filter(HorizonShotExtraFile.shot_id.in_(visible_shot_ids))
+            .all()
         )
 
     workspace_path = get_horizon_user_workspace_path(user)
@@ -167,6 +175,16 @@ def _restricted_artist_has_direct_media_access(
         .first()
     )
     if assigned_version is not None:
+        return True
+    assigned_extra = (
+        db.query(HorizonShotExtraFile.id)
+        .join(HorizonShot, HorizonShot.id == HorizonShotExtraFile.shot_id)
+        .filter(HorizonShotExtraFile.project_id == project_id)
+        .filter(HorizonShotExtraFile.media_asset_id == asset_id)
+        .filter(_horizon_shot_assignment_clause(subject_ids))
+        .first()
+    )
+    if assigned_extra is not None:
         return True
 
     workspace_path = get_horizon_user_workspace_path(user)
@@ -527,9 +545,15 @@ def select_horizon_preview_asset(db: Session, project_id: str, *, user: dict | N
         if access_role == 'share'
         else set()
     )
+    # A matte or clean plate is never a good cover; plates and other files are.
+    extra_only_ids = {
+        str(asset_id) for (asset_id,) in db.query(HorizonShotExtraFile.media_asset_id).filter(HorizonShotExtraFile.project_id == project_id).all()
+    } - {
+        str(asset_id) for (asset_id,) in db.query(HorizonShotVersion.media_asset_id).filter(HorizonShotVersion.project_id == project_id).all()
+    }
     ranked: list[tuple[int, float, MediaAsset]] = []
     for asset in list_visible_horizon_media_assets(db, project_id, user=user, access_role=access_role):
-        if str(asset.id) in held_asset_ids:
+        if str(asset.id) in held_asset_ids or str(asset.id) in extra_only_ids:
             continue
         ext = Path(asset.file_path or '').suffix.lower()
         if ext in image_extensions:

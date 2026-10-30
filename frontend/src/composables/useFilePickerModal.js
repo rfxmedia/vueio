@@ -13,7 +13,7 @@ const TRACKER_IMPORT_MEDIA_EXTS = new Set([
   'mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', 'mxf', 'r3d', 'braw', 'prores',
 ])
 
-const PROJECT_PICKER_MODES = new Set(['shot-import', 'shot', 'bulk-version-update', 'comment-reference'])
+const PROJECT_PICKER_MODES = new Set(['shot-import', 'shot', 'bulk-version-update', 'comment-reference', 'extra-file'])
 
 function isTrackerImportMediaItem(item) {
   if (!item) return false
@@ -57,6 +57,9 @@ export function useFilePickerModal({
   const commentReferenceLimit = ref(3)
   let commentReferenceApplyHandler = null
   let commentUploadHandler = null
+  // Extras: choose one file to fill an extra, or several to add.
+  const extraFileLimit = ref(20)
+  let extraFileApplyHandler = null
   const versionPickerCurrentInfo = ref(null)
   const pendingPickerMediaInfoPaths = new Set()
   let versionPickerCurrentInfoToken = 0
@@ -109,6 +112,7 @@ export function useFilePickerModal({
     if (pickerMode.value === 'page-resource') return 'Add resource from storage'
     if (pickerMode.value === 'project-link') return 'Link from storage'
     if (pickerMode.value === 'comment-reference') return 'Add attachment'
+    if (pickerMode.value === 'extra-file') return extraFileLimit.value === 1 ? 'Choose a file' : 'Choose extras'
     return 'Add version'
   })
 
@@ -189,13 +193,14 @@ export function useFilePickerModal({
   })
   const selectedProjectLinkCount = computed(() => pickerSelectedItems.value.length)
   const canApplyProjectLinkSelection = computed(() => (
-    ['project-link', 'comment-reference'].includes(pickerMode.value) &&
+    ['project-link', 'comment-reference', 'extra-file'].includes(pickerMode.value) &&
     selectedProjectLinkCount.value > 0 &&
     !projectLinkApplyBusy.value
   ))
   const projectLinkApplyLabel = computed(() => {
     const count = selectedProjectLinkCount.value
     if (projectLinkApplyBusy.value) return 'Linking...'
+    if (pickerMode.value === 'extra-file') return count === 1 ? 'Use this file' : count ? `Use ${count} files` : 'Choose files'
     if (count === 0) return pickerMode.value === 'comment-reference' ? 'Attach items' : 'Link files'
     if (pickerMode.value === 'comment-reference') return count === 1 ? 'Attach 1 item' : `Attach ${count} items`
     if (count === 1) return 'Link 1 file'
@@ -502,6 +507,18 @@ export function useFilePickerModal({
     showFilePicker.value = true
   }
 
+  async function openExtraFilePicker({ multiple = true, onApply } = {}) {
+    if (!currentProject.value?.id || typeof onApply !== 'function') return
+    pickerMode.value = 'extra-file'
+    pickerSource.value = 'project'
+    pickerPath.value = ''
+    pickerSelectedItems.value = []
+    extraFileLimit.value = multiple ? 20 : 1
+    extraFileApplyHandler = onApply
+    if (!await loadPickerFiles('')) return
+    showFilePicker.value = true
+  }
+
   function uploadCommentFiles() {
     if (pickerMode.value !== 'comment-reference') return
     const handler = commentUploadHandler
@@ -568,6 +585,14 @@ export function useFilePickerModal({
     }
     if (pickerMode.value === 'comment-reference' && pickerSelectedItems.value.length >= commentReferenceLimit.value) {
       notify(`You can attach up to ${commentReferenceLimit.value} items.`)
+      return
+    }
+    if (pickerMode.value === 'extra-file' && extraFileLimit.value === 1) {
+      pickerSelectedItems.value = [item]
+      return
+    }
+    if (pickerMode.value === 'extra-file' && pickerSelectedItems.value.length >= extraFileLimit.value) {
+      notify(`You can choose up to ${extraFileLimit.value} files at once.`)
       return
     }
     pickerSelectedItems.value = [...pickerSelectedItems.value, item]
@@ -791,6 +816,14 @@ export function useFilePickerModal({
       showFilePicker.value = false
       return
     }
+    if (pickerMode.value === 'extra-file') {
+      const handler = extraFileApplyHandler
+      const selected = pickerSelectedItems.value.filter(item => item?.type !== 'folder').slice(0, extraFileLimit.value)
+      pickerSelectedItems.value = []
+      showFilePicker.value = false
+      handler?.(selected.map(item => ({ ...item, file_path: getTrackerImportFilePath(item) })))
+      return
+    }
     const sourcePaths = pickerSelectedItems.value
       .filter(item => item?.type !== 'folder')
       .map(item => item.path)
@@ -977,7 +1010,7 @@ export function useFilePickerModal({
       return
     }
 
-    if (['project-link', 'comment-reference'].includes(pickerMode.value)) {
+    if (['project-link', 'comment-reference', 'extra-file'].includes(pickerMode.value)) {
       togglePickerSelectedItem(item)
     }
   }
@@ -992,6 +1025,7 @@ export function useFilePickerModal({
       projectLinkApplyBusy.value = false
       commentReferenceApplyHandler = null
       commentUploadHandler = null
+      extraFileApplyHandler = null
       resetVersionPickerState()
     }
   }, { flush: 'sync' })
@@ -1130,6 +1164,7 @@ export function useFilePickerModal({
     openShotImportPicker,
     openProjectLinkPicker,
     openCommentReferencePicker,
+    openExtraFilePicker,
     uploadCommentFiles,
     openPageResourcePicker,
     openThumbnailPicker,

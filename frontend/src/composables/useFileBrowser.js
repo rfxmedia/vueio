@@ -23,6 +23,8 @@ const SHARED_PROJECT_VIDEO_EXTS = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'mxf', 'r
 export function useFileBrowser(ctx) {
   const files = shallowRef([])
   const breadcrumbs = ref([])
+  // The full path of this folder; an item's path adds its name.
+  const folderNetworkPath = ref(null)
   const currentPath = ref('')
   const browserViewState = ctx.fileBrowserViewState || useFileBrowserViewState()
   const {
@@ -200,6 +202,7 @@ export function useFileBrowser(ctx) {
       if (!options.background) resetRenderLimit()
       files.value = (result.items || result.entries || []).filter(isFileBrowserEntry)
       breadcrumbs.value = result.breadcrumbs || []
+      folderNetworkPath.value = result.network_path || null
       currentPath.value = path
       loadedScope.value = scope
       filesError.value = ''
@@ -665,6 +668,7 @@ export function useFileBrowser(ctx) {
   return {
     files,
     breadcrumbs,
+    folderNetworkPath,
     currentPath,
     viewMode,
     fileSortKey,

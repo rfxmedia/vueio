@@ -257,6 +257,15 @@ class AppIdentity(Base):
     updated_at = Column(Float, default=time.time)
 
 
+class StorageNetworkPath(Base):
+    """How computers on the network reach a storage location, as \\\\server\\share\\folder."""
+    __tablename__ = 'storage_network_paths'
+    root_id = Column(String, primary_key=True)
+    network_path = Column(String, nullable=False)
+    updated_by = Column(String, nullable=True)
+    updated_at = Column(Float, default=time.time)
+
+
 class UserSession(Base):
     __tablename__ = 'user_sessions'
     id = Column(String, primary_key=True)
@@ -476,6 +485,49 @@ class HorizonShotVersion(Base):
     notes = Column(Text, nullable=True)
     share_state = Column(String, nullable=False, default='published')
     published_at = Column(Float, nullable=True)
+    created_by = Column(String, nullable=True)
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time)
+
+
+class HorizonShotExtra(Base):
+    """An extra that a shot has on every version, such as an alpha matte.
+
+    Each version has its own file for it (HorizonShotExtraFile). A version
+    without a file for it shows the extra as needed.
+    """
+    __tablename__ = 'horizons_shot_extras'
+    __table_args__ = (
+        Index('ix_horizons_shot_extras_shot_order', 'shot_id', 'sort_order'),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, nullable=False, index=True)
+    tracker_id = Column(String, nullable=False, index=True)
+    shot_id = Column(String, nullable=False, index=True)
+    name = Column(String, nullable=False)
+    note = Column(String, nullable=True)
+    client_visible = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_by = Column(String, nullable=True)
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time)
+
+
+class HorizonShotExtraFile(Base):
+    """The file of one extra for one version."""
+    __tablename__ = 'horizons_shot_extra_files'
+    __table_args__ = (
+        UniqueConstraint('extra_id', 'version_id', name='uq_horizons_shot_extra_files_extra_version'),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, nullable=False, index=True)
+    tracker_id = Column(String, nullable=False, index=True)
+    shot_id = Column(String, nullable=False, index=True)
+    extra_id = Column(String, nullable=False, index=True)
+    version_id = Column(String, nullable=False, index=True)
+    media_asset_id = Column(String, nullable=False, index=True)
     created_by = Column(String, nullable=True)
     created_at = Column(Float, default=time.time)
     updated_at = Column(Float, default=time.time)

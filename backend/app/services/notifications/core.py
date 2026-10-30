@@ -54,6 +54,8 @@ EVENT_BUCKETS = {
     'version_kept_internal': 'versions',
     'version_removed_from_shares': 'versions',
     'brief_file_uploaded': 'versions',
+    'extra_added': 'versions',
+    'extra_file_set': 'versions',
     'shots_imported': 'versions',
     'comment_added': 'comments',
     'comment_resolved': 'comments',

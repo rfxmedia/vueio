@@ -13,10 +13,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal, get_db
-from app.models import HorizonShot, HorizonShotVersion, HorizonTracker, MediaAsset
+from app.models import HorizonShot, HorizonShotExtra, HorizonShotExtraFile, HorizonShotVersion, HorizonTracker
 from app.runtime_state import executor
 from app.services.auth import get_request_user
 from app.services.download_audit import create_download_event
+from app.services.horizons.trackers import _serialize_horizon_versions_by_shot
 from app.services.horizons_fresh import (
     SHOT_STATUS_ORDER,
     create_horizon_tracker,
@@ -26,7 +27,6 @@ from app.services.horizons_fresh import (
     get_horizon_tracker_by_ref,
     get_horizon_tracker_for_share,
     get_horizon_shot_assignee_ids,
-    list_horizon_shot_versions,
     list_visible_horizon_shots,
     refresh_horizon_tracker_stats_cache,
     require_horizon_user_workspace_path,
@@ -35,7 +35,6 @@ from app.services.horizons_fresh import (
     require_horizon_tracker_view_access,
     serialize_horizon_shot_assignee,
     serialize_horizon_shot_assignees,
-    serialize_horizon_shot_version_media,
     touch_horizon_project,
 )
 from app.services.horizons.version_publication import (
@@ -152,6 +151,8 @@ class TrackerTagDeleteRequest(BaseModel):
 class TrackerLatestDownloadRequest(BaseModel):
     shot_ids: Optional[List[str]] = Field(None, description='Shot ids or codes to include. Leave out to include every shot you can see.')
     filename: Optional[str] = Field(None, description="The zip file name. '.zip' is added when it is missing.")
+    include_extras: bool = Field(True, description='Include the extras of each version. A shot with extras gets a folder with its plate and extras.')
+    version_id: Optional[str] = Field(None, description='Zip this one version with its extras instead of the latest version of each shot.')
 
 
 def _parse_tracker_download_form_shot_ids(raw: str | None) -> list[str] | None:
@@ -263,14 +264,8 @@ def _safe_name(value: str | None, fallback: str) -> str:
 
 
 def _serialize_horizon_shot(db: Session, shot: HorizonShot) -> dict:
-    versions = list_horizon_shot_versions(db, shot.project_id, shot.id)
-    asset_ids = [version.media_asset_id for version in versions if version.media_asset_id]
-    asset_map = {}
-    if asset_ids:
-        asset_map = {
-            asset.id: asset
-            for asset in db.query(MediaAsset).filter(MediaAsset.id.in_(asset_ids)).all()
-        }
+    # The same version and extras payload as the tracker, so a saved shot keeps its extras.
+    versions_by_shot, extras_by_shot = _serialize_horizon_versions_by_shot(db, shot.project_id, [shot])
 
     return {
         'id': shot.id,
@@ -289,7 +284,8 @@ def _serialize_horizon_shot(db: Session, shot: HorizonShot) -> dict:
         'archived_at': shot.archived_at,
         'archived_by': shot.archived_by,
         'archive_reason': shot.archive_reason,
-        'versions': [serialize_horizon_shot_version_media(version, asset_map.get(version.media_asset_id)) for version in versions],
+        'versions': versions_by_shot.get(shot.id, []),
+        'extras': extras_by_shot.get(shot.id, []),
         'created_at': shot.created_at,
         'updated_at': shot.updated_at,
     }
@@ -942,6 +938,13 @@ def _package_job_tracker_scope(job) -> tuple[str, set[str]]:
     return tracker_id.strip(), {version_id.strip() for version_id in raw_version_ids}
 
 
+def _package_job_extra_file_ids(job) -> set[str]:
+    raw = json.loads(job.authorization_json or '{}').get('extra_file_ids') or []
+    if not isinstance(raw, list) or any(not isinstance(item, str) or not item.strip() for item in raw):
+        raise HTTPException(status_code=403, detail='Package job authorization is invalid')
+    return set(raw)
+
+
 def _require_package_job_access(
     db: Session,
     job_id: str,
@@ -989,6 +992,21 @@ def _require_package_job_access(
                 raise HTTPException(
                     status_code=409,
                     detail='This package contains a version that is no longer shared. Request a new download.',
+                )
+        extra_file_ids = _package_job_extra_file_ids(job)
+        if extra_file_ids:
+            shared_extra_count = (
+                db.query(HorizonShotExtraFile)
+                .join(HorizonShotExtra, HorizonShotExtra.id == HorizonShotExtraFile.extra_id)
+                .filter(HorizonShotExtraFile.id.in_(extra_file_ids))
+                .filter(HorizonShotExtraFile.version_id.in_(version_ids))
+                .filter(HorizonShotExtra.client_visible.is_(True))
+                .count()
+            )
+            if shared_extra_count != len(extra_file_ids):
+                raise HTTPException(
+                    status_code=409,
+                    detail='This package contains an extra that is no longer shared. Request a new download.',
                 )
         return job, None, 'share'
     if job.owner_type != 'user':
@@ -1117,13 +1135,13 @@ def download_tracker_latest_versions_zip(project_id: str, tracker_name: str, dat
         auth_mode=auth_mode,
         project_id=project.id,
         tracker_id=tracker.id,
-        event_type='download_all',
-        resource_type='tracker_latest_zip',
-        resource_id=tracker.id,
+        event_type='download_file' if data.version_id else 'download_all',
+        resource_type='shot_version_zip' if data.version_id else 'tracker_latest_zip',
+        resource_id=data.version_id or tracker.id,
         resource_name=tracker.name,
         filename=data.filename,
         paths=data.shot_ids or [],
-        metadata={'access_role': access_role, 'selected_shots': bool(data.shot_ids)},
+        metadata={'access_role': access_role, 'selected_shots': bool(data.shot_ids), 'include_extras': data.include_extras},
         create_tracker_activity=True,
     )
     return build_tracker_latest_versions_zip(
@@ -1136,6 +1154,8 @@ def download_tracker_latest_versions_zip(project_id: str, tracker_name: str, dat
         access_role=access_role,
         shot_refs=data.shot_ids,
         filename=data.filename,
+        include_extras=data.include_extras,
+        version_id=data.version_id,
     )
 
 
@@ -1158,13 +1178,13 @@ def create_tracker_latest_versions_zip_job(project_id: str, tracker_name: str, d
         auth_mode=auth_mode,
         project_id=project.id,
         tracker_id=tracker.id,
-        event_type='download_all',
-        resource_type='tracker_latest_zip_job',
-        resource_id=tracker.id,
+        event_type='download_file' if data.version_id else 'download_all',
+        resource_type='shot_version_zip' if data.version_id else 'tracker_latest_zip_job',
+        resource_id=data.version_id or tracker.id,
         resource_name=tracker.name,
         filename=data.filename,
         paths=data.shot_ids or [],
-        metadata={'access_role': access_role, 'selected_shots': bool(data.shot_ids)},
+        metadata={'access_role': access_role, 'selected_shots': bool(data.shot_ids), 'include_extras': data.include_extras},
         create_tracker_activity=True,
     )
     return start_tracker_latest_versions_zip_job(
@@ -1176,6 +1196,8 @@ def create_tracker_latest_versions_zip_job(project_id: str, tracker_name: str, d
         access_role=access_role,
         shot_refs=data.shot_ids,
         filename=data.filename,
+        include_extras=data.include_extras,
+        version_id=data.version_id,
     )
 
 

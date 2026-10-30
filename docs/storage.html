@@ -52,6 +52,21 @@ as the original. Reconnect the correct drive instead of deleting identity marker
 <p>Network storage must already be mounted on the host. Network shares and
 FAT/exFAT can hold media but are not supported database locations.</p>
 <p><a href="self-hosting.html#storage">Storage registration and permissions →</a></p>
+<h2 id="let-people-copy-file-paths">Let people copy file paths</h2>
+<p>When the team opens the same storage over the network, people can copy the full
+path of a file and paste it into the Import dialog of their software.</p>
+<ol>
+<li>Open <strong>Settings → Storage</strong>.</li>
+<li>In the card of the storage location, enter its <strong>Network path</strong>, such as <code>\\nas\Media</code>.
+Use the folder that Vue.io shows at the top of that location.</li>
+<li>Select <strong>Save</strong>.</li>
+</ol>
+<p>Enter the network path once. Vue.io gives each computer the form it understands:
+<code>\\nas\Media\...</code> on Windows, <code>/Volumes/Media/...</code> on a Mac and <code>smb://nas/Media/...</code> on other systems.
+A Windows drive letter, such as <code>Z:</code>, works only on one computer. On Windows, the <code>net use</code> command shows the network path of a drive letter.
+On a Mac, select the drive in Finder and choose <strong>Get Info</strong>.</p>
+<p>Administrators and members with File Browser access to the folder can copy paths.
+A path works only on a computer that is connected to that network storage.</p>
 <h2 id="change-a-project-folder">Change a project folder</h2>
 <p>An administrator can open a project card's menu and select <strong>Project folder</strong>.
 Use this when files have moved or when an internal project needs a working folder.</p>
@@ -106,4 +121,4 @@ sudo vueioctl doctor
 <p>These Linux examples use <code>sudo</code>. On an experimental Mac installation, use
 the Mac management commands described in the administrator reference.</p>
 <footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/STORAGE_OPERATIONS.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#know-what-lives-where">Know what lives where</a><a href="#connect-storage">Connect storage</a><a href="#change-a-project-folder">Change a project folder</a><a href="#backups">Backups</a><a href="#updates">Updates</a><a href="#if-an-update-fails">If an update fails</a><a href="#routine-health-check">Routine health check</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#know-what-lives-where">Know what lives where</a><a href="#connect-storage">Connect storage</a><a href="#let-people-copy-file-paths">Let people copy file paths</a><a href="#change-a-project-folder">Change a project folder</a><a href="#backups">Backups</a><a href="#updates">Updates</a><a href="#if-an-update-fails">If an update fails</a><a href="#routine-health-check">Routine health check</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

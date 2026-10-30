@@ -1,4 +1,5 @@
 import { computed, inject, provide } from 'vue'
+import { useTrackerExtrasController } from '../composables/useTrackerExtrasController'
 import { useTrackerListController } from '../composables/useTrackerListController'
 import { useTrackerViewerController } from '../composables/useTrackerViewerController'
 import { useTrackerWorkspaceController } from '../composables/useTrackerWorkspaceController'
@@ -37,16 +38,28 @@ export function createTrackerStore(context) {
     showStatusPicker: listController.showStatusPicker,
   })
 
+  const extrasController = useTrackerExtrasController({
+    ...context.extras,
+    refreshTracker: () => workspaceController.refreshCurrentTrackerPreserveState(),
+  })
+
   return Object.freeze({
     ...context.presentation,
     ...workspaceController,
     ...listController,
     ...viewerController,
+    ...extrasController,
     STATUS_ORDER: context.list.statusOrder,
     bulkStatusOptions: listController.trackerStatusOptions,
     canCategorizeShots: listController.canBulkUpdateCategory,
     clearSelectedShots: listController.clearActiveSelectedShots,
     currentUserId: computed(() => context.list.currentUser.value?.id || ''),
+    // A version with extras downloads as one ZIP with its extras.
+    downloadShotVersion: (shot, version) => (
+      extrasController.versionHasExtras(version)
+        ? workspaceController.downloadShotVersionPackage(shot, version)
+        : viewerController.downloadVersion(version)
+    ),
     formatVersionLabel: viewerController.formatTrackerVersionLabel,
     openShotVideo: viewerController.openTrackerShotVideo,
     selectedArchivedShotCount: computed(() => listController.selectedArchivedShots.value.length),

@@ -1335,6 +1335,23 @@ body { background: var(--v-bg-base); color: var(--v-text); font-family: var(--v-
   z-index: 1;
 }
 
+/* Overlay: what a matte keeps stays as it is; the rest of the plate turns dark red. */
+.media-compare-stage.is-overlay {
+  cursor: default;
+}
+
+.media-compare-stage.is-overlay > .is-secondary {
+  z-index: 3;
+  isolation: isolate;
+  background: rgb(205, 86, 104);
+  mix-blend-mode: multiply;
+}
+
+.media-compare-stage.is-overlay > .is-secondary .media-compare-media {
+  background: #000;
+  mix-blend-mode: screen;
+}
+
 .media-compare-media {
   display: block;
   width: 100%;

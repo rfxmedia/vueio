@@ -83,6 +83,12 @@ Open folders refresh when visible files change.
 Large folders, network storage, or files still being written can take longer to update.
 See [Automatic folder updates](SELF_HOSTING.md#automatic-folder-updates).
 
+To open a file in other software without a download, select **Copy path**.
+It is on each tracker card, in the version list, on each extra, in the **File info** tab and in the File Browser menu of a file.
+Paste the path into the Import dialog. On a Mac, press ⌘⇧G in the dialog first.
+**Copy path** shows after an administrator enters a network path in
+[Settings → Storage](STORAGE_OPERATIONS.md#let-people-copy-file-paths).
+
 File deletion is not the same as removing a version from a tracker.
 Read the confirmation for the selected operation before deleting content.
 For moved project folders, use [Change a project folder](STORAGE_OPERATIONS.md#change-a-project-folder).

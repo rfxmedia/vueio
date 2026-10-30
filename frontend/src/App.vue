@@ -537,6 +537,7 @@ const {
   canAddVersions,
   canManageVersionPublication,
   showShotDownloads,
+  canCopyFilePaths,
 } = sessionAuthStore
 
 provideUpdateStatusStore(createUpdateStatusStore({ session: sessionAuthStore }))
@@ -815,6 +816,7 @@ trackerControllerContext.viewer = {
   openVideo,
   openImage,
   openPdf,
+  openRelatedMedia: (...args) => viewerController.media.openRelatedMedia(...args),
   prepareVersionPicker: (...args) => prepareVersionPicker(...args),
   currentProjectRef: currentProject,
   currentTrackerRef: currentTracker,
@@ -875,6 +877,20 @@ trackerControllerContext.presentation = {
   )),
   showDeliveryMode: showTrackerDeliveryMode,
   showShotDownloads,
+  canCopyFilePaths,
+}
+
+trackerControllerContext.extras = {
+  currentProject,
+  currentTracker,
+  shareMode,
+  pendingShareId,
+  getShareCredential,
+  canAddVersions,
+  isRestrictedMember: sessionAuthStore.isRestrictedMember,
+  canCopyFilePaths,
+  triggerBrowserDownload: (...args) => triggerBrowserDownload(...args),
+  openExtraFilePicker: (...args) => fileBrowserStore.picker.openExtraFilePicker(...args),
 }
 
 trackerStore = provideTrackerStore(createTrackerStore(trackerControllerContext))
@@ -992,10 +1008,13 @@ provideViewerStore(createViewerStore({
     options: trackerStore.versionCompareOptions,
     primaryKey: trackerStore.versionComparePrimaryKey,
     secondaryKey: trackerStore.versionCompareSecondaryKey,
+    overlayAvailable: trackerStore.versionCompareOverlayAvailable,
   },
   presentation: {
     isMobile,
     currentShot: trackerStore.currentTrackerViewerShot,
+    currentVersion: trackerStore.currentTrackerViewerCurrentVersion,
+    getExtraSlots: trackerStore.getExtraSlots,
     canEditVersionSummary: trackerStore.canEditVersionSummaries,
     updateVersionSummary: trackerStore.updateCurrentTrackerViewerVersionSummary,
     canManageVersionPublication,

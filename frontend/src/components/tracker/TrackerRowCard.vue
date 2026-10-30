@@ -16,8 +16,8 @@
         'is-mobile-card': isMobileCard,
         'is-grid-card': isGridCard,
         'is-action-busy': shotActionBusy,
-        'is-version-drop-target': versionDropActive,
-        'is-version-drop-blocked': versionDropActive && Boolean(versionDropBlockedReason),
+        'is-version-drop-target': Boolean(drop),
+        'is-version-drop-blocked': Boolean(drop) && drop.zone === 'main' && Boolean(dropBlockedReason),
       },
     ]"
     :draggable="canReorderShots"
@@ -28,20 +28,33 @@
     @dragend="onDragEnd"
   >
     <div
-      v-if="versionDropActive"
+      v-if="drop"
       class="v-drop-overlay tracker-version-drop"
-      :class="{ 'is-blocked': Boolean(versionDropBlockedReason) }"
+      :class="{ 'is-blocked': drop.zone === 'main' && Boolean(dropBlockedReason) }"
       role="status"
       aria-live="polite"
     >
-      <div class="v-drop-overlay-inner tracker-version-drop__inner">
+      <div class="v-drop-overlay-inner tracker-version-drop__inner" :class="{ 'is-idle': drop.zone !== 'main' }">
         <span class="tracker-version-drop__icon" aria-hidden="true">
-          <svg class="icon"><use :href="versionDropBlockedReason ? '#icon-close' : '#icon-upload'" /></svg>
+          <svg class="icon"><use :href="dropBlockedReason ? '#icon-close' : drop.kind === 'files' ? '#icon-layers' : '#icon-upload'" /></svg>
         </span>
         <span class="tracker-version-drop__copy">
-          <strong>{{ versionDropTitle }}</strong>
-          <span>{{ versionDropDetail }}</span>
+          <strong>{{ dropTitle }}</strong>
+          <span>{{ dropDetail }}</span>
         </span>
+      </div>
+      <div v-if="extraDropTargets.length" class="tracker-extra-drop">
+        <div
+          v-for="target in extraDropTargets"
+          :key="target.zone"
+          class="tracker-extra-drop__target"
+          :class="{ 'is-active': drop.zone === target.zone, 'is-needed': target.needed }"
+          :data-drop-zone="target.zone"
+        >
+          <svg class="icon" aria-hidden="true"><use :href="target.needed ? '#icon-plus' : '#icon-layers'" /></svg>
+          <span>{{ target.label }}</span>
+          <span v-if="target.needed" class="tracker-extra-drop__state">Needed</span>
+        </div>
       </div>
     </div>
 
@@ -76,7 +89,9 @@
         :share-mode="shareMode"
         :is-mobile="isMobile"
         :delete-shot-version="deleteShotVersion"
-        :download-version="downloadVersion"
+        :download-version="version => downloadShotVersion(shot, version)"
+        :copy-version-path="canCopyFilePaths ? copyVersionPath : null"
+        :prefetch-version-path="prefetchVersionPath"
         :get-shot-versions="getShotVersions"
         :open-shot-video="openShotVideo"
         :play-shot-version="playShotVersion"
@@ -204,6 +219,7 @@
             </svg>
           </span>
         </button>
+        <TrackerShotExtras :shot="shot" />
       </div>
     </div>
 
@@ -217,12 +233,34 @@
         :class="{ 'is-centered': centerUtilityAction }"
       >
         <button
+          v-if="showUtilityCopyPath"
+          class="tracker-utility-btn v-icon-action"
+          type="button"
+          title="Copy the path of the latest version"
+          aria-label="Copy the path of the latest version"
+          @pointerenter="prefetchVersionPath(latestVersion)"
+          @focus="prefetchVersionPath(latestVersion)"
+          @click.stop="copyVersionPath(latestVersion)"
+        >
+          <svg class="icon"><use href="#icon-copy" /></svg>
+        </button>
+        <button
+          v-if="showUtilityAddExtra"
+          class="tracker-utility-btn v-icon-action"
+          type="button"
+          title="Add an extra, such as an alpha matte"
+          aria-label="Add an extra"
+          @click.stop="openAddExtras(shot)"
+        >
+          <svg class="icon"><use href="#icon-layers" /></svg>
+        </button>
+        <button
           v-if="showUtilityDownload"
           class="tracker-utility-btn v-icon-action"
           type="button"
-          title="Download latest version"
-          aria-label="Download latest version"
-          @click.stop="downloadShotFile(shot)"
+          :title="downloadLatestLabel"
+          :aria-label="downloadLatestLabel"
+          @click.stop="downloadLatest"
         >
           <svg class="icon"><use href="#icon-download" /></svg>
         </button>
@@ -276,6 +314,7 @@ import ShotVersionStack from './ShotVersionStack.vue'
 import TrackerAssigneeSelect from './TrackerAssigneeSelect.vue'
 import TrackerInlineSelect from './TrackerInlineSelect.vue'
 import TrackerRowMeta from './TrackerRowMeta.vue'
+import TrackerShotExtras from './TrackerShotExtras.vue'
 import TrackerTagSelect from './TrackerTagSelect.vue'
 
 const props = defineProps({
@@ -306,42 +345,44 @@ const props = defineProps({
     type: Function,
     required: true,
   },
-  versionDropActive: Boolean,
-  versionDropBlockedReason: {
-    type: String,
-    default: '',
-  },
-  versionDropItemName: {
-    type: String,
-    default: '',
+  // A drag over this card, from TrackerSurface: { kind, zone, fileCount, extras, blockedReason, itemName }.
+  drop: {
+    type: Object,
+    default: null,
   },
 })
 
 const {
   STATUS_ORDER,
   archiveShot,
+  canAddExtraFiles,
   canAddVersions,
   canArchiveShots,
+  canCopyFilePaths,
   canDeleteShots,
   canCompareShotVersions,
   canEditShotName,
   commentCounts,
+  copyVersionPath,
   deleteShot,
   deleteShotVersion,
   downloadShotFile,
-  downloadVersion,
+  downloadShotVersion,
+  downloadShotVersionPackage,
   fetchBatchMediaInfo,
   formatShotLatestAdded,
   formatStatus,
   formatVersionDateShort,
   formatVersionLabel,
   getBriefPreviewText,
+  getExtraSlots,
   getLatestPreviewText,
   getLatestShotFile,
   getMediaDurationLabel,
   getShotDurationLabel,
   getShotVersions,
   getThumbnailUrl,
+  getUploadsFor,
   getScrubPreviewUrl,
   isBriefPreviewEmpty,
   isLatestPreviewEmpty,
@@ -352,10 +393,12 @@ const {
   onDragOver,
   onDragStart,
   onDrop,
+  openAddExtras,
   openBriefVideo,
   openShotVideo,
   openVersionUpload,
   playShotVersion,
+  prefetchVersionPath,
   publicationControlsEnabled,
   restoreShot,
   saveShot,
@@ -373,6 +416,30 @@ const {
 
 const showUtilityDownload = computed(() => (
   showShotDownloads.value && !!getLatestShotFile(props.shot)
+))
+
+const latestVersion = computed(() => props.shot?.versions?.at(-1) || null)
+
+const showUtilityCopyPath = computed(() => (
+  canCopyFilePaths.value && latestVersion.value?.exists === true
+))
+
+const latestExtraCount = computed(() => getExtraSlots(props.shot, latestVersion.value).filter(slot => slot.file).length)
+
+const downloadLatestLabel = computed(() => {
+  const count = latestExtraCount.value
+  if (!count) return 'Download latest version'
+  return `Download ${formatVersionLabel(latestVersion.value)} with ${count} ${count === 1 ? 'extra' : 'extras'}`
+})
+
+function downloadLatest() {
+  if (latestExtraCount.value) void downloadShotVersionPackage(props.shot, latestVersion.value)
+  else downloadShotFile(props.shot)
+}
+
+// Shots with extras add more from their Extras row.
+const showUtilityAddExtra = computed(() => (
+  canAddExtraFiles.value && Boolean(latestVersion.value) && !(props.shot?.extras || []).length
 ))
 
 const showUtilityDelete = computed(() => (
@@ -395,7 +462,7 @@ const showUtilityRestore = computed(() => (
   typeof restoreShot === 'function'
 ))
 
-const hasUtility = computed(() => showUtilityDownload.value || showUtilityArchive.value || showUtilityRestore.value || showUtilityDelete.value)
+const hasUtility = computed(() => showUtilityDownload.value || showUtilityCopyPath.value || showUtilityAddExtra.value || showUtilityArchive.value || showUtilityRestore.value || showUtilityDelete.value)
 
 const centerUtilityAction = computed(() => (
   shareMode.value &&
@@ -420,13 +487,34 @@ const shotRef = computed(() => String(
   props.shot?.id || props.shot?._originalId || props.shot?.shot_id || props.shot?.shot_code || '',
 ))
 const nextVersionLabel = computed(() => `V${(getShotVersions(props.shot) || []).length + 1}`)
-const versionDropTitle = computed(() => (
-  props.versionDropBlockedReason ? 'Cannot add this version' : `Drop to add ${nextVersionLabel.value}`
-))
-const versionDropDetail = computed(() => {
-  if (props.versionDropBlockedReason) return props.versionDropBlockedReason
-  const shotLabel = props.shot?.shot_id || props.shot?.shot_code || 'this shot'
-  return props.versionDropItemName ? `${props.versionDropItemName} → ${shotLabel}` : `Add to ${shotLabel}`
+const shotLabel = computed(() => props.shot?.shot_id || props.shot?.shot_code || 'this shot')
+const dropBlockedReason = computed(() => {
+  if (props.drop?.kind !== 'files') return props.drop?.blockedReason || ''
+  return latestVersion.value ? '' : 'Add a version first. Extras go with a version.'
+})
+const dropTitle = computed(() => {
+  if (props.drop?.kind === 'files') {
+    return dropBlockedReason.value ? 'Cannot add extras yet' : `Drop to add extras to ${formatVersionLabel(latestVersion.value)}`
+  }
+  return dropBlockedReason.value ? 'Cannot add this version' : `Drop to add ${nextVersionLabel.value}`
+})
+const dropDetail = computed(() => {
+  if (dropBlockedReason.value) return dropBlockedReason.value
+  if (props.drop?.kind === 'files') return `You choose what each file is · ${shotLabel.value}`
+  return props.drop?.itemName ? `${props.drop.itemName} → ${shotLabel.value}` : `Add to ${shotLabel.value}`
+})
+// Drop targets for extras: the latest version's needed extras take one file;
+// a sidebar file can also become a new extra.
+const extraDropTargets = computed(() => {
+  const version = latestVersion.value
+  if (!props.drop?.extras || !version) return []
+  const needed = props.drop.fileCount === 1
+    ? getExtraSlots(props.shot, version).filter(slot => !slot.file && !getUploadsFor(props.shot, version).some(upload => upload.extraId === slot.id))
+    : []
+  return [
+    ...(props.drop.kind === 'project' ? [{ zone: 'extra', label: `Extra of ${formatVersionLabel(version)}` }] : []),
+    ...needed.map(slot => ({ zone: `needed:${slot.id}`, label: slot.note ? `${slot.name} · ${slot.note}` : slot.name, needed: true })),
+  ]
 })
 const shotActionBusy = computed(() => (
   typeof isShotActionBusy === 'function' && isShotActionBusy(props.shot)
@@ -570,6 +658,81 @@ const latestCommentCount = computed(() => {
   font-size: var(--v-text-sm);
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.tracker-version-drop {
+  flex-direction: column;
+  gap: var(--v-space-3);
+}
+
+.tracker-version-drop__inner.is-idle {
+  box-shadow: none;
+}
+
+.tracker-version-drop__inner.is-idle > * {
+  opacity: 0.5;
+}
+
+/* Extras targets take pointer events so the surface can tell which one is under the pointer. */
+.tracker-extra-drop {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--v-space-2);
+  max-width: 100%;
+}
+
+.tracker-extra-drop__target {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 260px;
+  height: 34px;
+  padding: 0 14px;
+  border: 1px dashed var(--v-control-border-hover);
+  border-radius: 999px;
+  background: var(--v-surface-raised);
+  color: var(--v-text-muted);
+  font-size: var(--v-text-sm);
+  font-weight: 600;
+  pointer-events: auto;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.tracker-extra-drop__target > span:first-of-type {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-extra-drop__target .icon {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  pointer-events: none;
+}
+
+.tracker-extra-drop__target > span {
+  pointer-events: none;
+}
+
+.tracker-extra-drop__target.is-needed {
+  border-color: color-mix(in srgb, var(--v-warning) 50%, transparent);
+}
+
+.tracker-extra-drop__state {
+  flex: none;
+  color: color-mix(in srgb, var(--v-warning) 85%, var(--v-text));
+  font-size: var(--v-text-xs);
+}
+
+.tracker-extra-drop__target.is-active {
+  border-style: solid;
+  border-color: var(--v-accent);
+  background: var(--v-accent-subtle);
+  color: var(--v-text);
 }
 
 .tracker-version-drop.is-blocked {

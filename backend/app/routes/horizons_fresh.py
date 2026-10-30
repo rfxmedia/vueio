@@ -1036,6 +1036,11 @@ def _open_upload_link(db: Session, item_id: str, token: str):
 def _upload_link_progress(db: Session, opened) -> dict:
     _ctx, _agent, _scope, _session, item = opened
     link = json.loads(item.version_upload_json)
+    if link.get('kind') == 'extra':
+        received = item.size_bytes if item.status == 'complete' else item.bytes_received
+        return {'received': received, 'total': item.size_bytes, 'complete': bool(link.get('completed')),
+                'file_path': item.final_path if item.status == 'complete' else None,
+                'extra_id': link.get('extra_id') if link.get('completed') else None}
     received = item.bytes_received
     if item.temp_path:
         try:
@@ -1073,14 +1078,21 @@ def _finish_upload_link(db: Session, opened) -> dict:
         _transaction_lock(db, f'upload-session:{session.id}')
         db.refresh(item)
     link = json.loads(item.version_upload_json)
-    if link.get('version_id'):
+    # An extra link names its target version from the start; it is done when completed.
+    done = link.get('completed') if link.get('kind') == 'extra' else link.get('version_id')
+    if done:
         return _upload_link_progress(db, opened)
     # History names the person and the agent the link was made for, as for
     # any agent request.
     agent_token = set_request_agent_identity(agent)
     try:
-        _add_shot_version(db, link['project_id'], link['shot_id'], ctx, file_path=item.final_path,
-                          label=link.get('label'), notes=link.get('notes'), upload_item=item)
+        if link.get('kind') == 'extra':
+            from app.routes.shot_extras import finish_extra_upload
+
+            finish_extra_upload(db, link, ctx, item)
+        else:
+            _add_shot_version(db, link['project_id'], link['shot_id'], ctx, file_path=item.final_path,
+                              label=link.get('label'), notes=link.get('notes'), upload_item=item)
     finally:
         reset_request_agent_identity(agent_token)
     return _upload_link_progress(db, opened)

@@ -199,7 +199,7 @@
         :disabled="trackerDownloadBusy"
         :aria-busy="trackerDownloadBusy ? 'true' : 'false'"
         title="Download latest versions for visible tracker shots"
-        @click="downloadTrackerLatestVersions"
+        @click="downloadTrackerLatestVersions()"
       >
         <svg class="icon"><use href="#icon-download" /></svg>
         <span class="tracker-toolbar-action-label">{{ trackerDownloadLabel }}</span>

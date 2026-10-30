@@ -54,6 +54,29 @@ Check the target shot at each step; this is not automatic filename matching.</p>
 <p>This is media version history, not source-code version control.
 Vue.io does not merge edits or replace versioning in your creative application.
 Keep a separate source file for each revision. Overwriting that file does not preserve its old contents.</p>
+<h2 id="add-extras-to-a-shot">Add extras to a shot</h2>
+<p>An extra is a file that goes with a shot version, such as an alpha matte, a holdout matte, a clean plate, an element, or a reference.
+The extra belongs to the shot. Each version has its own file for it.</p>
+<ol>
+<li>Select <strong>Add an extra</strong> on the shot card, or <strong>Add → Add files</strong> in the <strong>Extras</strong> row.</li>
+<li>Drop the files, or select <strong>Upload from computer</strong> or <strong>Choose project files</strong>.</li>
+<li>Select what each file is, or type a name. Add a note if needed, such as Window.</li>
+<li>Select <strong>Add 2 extras</strong>. The button shows the number of files.</li>
+</ol>
+<p>You can also drop files on a shot card. Drop a file on a <strong>Needed</strong> extra to give the file to that extra.
+To ask for a file that does not exist yet, select <strong>Add → Ask for an extra</strong>. The extra shows <strong>Needed</strong> until it gets a file.</p>
+<p>When a shot gets a new version, its extras stay. Each one shows <strong>Needed</strong> for the new version.
+Select a needed extra to upload a file, choose a project file, or use the file of an earlier version.
+Adding an extra never replaces another one. To change a file, select <strong>Replace file</strong> on that extra.</p>
+<p>Downloads name each extra after the shot and version, such as <code>SH010_V3_Alpha matte.mov</code>.
+Extras with the same name get numbers: <code>Alpha matte 1</code>, <code>Alpha matte 2</code>.</p>
+<p>Each extra has its own client visibility. A reference starts as team only; the other types start visible to clients.
+Share visitors see an extra only on a published version.</p>
+<p>Select the arrow at the end of the <strong>Extras</strong> row to rename, reorder, replace, download, or remove extras.
+Assigned artists can add extras with files, and give files to needed extras.
+They cannot ask for an extra, rename it, change its visibility, or remove it.</p>
+<p>The viewer shows the extras of the open version in its <strong>Extras</strong> tab.
+Select <strong>View</strong> to open an extra. Select <strong>Go back</strong> to return to the version.</p>
 <h2 id="organize-shots">Organize shots</h2>
 <p>Use the tracker controls to change status, tags, and assignees when your permissions allow it.
 A shot can have more than one assignee.
@@ -188,6 +211,8 @@ The engine image includes the Alembic decoder; a source installation needs the <
 Materials can differ from an offline renderer. Baked simulations in FBX or glTF must use animation those formats support.
 3D models do not use video LUTs, frame downloads, or the two-version comparison view.</p>
 <h2 id="compare-two-revisions">Compare two revisions</h2>
+<p>To compare a version with one of its extras, select <strong>Compare</strong> on the extra in the viewer <strong>Extras</strong> tab.
+<strong>Overlay</strong> puts a matte on top of the version. The area outside the matte becomes dark red.</p>
 <ol>
 <li>Open a shot with at least two available versions.</li>
 <li>Open <strong>Compare</strong> in the viewer.</li>
@@ -232,6 +257,9 @@ Do not restore History during another person's active edits without coordinating
 <p>Confirm version publication and filenames before sending a link.
 Tracker downloads use the latest available version for each included shot, not every revision.
 Filters and selection can change which shots an internal tracker download includes.</p>
+<p>When shots have extras, <strong>Download all</strong> shows what the ZIP contains. Turn off <strong>Include extras</strong> to download only the versions.
+A shot with extras gets a folder with its version and extras. A shot without extras stays at the top of the ZIP.
+The download button of a version with extras downloads one ZIP with the version and its extras.</p>
 <p><a href="sharing.html">Sharing and delivery</a></p>
 <footer class="page-footer"><span>Guide version: v0.1.0-alpha.13 · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/REVIEW_WORKFLOW.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#create-a-project-and-tracker">Create a project and tracker</a><a href="#add-the-first-shots">Add the first shots</a><a href="#add-a-version-to-an-existing-shot">Add a version to an existing shot</a><a href="#organize-shots">Organize shots</a><a href="#write-comments-and-annotations">Write comments and annotations</a><a href="#control-which-versions-appear-in-shares">Control which versions appear in shares</a><a href="#media-preview-support">Media preview support</a><a href="#review-a-3d-model">Review a 3D model</a><a href="#compare-two-revisions">Compare two revisions</a><a href="#use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</a><a href="#inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</a><a href="#deliver-the-selected-work">Deliver the selected work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#create-a-project-and-tracker">Create a project and tracker</a><a href="#add-the-first-shots">Add the first shots</a><a href="#add-a-version-to-an-existing-shot">Add a version to an existing shot</a><a href="#add-extras-to-a-shot">Add extras to a shot</a><a href="#organize-shots">Organize shots</a><a href="#write-comments-and-annotations">Write comments and annotations</a><a href="#control-which-versions-appear-in-shares">Control which versions appear in shares</a><a href="#media-preview-support">Media preview support</a><a href="#review-a-3d-model">Review a 3D model</a><a href="#compare-two-revisions">Compare two revisions</a><a href="#use-a-color-preview-or-capture-a-frame">Use a color preview or capture a frame</a><a href="#inspect-activity-or-restore-tracker-history">Inspect activity or restore tracker History</a><a href="#deliver-the-selected-work">Deliver the selected work</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

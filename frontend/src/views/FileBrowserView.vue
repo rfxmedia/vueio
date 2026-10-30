@@ -162,6 +162,7 @@
                       </template>
                       <button v-if="!shareMode && isAdmin" class="v-dropdown-item" @click="shareFile(entry.item); clearFileMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share</button>
                       <button v-if="entry.item.type !== 'folder' && (!shareMode || shareAllowDownload)" class="v-dropdown-item" @click="downloadFile(entry.item); clearFileMenu()"><svg class="icon"><use href="#icon-download"/></svg> Download</button>
+                      <button v-if="canCopyFilePaths && folderNetworkPath" class="v-dropdown-item" @click="copyItemPath(entry.item); clearFileMenu()"><svg class="icon"><use href="#icon-copy"/></svg> Copy path</button>
                       <div v-if="entry.item.type !== 'folder' && !shareMode" class="v-dropdown-divider"></div>
                       <button v-if="entry.item.type !== 'folder' && !shareMode" class="v-dropdown-item" @click="regenerateThumbnail(entry.item)"><svg class="icon"><use href="#icon-refresh"/></svg> Regenerate thumbnail</button>
                     </VMenu>
@@ -199,11 +200,13 @@ import { useSessionAuthStore } from '../ownership/sessionAuth'
 import { useShareAccessContext } from '../ownership/shareAccessContext'
 import { useViewerStore } from '../ownership/viewer'
 import { isFileBrowserFolder } from '../utils/fileBrowserItems'
+import { childNetworkPath, copyFilePath, networkPathForThisComputer } from '../utils/networkPath'
 
 const {
   currentUser,
   canAccessFileBrowser,
   canAccessProjectManager,
+  canCopyFilePaths,
   isAdmin,
 } = useSessionAuthStore()
 
@@ -220,6 +223,7 @@ const { showMainContent, activeModule, loading } = fileBrowserStore.shell
 const {
   files,
   breadcrumbs,
+  folderNetworkPath,
   canNavigateUp,
   visibleFiles,
   commentCounts,
@@ -294,6 +298,10 @@ const browserEntries = computed(() => {
   }
   return entries
 })
+
+function copyItemPath(item) {
+  copyFilePath(networkPathForThisComputer(childNetworkPath(folderNetworkPath.value, item.name)))
+}
 
 function getCommentCount(item) {
   const target = buildCommentBatchTarget({

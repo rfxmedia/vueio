@@ -46,6 +46,9 @@ Open the intended media, move to the relevant time, and submit a comment.
 Enter a name if Vue.io asks for one. A visitor-supplied name is not a verified account identity.
 Viewer tools depend on the share target, media type, and tracker settings.
 
+Extras, such as mattes, show on the shot when the team lets clients see them.
+Select an extra to open or download it.
+
 If a new version is missing, ask the owner to check its publication state.
 **Awaiting publication** and **Internal** versions do not appear in shares.
 [Version publication](REVIEW_WORKFLOW.md#control-which-versions-appear-in-shares)
@@ -62,6 +65,7 @@ If a new version is missing, ask the owner to check its publication state.
 
 The share opens a delivery page. **View tracker** opens its review view.
 **Download all** packages the latest share-visible versions, not all revisions or every project file.
+It includes the extras that clients can see. Each shot with extras gets its own folder.
 Published-version order can differ from internal version order after an older version is republished.
 
 Wait for package preparation and the browser download to finish.

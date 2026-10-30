@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import Comment, HorizonProject, HorizonShot, HorizonShotAssignee, HorizonShotVersion, HorizonTracker, MediaAsset
 from app.services.comments import preserve_comment_attachments
 from app.services.file_access import require_user_file_browser_read_access
+from app.services.horizons.extras import delete_extras_for_shots
 from app.services.horizons.media import can_access_horizon_media_asset_id
 from app.services.horizons.projects import get_horizon_project
 from app.services.horizons.shots import get_horizon_shot_by_ref, require_horizon_shot_view_access
@@ -163,7 +164,8 @@ class ShotCommandBase:
                 seen_ids.add(shot.id)
         return shots
 
-    def _validate_media_path(self, ctx: ShotCommandContext, file_path: str | None) -> str:
+    def _validate_media_path(self, ctx: ShotCommandContext, file_path: str | None, *, any_file: bool = False) -> str:
+        """A file this person may use in the tracker. Versions need media; extras can be any file."""
         normalized = (file_path or '').strip().strip('/')
         if not normalized:
             raise HTTPException(status_code=400, detail='Tracker media file is required')
@@ -174,7 +176,7 @@ class ShotCommandBase:
         if scope == 'media_root':
             # A file outside the project: only one this person may open in the File Browser.
             require_user_file_browser_read_access(ctx.actor.user, normalized)
-        if not is_video(full_path) and not is_image(full_path) and full_path.suffix.lower() not in MODEL_EXTENSIONS:
+        if not any_file and not is_video(full_path) and not is_image(full_path) and full_path.suffix.lower() not in MODEL_EXTENSIONS:
             raise HTTPException(status_code=400, detail='Tracker media must be an image, video, or supported 3D model')
         return normalized
 
@@ -222,6 +224,7 @@ class ShotCommandBase:
         deleted = {'shot_id': shot.id, 'shot_code': shot.shot_code}
         version_ids = [version_id for (version_id,) in self.db.query(HorizonShotVersion.id).filter(HorizonShotVersion.project_id == ctx.project_id).filter(HorizonShotVersion.shot_id == shot.id).all()]
         self._delete_comments_for_versions(version_ids)
+        delete_extras_for_shots(self.db, [shot.id])
         if version_ids:
             self.db.query(HorizonShotVersion).filter(HorizonShotVersion.project_id == ctx.project_id).filter(HorizonShotVersion.id.in_(version_ids)).delete(synchronize_session=False)
         self.db.query(HorizonShotAssignee).filter(

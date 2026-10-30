@@ -18,6 +18,8 @@ from app.models import (
     HorizonProject,
     HorizonShot,
     HorizonShotAssignee,
+    HorizonShotExtra,
+    HorizonShotExtraFile,
     HorizonShotVersion,
     HorizonTracker,
     MediaAsset,
@@ -26,6 +28,7 @@ from app.models import (
     TrackerEvent,
     VersionRegistryEntry,
 )
+from app.services.horizons.extras import EXTRA_EVENT_TYPES
 
 
 SNAPSHOT_FORMAT_VERSION = 1
@@ -66,7 +69,7 @@ TRACKER_STATE_EVENT_TYPES = frozenset({
     'version_removed_from_shares',
     'versions_bulk_updated',
     'versions_updated',
-})
+}) | EXTRA_EVENT_TYPES
 
 TRACKER_FIELDS = ('slug', 'name', 'description', 'settings_json', 'tags_json')
 SHOT_FIELDS = (
@@ -79,6 +82,8 @@ VERSION_FIELDS = (
     'id', 'shot_id', 'label', 'media_asset_id', 'notes', 'share_state', 'published_at',
     'created_by', 'created_at', 'updated_at',
 )
+EXTRA_FIELDS = ('id', 'shot_id', 'name', 'note', 'client_visible', 'sort_order', 'created_by', 'created_at', 'updated_at')
+EXTRA_FILE_FIELDS = ('id', 'shot_id', 'extra_id', 'version_id', 'media_asset_id', 'created_by', 'created_at', 'updated_at')
 COMMENT_FIELDS = (
     'id', 'file_path', 'project_id', 'horizons_media_asset_id', 'horizons_shot_version_id',
     'user_name', 'timestamp', 'text', 'resolved', 'created_at', 'parent_comment_id',
@@ -260,6 +265,25 @@ def capture_tracker_state(db: Session, *, project_id: str, tracker_id: str) -> d
     for version in version_models:
         _append_snapshot_row(versions, _row(version, VERSION_FIELDS), budget)
 
+    extras: list[dict[str, Any]] = []
+    for extra in (
+        db.query(HorizonShotExtra)
+        .filter(HorizonShotExtra.project_id == project_id)
+        .filter(HorizonShotExtra.tracker_id == tracker_id)
+        .order_by(HorizonShotExtra.shot_id.asc(), HorizonShotExtra.sort_order.asc(), HorizonShotExtra.id.asc())
+        .yield_per(250)
+    ):
+        _append_snapshot_row(extras, _row(extra, EXTRA_FIELDS), budget)
+    extra_files: list[dict[str, Any]] = []
+    for extra_file in (
+        db.query(HorizonShotExtraFile)
+        .filter(HorizonShotExtraFile.project_id == project_id)
+        .filter(HorizonShotExtraFile.tracker_id == tracker_id)
+        .order_by(HorizonShotExtraFile.extra_id.asc(), HorizonShotExtraFile.version_id.asc(), HorizonShotExtraFile.id.asc())
+        .yield_per(250)
+    ):
+        _append_snapshot_row(extra_files, _row(extra_file, EXTRA_FILE_FIELDS), budget)
+
     comment_query, asset_versions = _tracker_comment_query(
         db,
         project_id=project_id,
@@ -271,7 +295,7 @@ def capture_tracker_state(db: Session, *, project_id: str, tracker_id: str) -> d
         if not row.get('horizons_shot_version_id') and row.get('horizons_media_asset_id'):
             row['horizons_shot_version_id'] = asset_versions.get(str(row['horizons_media_asset_id']))
         _append_snapshot_row(comment_rows, row, budget)
-    return {
+    state = {
         'format': SNAPSHOT_FORMAT_VERSION,
         'project_id': project_id,
         'tracker_id': tracker_id,
@@ -281,6 +305,11 @@ def capture_tracker_state(db: Session, *, project_id: str, tracker_id: str) -> d
         'versions': versions,
         'comments': comment_rows,
     }
+    # Only trackers with extras store them, so earlier points keep their hashes.
+    if extras or extra_files:
+        state['extras'] = extras
+        state['extra_files'] = extra_files
+    return state
 
 
 def _capture_restore_state(db: Session, *, project_id: str, tracker_id: str) -> dict[str, Any]:
@@ -528,6 +557,8 @@ def _state_diff(current: dict[str, Any], target: dict[str, Any]) -> dict[str, An
     target_comments = _map_by_id(target.get('comments') or [])
     current_assignees = _group_assignees(current.get('assignees') or [])
     target_assignees = _group_assignees(target.get('assignees') or [])
+    current_extras = {**_map_by_id(current.get('extras') or []), **{f"file:{key}": value for key, value in _map_by_id(current.get('extra_files') or []).items()}}
+    target_extras = {**_map_by_id(target.get('extras') or []), **{f"file:{key}": value for key, value in _map_by_id(target.get('extra_files') or []).items()}}
 
     shot_added = set(target_shots) - set(current_shots)
     shot_removed = set(current_shots) - set(target_shots)
@@ -548,6 +579,14 @@ def _state_diff(current: dict[str, Any], target: dict[str, Any]) -> dict[str, An
         comment_id for comment_id in set(current_comments) | set(target_comments)
         if current_comments.get(comment_id) != target_comments.get(comment_id)
     }
+    extra_changed = {
+        extra_id for extra_id in set(current_extras) | set(target_extras)
+        if current_extras.get(extra_id) != target_extras.get(extra_id)
+    }
+    extra_shots = {
+        str((target_extras.get(extra_id) or current_extras.get(extra_id) or {}).get('shot_id') or '')
+        for extra_id in extra_changed
+    }
     tracker_changed = current.get('tracker') != target.get('tracker')
     version_shots = {
         str((target_versions.get(version_id) or current_versions.get(version_id) or {}).get('shot_id') or '')
@@ -561,7 +600,7 @@ def _state_diff(current: dict[str, Any], target: dict[str, Any]) -> dict[str, An
         version_to_shot.get(str((target_comments.get(comment_id) or current_comments.get(comment_id) or {}).get('horizons_shot_version_id') or ''), '')
         for comment_id in comment_changed
     }
-    affected_shots = (shot_added | shot_removed | shot_updated | assignment_shots | version_shots | comment_shots) - {''}
+    affected_shots = (shot_added | shot_removed | shot_updated | assignment_shots | version_shots | comment_shots | extra_shots) - {''}
 
     fields: list[str] = []
     if tracker_changed:
@@ -576,10 +615,13 @@ def _state_diff(current: dict[str, Any], target: dict[str, Any]) -> dict[str, An
         fields.append('Versions')
     if comment_changed:
         fields.append('Comments')
+    if extra_changed:
+        fields.append('Extras')
     breakdown = {
         'shots': len(shot_added | shot_removed | shot_updated),
         'versions': len(version_changed),
         'comments': len(comment_changed),
+        'extras': len(extra_changed),
         'assignments': len(assignment_shots),
         'order': 1 if order_changed else 0,
         'settings': 1 if tracker_changed else 0,
@@ -727,8 +769,10 @@ def _validate_target_state(
         raise HTTPException(status_code=409, detail='This history point uses an unsupported format.')
     if state.get('project_id') != project_id or state.get('tracker_id') != tracker_id:
         raise HTTPException(status_code=409, detail='This history point does not belong to this tracker.')
-    for collection in ('shots', 'assignees', 'versions', 'comments'):
-        if not isinstance(state.get(collection), list) or not all(isinstance(item, dict) for item in state[collection]):
+    for collection in ('shots', 'assignees', 'versions', 'comments', 'extras', 'extra_files'):
+        # A tracker without extras stores no extras collections.
+        items = state.get(collection, [] if collection in ('extras', 'extra_files') else None)
+        if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
             raise HTTPException(status_code=409, detail='This history point contains invalid tracker data.')
     if not isinstance(state.get('tracker'), dict):
         raise HTTPException(status_code=409, detail='This history point contains invalid tracker settings.')
@@ -861,9 +905,10 @@ def _validate_target_state(
             if parent_root_id != root_id:
                 raise HTTPException(status_code=409, detail='This history point contains an invalid comment thread.')
 
+    _validate_extras_state(state, shot_ids=set(shot_ids), version_ids=version_id_set)
     media_asset_values = [
         value
-        for item in state['versions'] + state['shots'] + state['comments']
+        for item in state['versions'] + state['shots'] + state['comments'] + (state.get('extra_files') or [])
         for value in (
             item.get('media_asset_id'),
             item.get('latest_media_asset_id'),
@@ -897,6 +942,29 @@ def _validate_target_state(
     _validate_snapshot_files(state, project=project)
 
 
+def _validate_extras_state(state: dict[str, Any], *, shot_ids: set, version_ids: set) -> None:
+    extras = state.get('extras') or []
+    extra_files = state.get('extra_files') or []
+    extra_ids = [item.get('id') for item in extras]
+    file_ids = [item.get('id') for item in extra_files]
+    invalid = 'This history point contains invalid extras.'
+    if not all(_valid_identifier(item) for item in extra_ids + file_ids) or len(extra_ids) != len(set(extra_ids)) or len(file_ids) != len(set(file_ids)):
+        raise HTTPException(status_code=409, detail=invalid)
+    extras_by_id = {item['id']: item for item in extras}
+    for item in extras:
+        if item.get('shot_id') not in shot_ids or not isinstance(item.get('name'), str) or not item['name'].strip():
+            raise HTTPException(status_code=409, detail=invalid)
+        if not isinstance(item.get('sort_order'), int) or not isinstance(item.get('client_visible'), bool):
+            raise HTTPException(status_code=409, detail=invalid)
+    pairs = set()
+    for item in extra_files:
+        extra = extras_by_id.get(item.get('extra_id'))
+        pair = (item.get('extra_id'), item.get('version_id'))
+        if extra is None or item.get('version_id') not in version_ids or item.get('shot_id') != extra['shot_id'] or pair in pairs:
+            raise HTTPException(status_code=409, detail=invalid)
+        pairs.add(pair)
+
+
 def _reject_target_identity_conflicts(
     db: Session,
     *,
@@ -907,6 +975,8 @@ def _reject_target_identity_conflicts(
         (HorizonShot, [item['id'] for item in state['shots']]),
         (HorizonShotVersion, [item['id'] for item in state['versions']]),
         (HorizonShotAssignee, [item['id'] for item in state['assignees']]),
+        (HorizonShotExtra, [item['id'] for item in state.get('extras') or []]),
+        (HorizonShotExtraFile, [item['id'] for item in state.get('extra_files') or []]),
     )
     for model, record_ids in targets:
         for record_id_chunk in _id_chunks(record_ids):
@@ -1002,7 +1072,7 @@ def _completed_restore_result(
     try:
         breakdown = {
             key: max(0, int((breakdown_payload or {}).get(key) or 0))
-            for key in ('shots', 'versions', 'comments', 'assignments', 'order', 'settings')
+            for key in ('shots', 'versions', 'comments', 'extras', 'assignments', 'order', 'settings')
         } if isinstance(breakdown_payload, dict) else {}
         change_count = max(0, int(payload.get('count') or 0))
         shot_count = max(0, int(payload.get('shot_count') or 0))
@@ -1080,6 +1150,8 @@ def _apply_tracker_state(db: Session, *, tracker: HorizonTracker, state: dict[st
         HorizonShotAssignee.project_id == tracker.project_id,
         HorizonShotAssignee.tracker_id == tracker.id,
     ).delete(synchronize_session=False)
+    for model in (HorizonShotExtraFile, HorizonShotExtra):
+        db.query(model).filter(model.project_id == tracker.project_id, model.tracker_id == tracker.id).delete(synchronize_session=False)
     db.query(HorizonShotVersion).filter(
         HorizonShotVersion.project_id == tracker.project_id,
         HorizonShotVersion.tracker_id == tracker.id,
@@ -1129,6 +1201,11 @@ def _apply_tracker_state(db: Session, *, tracker: HorizonTracker, state: dict[st
             tracker_id=tracker.id,
             **{field: item.get(field) for field in VERSION_FIELDS},
         ))
+    db.flush()
+    for item in state.get('extras') or []:
+        db.add(HorizonShotExtra(project_id=tracker.project_id, tracker_id=tracker.id, **{field: item.get(field) for field in EXTRA_FIELDS}))
+    for item in state.get('extra_files') or []:
+        db.add(HorizonShotExtraFile(project_id=tracker.project_id, tracker_id=tracker.id, **{field: item.get(field) for field in EXTRA_FILE_FIELDS}))
     db.flush()
 
     if db.get_bind().dialect.name == 'postgresql':

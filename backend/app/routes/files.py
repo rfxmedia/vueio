@@ -35,6 +35,7 @@ from app.services.media import (
 )
 from app.services.media_metadata import get_cached_video_info
 from app.services.media_assets import merge_media_asset_metadata, register_media_asset
+from app.services.network_paths import file_network_path
 from app.services.media_resolution import folder_thumbnail_cache_path, generated_thumbnail_cache_path_for_identity, resolve_media_asset_path, resolve_media_target, thumbnail_cache_path_for_browser
 from app.services.share_access import _resolve_horizons_media_target_by_refs, is_horizons_share_project, require_path_within_shared_root, resolve_shared_horizons_object_target, resolve_shared_media_target, validate_share
 from app.services.uploads import UPLOAD_SCOPE_SHARED, get_latest_upload_metadata
@@ -77,7 +78,8 @@ def list_files(
     `path` is relative to the media root; empty means the root. Hidden files
     are left out. `include_counts` adds the item count of each folder. Use
     `share_id` and `share_token` to list a shared folder. The result also has
-    breadcrumbs.
+    breadcrumbs, and `network_path`: the folder's full path for Windows, macOS
+    and smb:// when its storage has a network path.
     """
     user = get_user_from_session(vueio_session)
     # Only a validated share sets the root; a caller cannot choose it.
@@ -189,6 +191,9 @@ def list_files(
                 breadcrumbs.append({'name': part, 'path': current})
 
     payload = {'path': path, 'items': items, 'breadcrumbs': breadcrumbs, 'share_root': share_root}
+    if not share_root:
+        # Each item's full path is this folder's path plus its name.
+        payload['network_path'] = file_network_path(db, user, target)
     if share_id:
         payload['_share_allow_upload'] = bool(share.allow_upload)
     return payload
@@ -198,11 +203,12 @@ def list_files(
 def video_info(path: str, media_asset_id: str | None = None, horizons_media_asset_id: str | None = None, vueio_session: str | None = Cookie(None), db: Session = Depends(get_db)):
     """Return the duration, frames, frame rate, resolution and codec of a video.
 
-    `path` is relative to the media root. The result also has `file_size` and
-    `created_at`. For a file that is not a video, only these two are returned.
+    `path` is relative to the media root. The result also has `file_size`,
+    `created_at` and `network_path`. For a file that is not a video, only
+    these are returned.
     `media_asset_id` is optional and must be the asset of the same path.
     """
-    require_file_browser_read_access(vueio_session, path)
+    user = require_file_browser_read_access(vueio_session, path)
     file_path = get_safe_path(path)
     if not file_path.exists():
         raise HTTPException(status_code=404, detail='File not found')
@@ -240,6 +246,7 @@ def video_info(path: str, media_asset_id: str | None = None, horizons_media_asse
     except Exception:
         info['created_at'] = None
         info['file_size'] = 0
+    info['network_path'] = file_network_path(db, user, file_path)
     return info
 
 

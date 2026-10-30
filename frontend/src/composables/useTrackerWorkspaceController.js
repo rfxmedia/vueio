@@ -47,6 +47,8 @@ export function useTrackerWorkspaceController(ctx) {
   const shotActionBusyIds = ref(new Set())
   const trackerDownloadBusy = ref(false)
   const trackerDownloadProgress = ref(null)
+  // Download all asks first when shots have extras: { selectedOnly }.
+  const trackerDownloadDialog = ref(null)
   let trackerStatsGeneration = 0
   let trackerActivityGeneration = 0
   let trackerViewsGeneration = 0
@@ -1214,24 +1216,64 @@ export function useTrackerWorkspaceController(ctx) {
     )
   }
 
-  async function downloadTrackerLatestVersions({ selectedOnly = false } = {}) {
+  function trackerDownloadShots({ selectedOnly = false } = {}) {
+    return selectedOnly ? list().selectedTrackerShots.value : list().trackerShotsForDisplay.value
+  }
+
+  function trackerDownloadZipName({ selectedOnly = false } = {}) {
+    return zipNameFromParts([
+      ctx.currentProject.value?.title || ctx.currentProject.value?.slug || 'project',
+      ctx.currentTracker.value?.name || 'tracker',
+      selectedOnly ? 'selected-latest-versions' : 'latest-versions',
+    ], 'tracker-latest-versions')
+  }
+
+  // What Download all puts in the ZIP: each shot's latest plate and its extras.
+  function trackerDownloadPlan({ selectedOnly = false } = {}) {
+    return trackerDownloadShots({ selectedOnly }).flatMap(shot => {
+      const latest = (shot?.versions || []).at(-1)
+      if (!latest?.media_asset_id || latest.exists === false) return []
+      const plate = latest.download_name || String(latest.file_path || '').split('/').pop()
+      const extras = (latest.extras || []).filter(extra => extra.exists !== false).map(extra => extra.download_name)
+      return [{ shot, plate, extras }]
+    })
+  }
+
+  async function downloadTrackerLatestVersions({ selectedOnly = false, includeExtras } = {}) {
     if (!ctx.currentProject.value || !ctx.currentTracker.value || trackerDownloadBusy.value) return
     if (!ctx.showShotDownloads.value) {
       notify('Downloads are disabled for this tracker.')
       return
     }
-    const shots = selectedOnly ? list().selectedTrackerShots.value : list().trackerShotsForDisplay.value
-    const shotIds = shots.map(getShotRequestRef).filter(Boolean)
+    const shotIds = trackerDownloadShots({ selectedOnly }).map(getShotRequestRef).filter(Boolean)
     if (!shotIds.length) {
       notify(selectedOnly ? 'Select at least one shot with a latest version first.' : 'No visible shots with latest versions to download.')
       return
     }
-    const zipName = zipNameFromParts([
-      ctx.currentProject.value.title || ctx.currentProject.value.slug || 'project',
-      ctx.currentTracker.value.name || 'tracker',
-      selectedOnly ? 'selected-latest-versions' : 'latest-versions',
-    ], 'tracker-latest-versions')
-    const payload = { shot_ids: shotIds, filename: zipName }
+    if (includeExtras === undefined && trackerDownloadPlan({ selectedOnly }).some(entry => entry.extras.length)) {
+      trackerDownloadDialog.value = { selectedOnly }
+      return
+    }
+    trackerDownloadDialog.value = null
+    await runTrackerPackage({
+      shot_ids: shotIds,
+      filename: trackerDownloadZipName({ selectedOnly }),
+      include_extras: includeExtras !== false,
+    }, 'Download All failed')
+  }
+
+  // One version in a folder with its extras, such as SH010 - Window Sign_V2.zip.
+  async function downloadShotVersionPackage(shot, version) {
+    if (!ctx.currentProject.value || !ctx.currentTracker.value || !version?.id) return
+    if (trackerDownloadBusy.value) {
+      notify('Another download is being prepared. Try again when it starts.')
+      return
+    }
+    const folder = String(version.download_name || '').replace(/\.[^.]+$/, '') || `${shot?.shot_id || 'shot'}_V${version.label || ''}`
+    await runTrackerPackage({ shot_ids: [getShotRequestRef(shot)], version_id: version.id, filename: folder }, 'Download failed')
+  }
+
+  async function runTrackerPackage(payload, failure) {
     const shareId = ctx.shareMode.value ? ctx.pendingShareId.value : null
     const endpoint = resolveAccessEndpoint({
       shareId,
@@ -1245,7 +1287,7 @@ export function useTrackerWorkspaceController(ctx) {
     try {
       await postTrackerLatestZip(url, payload, accessQuery)
     } catch (error) {
-      notify(`Download All failed: ${await ctx.getPackageErrorMessage(error)}`)
+      notify(`${failure}: ${await ctx.getPackageErrorMessage(error)}`)
     } finally {
       setTimeout(() => { trackerDownloadProgress.value = null }, 3000)
       trackerDownloadBusy.value = false
@@ -1316,7 +1358,10 @@ export function useTrackerWorkspaceController(ctx) {
     bulkActionBusy,
     shotActionBusyIds,
     trackerDownloadBusy,
+    trackerDownloadDialog,
+    trackerDownloadPlan,
     trackerDownloadProgress,
+    trackerDownloadZipName,
     getShotAssigneeIds,
     getShotAssignees,
     getShotAssigneeLabel,
@@ -1356,6 +1401,8 @@ export function useTrackerWorkspaceController(ctx) {
     bulkDeleteShots,
     downloadTrackerLatestVersions,
     downloadSelectedTrackerLatestVersions: () => downloadTrackerLatestVersions({ selectedOnly: true }),
+    downloadShotVersionPackage,
+    trackerDownloadShots,
     getAllLatestShotFiles,
     getLatestShotFile,
     downloadShotFile,

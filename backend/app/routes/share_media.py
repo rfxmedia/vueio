@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import get_db
+from app.models import HorizonShotExtra
+from app.services.horizons.extras import comparison_extra_file
 from app.services.media_serving import (
     DownloadAuditSpec,
     HlsRouteBuilder,
@@ -59,8 +61,13 @@ def _shared_comparison(share_id, version_id, other_id, share_token, db, *, downl
     share = _validate_shared_horizons_object_share(share_id, share_token, db)
     if download and not share.allow_download:
         raise HTTPException(403, 'Downloads are disabled for this share link')
-    sources = [resolve_horizons_object_share(share, db, version_id=identity) for identity in (version_id, other_id)]
-    pair = resolve_comparison(db, *sources, share=True)
+    primary = resolve_horizons_object_share(share, db, version_id=version_id)
+    # extra-<id> compares the version with one of its client-visible extras.
+    extra_file = comparison_extra_file(db, version_id, other_id)
+    if extra_file is not None and not db.get(HorizonShotExtra, extra_file.extra_id).client_visible:
+        raise HTTPException(404, 'This version has no file for this extra')
+    secondary = resolve_horizons_object_share(share, db, **({'asset_id': extra_file.media_asset_id} if extra_file else {'version_id': other_id}))
+    pair = resolve_comparison(db, primary, secondary, share=True, secondary_is_extra=extra_file is not None)
     pair.info['can_export'] = bool(share.allow_download)
     return pair, f'share:{share.id}'
 

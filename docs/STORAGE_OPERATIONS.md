@@ -34,6 +34,24 @@ FAT/exFAT can hold media but are not supported database locations.
 
 [Storage registration and permissions →](SELF_HOSTING.md#storage)
 
+## Let people copy file paths
+
+When the team opens the same storage over the network, people can copy the full
+path of a file and paste it into the Import dialog of their software.
+
+1. Open **Settings → Storage**.
+2. In the card of the storage location, enter its **Network path**, such as `\\nas\Media`.
+   Use the folder that Vue.io shows at the top of that location.
+3. Select **Save**.
+
+Enter the network path once. Vue.io gives each computer the form it understands:
+`\\nas\Media\...` on Windows, `/Volumes/Media/...` on a Mac and `smb://nas/Media/...` on other systems.
+A Windows drive letter, such as `Z:`, works only on one computer. On Windows, the `net use` command shows the network path of a drive letter.
+On a Mac, select the drive in Finder and choose **Get Info**.
+
+Administrators and members with File Browser access to the folder can copy paths.
+A path works only on a computer that is connected to that network storage.
+
 ## Change a project folder
 
 An administrator can open a project card's menu and select **Project folder**.

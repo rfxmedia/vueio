@@ -17,6 +17,8 @@
         :can-compare-versions="canCompareVersions"
         :publication-controls-enabled="publicationControlsEnabled"
         :update-version-publication="handleUpdateVersionPublication"
+        :copy-version-path="copyVersionPath"
+        :prefetch-version-path="prefetchVersionPath"
         :share-mode="shareMode"
         :get-thumbnail-url="getThumbnailUrl"
         :get-media-duration-label="getMediaDurationLabel"
@@ -93,6 +95,8 @@ const props = defineProps({
   openVersionUpload: { type: Function, required: true },
   deleteShotVersion: { type: Function, default: null },
   downloadVersion: { type: Function, default: null },
+  copyVersionPath: { type: Function, default: null },
+  prefetchVersionPath: { type: Function, default: null },
   getThumbnailUrl: { type: Function, required: true },
   getScrubPreviewUrl: { type: Function, default: () => '' },
   getShotDurationLabel: { type: Function, required: true },

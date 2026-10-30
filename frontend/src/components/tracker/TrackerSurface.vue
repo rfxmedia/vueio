@@ -82,9 +82,7 @@
       <div class="tracker-surface-table">
         <TrackerTableView
           :tracker-display-mode="effectiveTrackerDisplayMode"
-          :version-drop-shot-ref="projectDropTargetShotRef"
-          :version-drop-blocked-reason="projectVersionDropBlockedReason"
-          :version-drop-item-name="projectVersionDropItemName"
+          :card-drop="cardDrop"
         />
       </div>
 
@@ -186,16 +184,21 @@
         @close="showTrackerDetails = false"
       />
     </VModal>
+    <ShotExtrasAddModal />
+    <TrackerDownloadAllModal />
   </div>
 </template>
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { VModal } from '../primitives'
+import ShotExtrasAddModal from './ShotExtrasAddModal.vue'
 import TrackerDetailsPanel from './TrackerDetailsPanel.vue'
 import TrackerDeliveryMode from './TrackerDeliveryMode.vue'
+import TrackerDownloadAllModal from './TrackerDownloadAllModal.vue'
 import TrackerToolbar from './TrackerToolbar.vue'
 import TrackerTableView from './TrackerTableView.vue'
+import { droppedExtraFiles } from '../../composables/useTrackerExtrasController'
 import { hasProjectItemDrag, readProjectItemDrag } from '../../lib/projectItemDrag'
 import { useFileBrowserStore } from '../../ownership/fileBrowser'
 import { useTrackerStore } from '../../ownership/tracker'
@@ -226,6 +229,7 @@ const {
   canArchiveShots,
   canDeleteShots,
   canDownloadSelectedTrackerLatest,
+  canAddExtraFiles,
   canDownloadTrackerLatest,
   canViewTrackerDetails,
   canRestoreTrackerHistory,
@@ -243,6 +247,7 @@ const {
   deliveryTeamName,
   downloadSelectedTrackerLatestVersions,
   downloadTrackerLatestVersions,
+  dropExtraFiles,
   hasTrackerFilters,
   isMobile,
   isAdmin,
@@ -299,6 +304,10 @@ const projectDragItemCount = ref(0)
 const projectDragProjectId = ref('')
 const projectDragItems = ref([])
 const projectDropTargetShot = ref(null)
+// Files from the computer, which can only become extras.
+const fileDragActive = ref(false)
+const fileDragCount = ref(0)
+const cardDropZone = ref('main')
 let projectDragDepth = 0
 
 // A sentinel above the sticky toolbar tells us when the list has scrolled
@@ -405,10 +414,27 @@ const projectVersionDropBlockedReason = computed(() => {
   if (item?.type === 'folder' || !picker.isTrackerImportMediaItem(item)) return 'Choose an image, video, or supported 3D model.'
   return ''
 })
-const projectDropTargetShotRef = computed(() => getShotRef(projectDropTargetShot.value))
 const projectVersionDropItemName = computed(() => (
   projectDragItems.value.length === 1 ? projectDragItems.value[0]?.name || '' : ''
 ))
+// What the card under the pointer shows: the new version, and extras targets.
+const cardDrop = computed(() => {
+  const shot = projectDropTargetShot.value
+  if (!shot) return null
+  const otherProject = Boolean(projectDragProjectId.value && projectDragProjectId.value !== String(currentProject.value?.id || ''))
+  const fileCount = fileDragActive.value
+    ? fileDragCount.value
+    : projectDragItems.value.filter(item => item.type !== 'folder').length
+  return {
+    shotRef: getShotRef(shot),
+    kind: fileDragActive.value ? 'files' : 'project',
+    zone: cardDropZone.value,
+    fileCount,
+    extras: canAddExtraFiles.value && !otherProject && fileCount > 0,
+    blockedReason: fileDragActive.value ? '' : projectVersionDropBlockedReason.value,
+    itemName: projectVersionDropItemName.value,
+  }
+})
 const projectDropTitle = computed(() => {
   if (projectShotImportBlockedReason.value) return 'Cannot import these items here'
   if (projectDragItemCount.value === 1) return 'Import 1 file'
@@ -432,6 +458,16 @@ function toggleTrackerDetails() {
 
 function setTrackerDisplayMode(mode) {
   trackerDisplayMode.value = mode === 'grid' ? 'grid' : 'list'
+}
+
+function dragKind(event) {
+  const dataTransfer = event?.dataTransfer
+  if (hasProjectItemDrag(dataTransfer)) return 'project'
+  return canAddExtraFiles.value && Array.from(dataTransfer?.types || []).includes('Files') ? 'files' : ''
+}
+
+function cardDropZoneAt(event) {
+  return event?.target?.closest?.('[data-drop-zone]')?.dataset.dropZone || 'main'
 }
 
 function inspectProjectDrag(event) {
@@ -461,6 +497,7 @@ function findProjectDropShot(event) {
 
 function syncProjectDropTarget(event) {
   projectDropTargetShot.value = findProjectDropShot(event)
+  cardDropZone.value = projectDropTargetShot.value ? cardDropZoneAt(event) : 'main'
 }
 
 function resetProjectDrag() {
@@ -470,52 +507,83 @@ function resetProjectDrag() {
   projectDragProjectId.value = ''
   projectDragItems.value = []
   projectDropTargetShot.value = null
+  fileDragActive.value = false
+  fileDragCount.value = 0
+  cardDropZone.value = 'main'
 }
 
 function handleProjectDragEnter(event) {
-  if (!hasProjectItemDrag(event.dataTransfer)) return
+  const kind = dragKind(event)
+  if (!kind) return
   event.preventDefault()
   event.stopPropagation()
   projectDragDepth += 1
-  projectDragActive.value = true
-  syncProjectDrag(inspectProjectDrag(event))
+  if (kind === 'files') {
+    fileDragActive.value = true
+    fileDragCount.value = Array.from(event.dataTransfer?.items || []).filter(item => item.kind === 'file').length
+  } else {
+    projectDragActive.value = true
+    syncProjectDrag(inspectProjectDrag(event))
+  }
   syncProjectDropTarget(event)
 }
 
 function handleProjectDragOver(event) {
-  if (!hasProjectItemDrag(event.dataTransfer)) return
+  const kind = dragKind(event)
+  if (!kind) return
   event.preventDefault()
   event.stopPropagation()
+  syncProjectDropTarget(event)
+  if (kind === 'files') {
+    fileDragActive.value = true
+    event.dataTransfer.dropEffect = projectDropTargetShot.value ? 'copy' : 'none'
+    return
+  }
   if (!projectDragActive.value) projectDragActive.value = true
   if (!projectDragProjectId.value) syncProjectDrag(inspectProjectDrag(event))
-  syncProjectDropTarget(event)
+  const extraZone = Boolean(projectDropTargetShot.value) && cardDropZone.value !== 'main'
   const blockedReason = projectDropTargetShot.value
-    ? projectVersionDropBlockedReason.value
+    ? (extraZone ? '' : projectVersionDropBlockedReason.value)
     : projectShotImportBlockedReason.value
   event.dataTransfer.dropEffect = blockedReason ? 'none' : 'copy'
 }
 
 function handleProjectDragLeave(event) {
-  if (!hasProjectItemDrag(event.dataTransfer)) return
+  if (!dragKind(event)) return
   event.stopPropagation()
   projectDragDepth = Math.max(0, projectDragDepth - 1)
   if (projectDragDepth === 0) resetProjectDrag()
 }
 
 async function handleProjectDrop(event) {
-  if (!hasProjectItemDrag(event.dataTransfer)) return
+  const kind = dragKind(event)
+  if (!kind) return
   event.preventDefault()
   event.stopPropagation()
+  const targetShot = findProjectDropShot(event)
+  const zone = targetShot ? cardDropZoneAt(event) : 'main'
+  if (kind === 'files') {
+    resetProjectDrag()
+    if (targetShot) await dropExtraFiles(targetShot, zone, { files: droppedExtraFiles(event.dataTransfer) })
+    return
+  }
   const payload = inspectProjectDrag(event)
   syncProjectDrag(payload)
-  projectDropTargetShot.value = findProjectDropShot(event)
-  const targetShot = projectDropTargetShot.value
+  projectDropTargetShot.value = targetShot
   const blockedReason = targetShot
     ? projectVersionDropBlockedReason.value
     : projectShotImportBlockedReason.value
   resetProjectDrag()
   if (!payload) {
     notify('Those sidebar items could not be read. Try dragging them again.')
+    return
+  }
+  if (targetShot && zone !== 'main') {
+    if (payload.projectId && payload.projectId !== String(currentProject.value?.id || '')) {
+      notify('These items belong to a different project.')
+      return
+    }
+    await dropExtraFiles(targetShot, zone, { items: payload.items })
     return
   }
   if (blockedReason) {

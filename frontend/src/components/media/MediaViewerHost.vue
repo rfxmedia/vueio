@@ -21,6 +21,7 @@
         :version-options="versionCompareOptions"
         :primary-version-key="versionComparePrimaryKey"
         :secondary-version-key="versionCompareSecondaryKey"
+        :overlay-available="versionCompareOverlayAvailable"
         :resolve-media-routes="resolveViewerMediaRoutes"
         :format-timecode="formatTimecode"
         :frame-rate="videoFrameRate"
@@ -115,8 +116,14 @@
         :is-admin="isAdmin && !shareMode"
       />
 
+      <MediaViewerExtrasPanel
+        v-if="sidebarTab === 'extras' && extrasPanelProps"
+        :shot="extrasPanelProps.shot"
+        :version="extrasPanelProps.version"
+      />
+
       <MediaViewerCommentsPanel
-        v-if="sidebarTab === 'comments'"
+        v-if="sidebarTab === 'comments' || (sidebarTab === 'extras' && !extrasPanelProps)"
         :new-comment="newComment"
         :user-name-input="userNameInput"
         :drawing-color="drawingColor"
@@ -144,6 +151,7 @@ import { useSessionAuthStore } from '../../ownership/sessionAuth'
 import { useShareAccessContext } from '../../ownership/shareAccessContext'
 
 const MediaVersionCompareSurface = defineAsyncComponent(() => import('./MediaVersionCompareSurface.vue'))
+const MediaViewerExtrasPanel = defineAsyncComponent(() => import('./MediaViewerExtrasPanel.vue'))
 
 const props = defineProps({
   currentMedia: { type: Object, default: null },
@@ -158,6 +166,8 @@ const props = defineProps({
   versionCompareOptions: { type: Array, default: () => [] },
   versionComparePrimaryKey: { type: String, default: '' },
   versionCompareSecondaryKey: { type: String, default: '' },
+  versionCompareOverlayAvailable: { type: Boolean, default: false },
+  extrasPanelProps: { type: Object, default: null },
   resolveViewerMediaRoutes: { type: Function, required: true },
   formatTimecode: { type: Function, required: true },
   videoFrameRate: { type: Number, default: 24 },

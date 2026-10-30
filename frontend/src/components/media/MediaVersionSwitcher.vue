@@ -67,6 +67,8 @@
           :can-download-versions="canDownloadVersions"
           :publication-controls-enabled="publicationControlsEnabled"
           :update-version-publication="updateVersionPublication"
+          :copy-version-path="copyVersionPath"
+          :prefetch-version-path="prefetchVersionPath"
           :share-mode="shareMode"
           :get-thumbnail-url="getThumbnailUrl"
           :get-media-duration-label="getMediaDurationLabel"
@@ -138,6 +140,8 @@
           :can-download-versions="canDownloadVersions"
           :publication-controls-enabled="publicationControlsEnabled"
           :update-version-publication="updateVersionPublication"
+          :copy-version-path="copyVersionPath"
+          :prefetch-version-path="prefetchVersionPath"
           :share-mode="shareMode"
           :get-thumbnail-url="getThumbnailUrl"
           :get-media-duration-label="getMediaDurationLabel"
@@ -173,6 +177,8 @@ const props = defineProps({
   canCompareVersions: { type: Boolean, default: false },
   publicationControlsEnabled: { type: Boolean, default: false },
   updateVersionPublication: { type: Function, default: null },
+  copyVersionPath: { type: Function, default: null },
+  prefetchVersionPath: { type: Function, default: null },
   shareMode: { type: Boolean, default: false },
   getThumbnailUrl: { type: Function, required: true },
   getMediaDurationLabel: { type: Function, default: () => '' },

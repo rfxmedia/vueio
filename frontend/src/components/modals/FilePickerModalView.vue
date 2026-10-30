@@ -468,6 +468,7 @@ const filePickerSubtitle = computed(() => {
   if (props.pickerMode === 'bulk-version-update') return 'Choose a shot, then select the file that should become its next version.'
   if (props.pickerMode === 'shot') return 'Select the file that should become this shot\'s next version.'
   if (props.pickerMode === 'comment-reference') return 'Attach up to three files, folders, trackers, or dashboards.'
+  if (props.pickerMode === 'extra-file') return 'Select the files to use as extras. Any type of file works.'
   if (props.pickerMode === 'project-link') return 'Select the files you want to link to this project.'
   if (props.pickerMode === 'page-resource') return 'Choose a file or folder to add to this dashboard.'
   return 'Browse folders and choose the file you need.'
@@ -485,7 +486,7 @@ const pickerCount = computed(() => (
   props.isVersionPickerMode ? props.versionPickerBrowserItems.length : props.pickerFiles.length
 ))
 
-const isMultiSelectPickerMode = computed(() => ['project-link', 'shot-import', 'comment-reference'].includes(props.pickerMode))
+const isMultiSelectPickerMode = computed(() => ['project-link', 'shot-import', 'comment-reference', 'extra-file'].includes(props.pickerMode))
 
 const selectedMultiSelectPickerCount = computed(() => (
   props.pickerMode === 'shot-import' ? props.selectedShotImportCount : props.selectedProjectLinkCount
@@ -504,7 +505,9 @@ const multiSelectPickerEmptyLabel = computed(() => (
     ? 'Select files to import'
     : props.pickerMode === 'comment-reference'
       ? 'Select files, folders, trackers, or dashboards'
-      : 'Select files to link'
+      : props.pickerMode === 'extra-file'
+        ? 'Select files'
+        : 'Select files to link'
 ))
 
 function applyMultiSelectPickerSelection() {

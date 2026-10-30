@@ -24,6 +24,7 @@ from app.services.horizons_fresh import (
     select_horizon_preview_asset,
     update_horizon_project,
 )
+from app.services.horizons.extras import is_extra_only_asset
 from app.services.horizons.media import can_access_horizon_media_asset_id, get_visible_horizon_media_assets_by_paths
 from app.services.hls_streaming import get_hls_thumbnail_source
 from app.services.horizon_pages import get_horizon_page_by_ref, page_allows_path
@@ -231,9 +232,11 @@ def _resolve_legacy_project_thumbnail(db: Session, project_id: str, project, use
         )
         return _build_project_thumbnail_response(full_path, thumb_path, missing_detail='No project thumbnail', cache_key=cache_key, queue_missing=queue_missing, delivery_poster=delivery_poster)
 
-    if thumbnail_path.startswith('__auto_asset__:'):
-        asset = db.get(MediaAsset, thumbnail_path.removeprefix('__auto_asset__:'))
-    else:
+    asset = db.get(MediaAsset, thumbnail_path.removeprefix('__auto_asset__:')) if thumbnail_path.startswith('__auto_asset__:') else None
+    if asset is not None and is_extra_only_asset(db, project_id, asset.id):
+        # A cover picked before the file became a matte is picked again.
+        asset = None
+    if asset is None:
         # Pin the first eligible cover in the existing project field. A compare
         # and set keeps concurrent requests from replacing a manual selection.
         asset = select_horizon_preview_asset(db, project_id, user=user, access_role='share')

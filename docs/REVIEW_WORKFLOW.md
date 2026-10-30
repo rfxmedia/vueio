@@ -60,6 +60,36 @@ This is media version history, not source-code version control.
 Vue.io does not merge edits or replace versioning in your creative application.
 Keep a separate source file for each revision. Overwriting that file does not preserve its old contents.
 
+## Add extras to a shot
+
+An extra is a file that goes with a shot version, such as an alpha matte, a holdout matte, a clean plate, an element, or a reference.
+The extra belongs to the shot. Each version has its own file for it.
+
+1. Select **Add an extra** on the shot card, or **Add → Add files** in the **Extras** row.
+2. Drop the files, or select **Upload from computer** or **Choose project files**.
+3. Select what each file is, or type a name. Add a note if needed, such as Window.
+4. Select **Add 2 extras**. The button shows the number of files.
+
+You can also drop files on a shot card. Drop a file on a **Needed** extra to give the file to that extra.
+To ask for a file that does not exist yet, select **Add → Ask for an extra**. The extra shows **Needed** until it gets a file.
+
+When a shot gets a new version, its extras stay. Each one shows **Needed** for the new version.
+Select a needed extra to upload a file, choose a project file, or use the file of an earlier version.
+Adding an extra never replaces another one. To change a file, select **Replace file** on that extra.
+
+Downloads name each extra after the shot and version, such as `SH010_V3_Alpha matte.mov`.
+Extras with the same name get numbers: `Alpha matte 1`, `Alpha matte 2`.
+
+Each extra has its own client visibility. A reference starts as team only; the other types start visible to clients.
+Share visitors see an extra only on a published version.
+
+Select the arrow at the end of the **Extras** row to rename, reorder, replace, download, or remove extras.
+Assigned artists can add extras with files, and give files to needed extras.
+They cannot ask for an extra, rename it, change its visibility, or remove it.
+
+The viewer shows the extras of the open version in its **Extras** tab.
+Select **View** to open an extra. Select **Go back** to return to the version.
+
 ## Organize shots
 
 Use the tracker controls to change status, tags, and assignees when your permissions allow it.
@@ -178,6 +208,9 @@ Materials can differ from an offline renderer. Baked simulations in FBX or glTF 
 
 ## Compare two revisions
 
+To compare a version with one of its extras, select **Compare** on the extra in the viewer **Extras** tab.
+**Overlay** puts a matte on top of the version. The area outside the matte becomes dark red.
+
 1. Open a shot with at least two available versions.
 2. Open **Compare** in the viewer.
 3. Select the versions in **A** and **B**.
@@ -233,5 +266,9 @@ Do not restore History during another person's active edits without coordinating
 Confirm version publication and filenames before sending a link.
 Tracker downloads use the latest available version for each included shot, not every revision.
 Filters and selection can change which shots an internal tracker download includes.
+
+When shots have extras, **Download all** shows what the ZIP contains. Turn off **Include extras** to download only the versions.
+A shot with extras gets a folder with its version and extras. A shot without extras stays at the top of the ZIP.
+The download button of a version with extras downloads one ZIP with the version and its extras.
 
 [Sharing and delivery](SHARING.md)

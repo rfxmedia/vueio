@@ -111,6 +111,8 @@ export function useAppSession({
   const canAddVersions = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || projectRoleMeets('editor')))
   const canManageVersionPublication = computed(() => projectFilesMutable.value && !shareMode.value && (isAdmin.value || projectRoleMeets('owner')))
   const showShotDownloads = computed(() => !shareMode.value || shareAllowDownload.value)
+  // Set when an administrator entered network paths in Settings > Storage.
+  const canCopyFilePaths = computed(() => !shareMode.value && currentUser.value?.network_paths === true)
 
   async function changeMyPassword() {
     passwordError.value = ''
@@ -307,6 +309,7 @@ export function useAppSession({
     canAddVersions,
     canManageVersionPublication,
     showShotDownloads,
+    canCopyFilePaths,
     setLoginUsername,
     setLoginPassword,
     setSetupField,

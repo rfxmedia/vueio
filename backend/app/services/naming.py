@@ -37,6 +37,14 @@ def version_tag(label: str | None) -> str:
     return raw
 
 
+def tracker_extra_file_name(shot_name: str | None, label: str | None, extra_name: str | None, source_name: str) -> str:
+    """Name an extra for download: the plate's name with the extra's name added, such as glow shot_V8_Alpha matte.mov."""
+    plate = tracker_version_file_name(shot_name, label, source_name)
+    extension = PurePosixPath(source_name or '').suffix
+    stem = plate[:-len(extension)] if extension and plate.endswith(extension) else plate
+    return f'{stem.rstrip("_")}_{readable_file_name_part(extra_name, "Extra", max_length=80)}{extension}'
+
+
 def tracker_version_file_name(shot_name: str | None, label: str | None, source_name: str) -> str:
     """Name a shot version for download: the shot's tracker name, the version, the file's extension."""
     extension = PurePosixPath(source_name or '').suffix

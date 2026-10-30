@@ -197,21 +197,21 @@
       </dl>
     </section>
 
-    <section v-if="isAdmin && adminFilePath" class="info-section info-path-utility" aria-labelledby="info-file-path-label">
+    <section v-if="shownFilePath" class="info-section info-path-utility" aria-labelledby="info-file-path-label">
       <h3 id="info-file-path-label" class="info-section-title v-section-label v-section-label--ruled">
         Location
-        <span class="info-path-access">Admin only</span>
+        <span v-if="!networkFilePath" class="info-path-access">Admin only</span>
       </h3>
       <div class="info-path-control">
         <svg class="icon info-path-icon" aria-hidden="true"><use href="#icon-folder" /></svg>
-        <code class="info-path-value" :title="adminFilePath">{{ adminFilePath }}</code>
+        <code class="info-path-value" :title="shownFilePath">{{ shownFilePath }}</code>
         <button
           type="button"
           class="info-path-copy v-btn v-btn-quiet v-btn-sm"
           :class="{ 'is-copied': pathCopied }"
           :aria-label="pathCopied ? 'File path copied' : 'Copy file path'"
           :title="pathCopied ? 'Copied' : 'Copy file path'"
-          @click="copyAdminFilePath"
+          @click="copyShownFilePath"
         >
           <svg class="icon" aria-hidden="true"><use :href="pathCopied ? '#icon-check' : '#icon-copy'" /></svg>
           <span>{{ pathCopied ? 'Copied' : 'Copy' }}</span>
@@ -224,7 +224,9 @@
 
 <script setup>
 import { computed, nextTick, onUnmounted, ref, toRefs, watch } from 'vue'
+import { copyText } from '../../utils/clipboard'
 import { formatUploadDateLabel } from '../../utils/formatters'
+import { networkPathForThisComputer } from '../../utils/networkPath'
 import { notify } from '../../utils/toasts'
 
 const props = defineProps({
@@ -550,29 +552,17 @@ const adminFilePath = computed(() => {
   )
 })
 
+// The full path as this computer sees the file, when its storage has a
+// network path. Otherwise administrators see the path inside the project.
+const networkFilePath = computed(() => networkPathForThisComputer(props.mediaInfo?.network_path))
+const shownFilePath = computed(() => networkFilePath.value || (props.isAdmin ? adminFilePath.value : ''))
+
 const showChangelogCard = computed(() => Boolean(currentVersion.value || versionSummary.value || props.canEditVersionSummary))
 
-function fallbackCopyText(value) {
-  const textarea = document.createElement('textarea')
-  textarea.value = value
-  textarea.setAttribute('readonly', '')
-  textarea.style.position = 'fixed'
-  textarea.style.opacity = '0'
-  document.body.appendChild(textarea)
-  textarea.select()
-  const copied = document.execCommand?.('copy')
-  textarea.remove()
-  if (!copied) throw new Error('Clipboard is unavailable')
-}
-
-async function copyAdminFilePath() {
-  if (!props.isAdmin || !adminFilePath.value) return
+async function copyShownFilePath() {
+  if (!shownFilePath.value) return
   try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(adminFilePath.value)
-    } else {
-      fallbackCopyText(adminFilePath.value)
-    }
+    await copyText(shownFilePath.value)
     pathCopied.value = true
     window.clearTimeout(pathCopiedTimer)
     pathCopiedTimer = window.setTimeout(() => {

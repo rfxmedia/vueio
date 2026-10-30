@@ -275,6 +275,17 @@ export function useMediaViewerController({
     if (origin) commentReferenceHistory.value.push(origin)
   }
 
+  // Open a file that belongs to what is open now, such as an extra of a
+  // version. The back button returns to it, on the given sidebar tab.
+  async function openRelatedMedia(item, { returnTab = 'comments' } = {}) {
+    const origin = createCommentReferenceOrigin(null)
+    if (origin) rememberCommentReferenceOrigin({ ...origin, sidebarTab: returnTab })
+    const kind = getMediaKind(item)
+    if (kind === 'image') openImage(item)
+    else if (kind === 'pdf') openPdf(item)
+    else await openVideo(item)
+  }
+
   async function openCommentProjectReference(reference, comment) {
     const projectId = readRef(currentProject)?.id
     if (!projectId || !reference?.target_id) return
@@ -598,7 +609,7 @@ export function useMediaViewerController({
       else if (kind === 'video' || kind === 'model') await openVideo(origin.media)
       else throw new Error('The original media can no longer be opened')
 
-      sidebarTab.value = 'comments'
+      sidebarTab.value = origin.sidebarTab || 'comments'
       if (origin.commentId) await focusMediaComment(origin.commentId)
       commentReferenceHistory.value.pop()
       return true
@@ -797,6 +808,7 @@ export function useMediaViewerController({
       openVideo,
       openImage,
       openPdf,
+      openRelatedMedia,
       loadMediaInfo,
       dismissCurrentMedia,
       closeViewer,

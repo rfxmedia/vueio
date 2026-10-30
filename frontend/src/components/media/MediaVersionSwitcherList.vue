@@ -90,6 +90,13 @@
                   <span class="media-version-switcher-meta-dot" aria-hidden="true">·</span>
                   <span class="media-version-switcher-size">{{ getSizeLabel(version) }}</span>
                 </template>
+                <template v-if="getExtraCount(version)">
+                  <span class="media-version-switcher-meta-dot" aria-hidden="true">·</span>
+                  <span class="media-version-switcher-extras">
+                    <svg class="icon" aria-hidden="true"><use href="#icon-layers" /></svg>
+                    {{ getExtraCountLabel(version) }}
+                  </span>
+                </template>
               </div>
             </div>
           </div>
@@ -121,7 +128,7 @@
               </button>
             </div>
             <div
-              v-if="canDownloadVersions || canDeleteVersions || canTogglePublication(version)"
+              v-if="canDownloadVersions || canDeleteVersions || canTogglePublication(version) || canCopyPath(version)"
               class="media-version-switcher-row-actions"
             >
               <button
@@ -140,11 +147,23 @@
                 <span>{{ publicationToggleLabel(version) }}</span>
               </button>
               <button
+                v-if="canCopyPath(version)"
+                type="button"
+                class="media-version-switcher-row-action v-icon-action is-compact"
+                :aria-label="`Copy the path of ${getVersionLabel(version, index)}`"
+                :title="`Copy the path of ${getVersionLabel(version, index)}`"
+                @pointerenter="prefetchVersionPath?.(version)"
+                @focus="prefetchVersionPath?.(version)"
+                @click.stop="copyVersionPath(version)"
+              >
+                <svg class="icon"><use href="#icon-copy" /></svg>
+              </button>
+              <button
                 v-if="canDownloadVersions && version.exists !== false"
                 type="button"
                 class="media-version-switcher-row-action v-icon-action is-compact"
-                :aria-label="`Download ${getVersionLabel(version, index)}`"
-                :title="`Download ${getVersionLabel(version, index)}`"
+                :aria-label="getDownloadLabel(version, index)"
+                :title="getDownloadLabel(version, index)"
                 @click.stop="handleDownloadVersion(version)"
               >
                 <svg class="icon"><use href="#icon-download" /></svg>
@@ -187,6 +206,8 @@ const props = defineProps({
   canDownloadVersions: { type: Boolean, default: false },
   publicationControlsEnabled: { type: Boolean, default: false },
   updateVersionPublication: { type: Function, default: null },
+  copyVersionPath: { type: Function, default: null },
+  prefetchVersionPath: { type: Function, default: null },
   shareMode: { type: Boolean, default: false },
   getThumbnailUrl: { type: Function, required: true },
   getMediaDurationLabel: { type: Function, default: () => '' },
@@ -199,6 +220,7 @@ const emit = defineEmits(['select-version', 'download-version', 'delete-version'
 const hasRowActions = computed(() => (
   props.canDownloadVersions
   || props.canDeleteVersions
+  || typeof props.copyVersionPath === 'function'
   || (
     props.publicationControlsEnabled
     && typeof props.updateVersionPublication === 'function'
@@ -245,6 +267,10 @@ function getPublicationLabel(version) {
 
 function isLatestVersion(version) {
   return Boolean(version?.id && version.id === (props.latestVersionId || props.versions[0]?.id))
+}
+
+function canCopyPath(version) {
+  return typeof props.copyVersionPath === 'function' && version?.exists !== false
 }
 
 function hasRowUtility(version) {
@@ -370,6 +396,21 @@ function getDurationLabel(version) {
 
 function getSizeLabel(version) {
   return version?.size_formatted || ''
+}
+
+function getExtraCount(version) {
+  return Array.isArray(version?.extras) ? version.extras.length : 0
+}
+
+function getExtraCountLabel(version) {
+  const count = getExtraCount(version)
+  return `${count} ${count === 1 ? 'extra' : 'extras'}`
+}
+
+// A version with extras downloads with them, like the tracker card.
+function getDownloadLabel(version, index) {
+  const label = getVersionLabel(version, index)
+  return getExtraCount(version) ? `Download ${label} with ${getExtraCountLabel(version)}` : `Download ${label}`
 }
 </script>
 
@@ -696,6 +737,18 @@ function getSizeLabel(version) {
 
 .media-version-switcher-date {
   white-space: nowrap;
+}
+
+.media-version-switcher-extras {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.media-version-switcher-extras .icon {
+  width: 12px;
+  height: 12px;
+  opacity: 0.8;
 }
 
 .media-version-switcher-row-utility {
