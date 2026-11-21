@@ -423,6 +423,28 @@ POSTGRES_ADOPTION_STEPS: tuple[dict[str, object], ...] = (
             },
         },
     },
+    {
+        'revision': '20261120_0031',
+        'stamp_before': '20261030_0030',
+        'columns': {'shares': {'sandbox_id'}},
+        'indexes': {
+            'shares': {'ix_shares_sandbox_id'},
+            'horizons_sandboxes': {'ix_horizons_sandboxes_project_id'},
+            'horizons_sandbox_versions': {
+                'ix_horizons_sandbox_versions_sandbox_id',
+                'ix_horizons_sandbox_versions_project_id',
+            },
+        },
+        'owned_tables': {
+            'horizons_sandboxes': {
+                'id', 'project_id', 'slug', 'name', 'description', 'latest_version', 'created_by', 'created_at', 'updated_at',
+            },
+            'horizons_sandbox_versions': {
+                'id', 'sandbox_id', 'project_id', 'number', 'content', 'size_bytes', 'message', 'restored_from',
+                'author_id', 'author_name', 'agent_name', 'created_at',
+            },
+        },
+    },
 )
 
 

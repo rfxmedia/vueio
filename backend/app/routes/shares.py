@@ -58,6 +58,7 @@ from app.services.project_content_gateway import SharedPagePolicy, SharedProject
 from app.services.project_links import find_link_target, join_rel_path, link_storage_scope
 from app.services.project_access import verify_path_in_project
 from app.services.project_delivery import build_delivery_logo_response
+from app.services.sandboxes import get_sandbox
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.projects import get_project_dir, load_project_links, resolve_project_root
 from app.services.share_access import create_share_link_with_retry, get_shared_content_info_dict, hash_share_password, issue_share_access_token, normalize_virtual_path, require_path_within_shared_root, validate_share
@@ -122,6 +123,7 @@ class ProjectShareCreateRequest(BaseModel):
     tracker_id: Optional[str] = Field(None, description='Share only this tracker. The tracker id, slug or name.')
     tracker_name: Optional[str] = Field(None, description='Old name for tracker_id. Ignored when tracker_id is given.')
     page_id: Optional[str] = Field(None, description='Share only this project page. Do not combine with a tracker.')
+    sandbox_id: Optional[str] = Field(None, description='Share only this Vue Sandbox. Do not combine with a tracker or a page.')
 
 
 class ProjectContentShareRequest(BaseModel):
@@ -696,7 +698,7 @@ def get_share(share_id: str, share_token: str | None = None, db: Session = Depen
         share_id,
         None,
         db,
-        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page'],
+        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page', 'sandbox'],
         share_token=share_token,
         track_access=True,
         allow_file_request=True,
@@ -734,7 +736,7 @@ async def unlock_share(
         share_id,
         data.password,
         db,
-        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page'],
+        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page', 'sandbox'],
         track_access=False,
         allow_file_request=True,
         allow_password_auth=True,
@@ -754,11 +756,12 @@ async def unlock_share(
 
 @router.post('/api/projects/{project_id}/share', summary='Share a project, tracker or page')
 def share_project(project_id: str, data: ProjectShareCreateRequest | None = None, db: Session = Depends(get_db), vueio_session: str | None = Cookie(None)):
-    """Create a review link for a whole project, one tracker or one page.
+    """Create a review link for a whole project, one tracker, one page or one Vue Sandbox.
 
-    Give `tracker_id` or `page_id` to share less than the project. Visitors
-    see only published versions. A page link accepts uploads when the page
-    has upload targets. Returns the share `id` and its `url`.
+    Give `tracker_id`, `page_id` or `sandbox_id` to share less than the
+    project. Visitors see only published versions. A page link accepts
+    uploads when the page has upload targets. A sandbox link shows only the
+    newest version of its page. Returns the share `id` and its `url`.
     """
     session_user =get_user_from_session(vueio_session)
     if not session_user:
@@ -776,10 +779,16 @@ def share_project(project_id: str, data: ProjectShareCreateRequest | None = None
     tracker_name = None
     tracker_id = None
     page_id = None
+    sandbox_id = None
     tracker_ref = data.tracker_id or data.tracker_name
-    if tracker_ref and data.page_id:
-        raise HTTPException(status_code=400, detail='Share either a tracker or a page, not both')
-    if data.page_id:
+    if sum(bool(ref) for ref in (tracker_ref, data.page_id, data.sandbox_id)) > 1:
+        raise HTTPException(status_code=400, detail='Share one tracker, one page or one sandbox at a time')
+    if data.sandbox_id:
+        if is_restricted_project_member(user):
+            raise HTTPException(status_code=403, detail='Only people who manage project content can share Vue Sandboxes.')
+        sandbox_id = get_sandbox(db, project_id, data.sandbox_id).id
+        share_type = 'sandbox'
+    elif data.page_id:
         page = get_horizon_page_by_ref(db, project_id, data.page_id)
         share_type = 'page'
         page_id = page.id
@@ -802,6 +811,7 @@ def share_project(project_id: str, data: ProjectShareCreateRequest | None = None
             tracker_id=tracker_id,
             tracker_name=tracker_name,
             page_id=page_id,
+            sandbox_id=sandbox_id,
             created_by=user['username'],
             expires_at=data.expires_at if data.expires_at and data.expires_at > 0 else None,
             password_hash=password_hash,
@@ -817,7 +827,7 @@ def share_project(project_id: str, data: ProjectShareCreateRequest | None = None
 
 @router.get('/api/projects/shared/{share_id}')
 def get_shared_project(share_id: str, share_token: str | None = None, db: Session = Depends(get_db)):
-    share = validate_share(share_id, None, db, ['project', 'tracker', 'page'], share_token=share_token, track_access=True)
+    share = validate_share(share_id, None, db, ['project', 'tracker', 'page', 'sandbox'], share_token=share_token, track_access=True)
     project = _get_shared_horizon_project(share, db)
 
     payload = serialize_horizon_project(db, project)
@@ -867,6 +877,23 @@ def get_shared_project(share_id: str, share_token: str | None = None, db: Sessio
         payload['page'] = page_payload
         payload['_current_page'] = page.slug
         payload['_open_page'] = True
+        payload['_trackers'] = []
+        payload['shots'] = []
+        payload['_open_tracker'] = False
+    elif share.share_type == 'sandbox':
+        sandbox = get_sandbox(db, project.id, share.sandbox_id or '')
+        payload.update(published_scope_summary(db, project.id, tracker_ids=set()))
+        payload['tracker_count'] = 0
+        payload['updated_at'] = sandbox.updated_at
+        payload['sandbox'] = {
+            'id': sandbox.id,
+            'slug': sandbox.slug,
+            'name': sandbox.name,
+            'description': sandbox.description or '',
+            'type': 'sandbox',
+            'latest_version': sandbox.latest_version,
+        }
+        payload['_open_sandbox'] = True
         payload['_trackers'] = []
         payload['shots'] = []
         payload['_open_tracker'] = False
@@ -1005,7 +1032,7 @@ def get_shared_content_info(share_id: str, share_token: str | None = None, db: S
         share_id,
         None,
         db,
-        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page'],
+        ['file', 'folder', 'project-file', 'project-folder', 'project', 'tracker', 'page', 'sandbox'],
         share_token=share_token,
         track_access=False,
         allow_file_request=True,

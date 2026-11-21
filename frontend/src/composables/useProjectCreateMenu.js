@@ -60,6 +60,7 @@ export function useProjectCreateMenu() {
     return [
       { label: 'Vue Dashboard', icon: '#icon-file', show: !restrictedMember, run: workspace.openProjectCreatePage },
       { label: 'Vue Tracker', icon: '#icon-project', show: canCreateTracker, run: workspace.openProjectCreateTracker },
+      { label: 'Vue Sandbox', icon: '#icon-code', show: !restrictedMember, run: workspace.openProjectCreateSandbox },
       { label: 'Folder', icon: '#icon-folder', run: workspace.openProjectCreateFolderFromMenu },
       { divider: true },
       {

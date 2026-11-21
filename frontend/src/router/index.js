@@ -107,6 +107,11 @@ const routes = [
     meta: { requiresAuth: true, module: 'projects' }
   },
   {
+    path: '/projects/:projectId/sandbox/:sandbox',
+    name: 'project-sandbox',
+    meta: { requiresAuth: true, module: 'projects' }
+  },
+  {
     path: '/settings',
     name: 'settings',
     meta: { requiresAuth: true, module: 'settings' }

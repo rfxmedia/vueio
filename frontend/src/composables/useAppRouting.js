@@ -62,6 +62,7 @@ export function useAppRouting({
     loadProjects,
     openProject,
     openPage,
+    openSandbox,
     navigateProjectFolder,
   } = workspace
   const { openTracker } = tracker
@@ -97,7 +98,11 @@ export function useAppRouting({
     }
 
     if (routeName === 'project-page') {
-      return routeRefMatches(currentPage?.value, params.page, ['id', 'slug'])
+      return currentPage?.value?.type !== 'sandbox' && routeRefMatches(currentPage?.value, params.page, ['id', 'slug'])
+    }
+
+    if (routeName === 'project-sandbox') {
+      return currentPage?.value?.type === 'sandbox' && routeRefMatches(currentPage.value, params.sandbox, ['id', 'slug'])
     }
 
     return false
@@ -230,6 +235,20 @@ export function useAppRouting({
       await openProject(params.projectId, { skipRouteUpdate: true, signal })
       if (isStale()) return
       await openPage(params.page, { skipRouteUpdate: true, signal })
+      if (isStale()) return
+      loading.value = false
+      return
+    }
+
+    if (routeName === 'project-sandbox') {
+      activeModule.value = 'projects'
+      if (!routeRefMatches(currentProject.value, params.projectId, ['id'])) {
+        await loadProjects({ signal })
+        if (isStale()) return
+        await openProject(params.projectId, { skipRouteUpdate: true, signal })
+        if (isStale()) return
+      }
+      await openSandbox(params.sandbox, { skipRouteUpdate: true, signal })
       if (isStale()) return
       loading.value = false
       return

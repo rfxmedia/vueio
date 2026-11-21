@@ -42,7 +42,7 @@
             class="share-access-options v-modal-choice-grid"
             :class="{ 'has-file-request': canRequestFiles }"
           >
-            <div class="share-access-option is-downloads v-modal-card-soft">
+            <div v-if="shareCreateType !== 'sandbox'" class="share-access-option is-downloads v-modal-card-soft">
               <VSwitch
                 v-model="shareCreateForm.allowDownload"
                 label="Allow downloads"
@@ -424,6 +424,7 @@ const SHARE_TYPE_LABELS = {
   project: 'Project',
   tracker: 'Tracker',
   page: 'Dashboard',
+  sandbox: 'Sandbox',
   'project-file': 'File',
   'project-folder': 'Folder',
   file: 'File',
@@ -444,6 +445,7 @@ function shareTypeIcon(share) {
   if (share.share_type === 'project') return '#icon-project'
   if (share.share_type === 'tracker') return '#icon-layout'
   if (share.share_type === 'page') return '#icon-link'
+  if (share.share_type === 'sandbox') return '#icon-code'
   if (share.share_type === 'project-folder' || share.share_type === 'folder') return '#icon-folder'
   return '#icon-file'
 }

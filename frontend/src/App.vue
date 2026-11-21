@@ -308,7 +308,8 @@ const viewerController = useMediaViewerController({
   },
   getCommentReferenceOriginContext: () => ({
     trackerRef: currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || '',
-    pageRef: currentPage.value?.id || currentPage.value?.slug || '',
+    pageRef: currentPage.value?.type === 'sandbox' ? '' : currentPage.value?.id || currentPage.value?.slug || '',
+    sandboxRef: currentPage.value?.type === 'sandbox' ? currentPage.value.id : '',
     projectPath: projectPath.value || '',
     routeFullPath: route.fullPath || '',
   }),
@@ -343,6 +344,7 @@ const viewerController = useMediaViewerController({
   onRestoreCommentReferenceOrigin: async ({ context } = {}) => {
     const trackerRef = context?.trackerRef || ''
     const pageRef = context?.pageRef || ''
+    const sandboxRef = context?.sandboxRef || ''
     if (trackerRef) {
       const activeTrackerRef = currentTracker.value?.id || currentTracker.value?.slug || currentTracker.value?.name || ''
       if (String(activeTrackerRef) === String(trackerRef)) return true
@@ -354,6 +356,11 @@ const viewerController = useMediaViewerController({
       await projectWorkspaceController.openPage(pageRef)
       return [currentPage.value?.id, currentPage.value?.slug]
         .some(value => String(value || '') === String(pageRef))
+    }
+    if (sandboxRef) {
+      if (currentPage.value?.type === 'sandbox' && currentPage.value.id === sandboxRef) return true
+      await projectWorkspaceController.openSandbox(sandboxRef)
+      return currentPage.value?.type === 'sandbox' && currentPage.value.id === sandboxRef
     }
     if (currentTracker.value) trackerStore?.closeTracker()
     if (currentPage.value) closePage()
@@ -670,6 +677,7 @@ shareManagementStore = provideShareManagementStore(createShareManagementStore({
 const {
   shareProjectContent,
   shareProjectPage,
+  shareProjectSandbox,
   canShareProjectItem,
 } = shareManagementStore
 
@@ -983,6 +991,7 @@ provideProjectWorkspaceStore(createProjectWorkspaceStore({
   canShareProject: computed(() => canShareProjectItem(currentProject.value)),
   shareProjectContent,
   shareProjectPage,
+  shareProjectSandbox,
   deleteTracker: trackerStore.deleteTracker,
   isMobile,
 }))

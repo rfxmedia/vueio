@@ -8,7 +8,7 @@ const repository = 'https://github.com/rfxmedia/vueio';
 const pages = [
   ['GETTING_STARTED.md', 'get-started.html', 'Get started', 'Installation, first login, and your first review.'],
   ['REVIEW_WORKFLOW.md', 'review.html', 'Review & versions', 'Shots, revisions, annotations, and feedback in context.'],
-  ['WORKSPACE.md', 'workspace.html', 'Workspace & team', 'Accounts, project access, dashboards, notifications, and agents.'],
+  ['WORKSPACE.md', 'workspace.html', 'Workspace & team', 'Accounts, project access, dashboards, sandboxes, notifications, and agents.'],
   ['SHARING.md', 'sharing.html', 'Sharing & delivery', 'Client review links, downloads, and incoming files.'],
   ['STORAGE_OPERATIONS.md', 'storage.html', 'Storage & operations', 'Connect your media. Keep the workspace backed up.'],
   ['TROUBLESHOOTING.md', 'troubleshooting.html', 'Troubleshooting', 'Find the next step when something does not work.'],

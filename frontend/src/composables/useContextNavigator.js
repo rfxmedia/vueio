@@ -201,9 +201,11 @@ export function useContextNavigator() {
     projectPath,
     artistWorkspaceRoot,
     projectPageItems,
+    projectSandboxItems,
     projectTrackerItems,
     sortedProjects,
     openPage,
+    openSandbox,
     openTracker,
     openProject,
     openFileFromProject,
@@ -348,11 +350,22 @@ export function useContextNavigator() {
       meta: countLabel(item.block_count),
       icon: '#icon-layout',
       tone: 'page',
-      active: Boolean(currentPage.value) && (
+      active: Boolean(currentPage.value) && currentPage.value.type !== 'sandbox' && (
         currentPage.value.id === item.id
         || (item.slug && currentPage.value.slug === item.slug)
       ),
       run: () => openPage(item.slug || item.path || item.id),
+    }))
+
+    const sandboxes = (projectSandboxItems.value || []).map((item) => ({
+      key: `sandbox:${item.id}`,
+      label: item.name,
+      description: item.description,
+      meta: item.latest_version ? `v${item.latest_version}` : '',
+      icon: '#icon-code',
+      tone: 'sandbox',
+      active: currentPage.value?.type === 'sandbox' && currentPage.value.id === item.id,
+      run: () => openSandbox(item.slug || item.id),
     }))
 
     const trackers = (projectTrackerItems.value || []).map((item) => ({
@@ -377,6 +390,9 @@ export function useContextNavigator() {
     }
     if (trackers.length) {
       groups.push({ key: 'trackers', label: 'Trackers', icon: '#icon-project', tone: 'accent', items: trackers })
+    }
+    if (sandboxes.length) {
+      groups.push({ key: 'sandboxes', label: 'Sandboxes', icon: '#icon-code', tone: 'sandbox', items: sandboxes })
     }
 
     const rootPath = projectRootPath.value

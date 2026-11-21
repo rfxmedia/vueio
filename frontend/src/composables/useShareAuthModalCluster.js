@@ -27,7 +27,9 @@ function createDefaultShareEditForm() {
   }
 }
 
-const PROJECT_SHARE_TYPES = new Set(['project', 'tracker', 'page', 'project-file', 'project-folder'])
+const PROJECT_SHARE_TYPES = new Set(['project', 'tracker', 'page', 'sandbox', 'project-file', 'project-folder'])
+// Share types that open at /p/<id> and are created with POST /share.
+const PROJECT_LINK_TYPES = new Set(['project', 'tracker', 'page', 'sandbox'])
 
 export function useShareAuthModalCluster({
   route,
@@ -156,6 +158,11 @@ export function useShareAuthModalCluster({
 
   function shareCurrentPage() {
     if (currentProject.value) {
+      if (currentPage?.value?.type === 'sandbox') {
+        shareProjectSandbox(currentPage.value)
+        return
+      }
+
       if (currentPage?.value) {
         openShareCreate({
           id: currentProject.value.id,
@@ -211,6 +218,16 @@ export function useShareAuthModalCluster({
       is_folder: isFolder,
       is_linked: item.is_linked || false,
     }, isFolder ? 'project-folder' : 'project-file')
+  }
+
+  function shareProjectSandbox(sandbox) {
+    if (!currentProject.value || !sandbox?.id) return
+
+    openShareCreate({
+      id: currentProject.value.id,
+      sandbox_id: sandbox.id,
+      title: `${currentProject.value.title} / ${sandbox.name}`,
+    }, 'sandbox')
   }
 
   function shareProjectPage(page) {
@@ -271,7 +288,7 @@ export function useShareAuthModalCluster({
       }
 
       let response
-      if (shareCreateType.value === 'project' || shareCreateType.value === 'tracker' || shareCreateType.value === 'page') {
+      if (PROJECT_LINK_TYPES.has(shareCreateType.value)) {
         const payload = { ...basePayload }
         if (shareCreateType.value === 'tracker' && shareCreateTarget.value.tracker_id) {
           payload.tracker_id = shareCreateTarget.value.tracker_id
@@ -280,6 +297,10 @@ export function useShareAuthModalCluster({
         }
         if (shareCreateType.value === 'page' && shareCreateTarget.value.page_id) {
           payload.page_id = shareCreateTarget.value.page_id
+        }
+        if (shareCreateType.value === 'sandbox') {
+          payload.sandbox_id = shareCreateTarget.value.sandbox_id
+          payload.allow_download = false
         }
         response = await api.post(`/api/projects/${shareCreateTarget.value.id}/share`, payload, {
           headers: { 'Content-Type': 'application/json' },
@@ -365,7 +386,7 @@ export function useShareAuthModalCluster({
   function buildProjectShareUrl(share) {
     if (!share?.id) return ''
     const baseUrl = window.location.origin
-    if (share.share_type === 'project' || share.share_type === 'tracker' || share.share_type === 'page') {
+    if (PROJECT_LINK_TYPES.has(share.share_type)) {
       return `${baseUrl}/p/${share.id}`
     }
     if (share.share_type === 'project-file' || share.share_type === 'project-folder') {
@@ -493,6 +514,7 @@ export function useShareAuthModalCluster({
     shareProject,
     shareProjectContent,
     shareProjectPage,
+    shareProjectSandbox,
     canShareProjectItem,
     canShareFromNav,
     shareFromNav,

@@ -6,6 +6,7 @@ import { notify } from '../utils/toasts'
 
 export function useProjectContentInteractions({
   currentProject,
+  currentPage,
   projectPath,
   refreshProjectContents,
   handleProjectExternalDragOver,
@@ -167,6 +168,13 @@ export function useProjectContentInteractions({
     showRenameModal.value = true
   }
 
+  function startRenameSandbox(item) {
+    renameTarget.value = { ...item, type: 'sandbox' }
+    renameNewName.value = item.name || ''
+    renameNewDescription.value = item.description || ''
+    showRenameModal.value = true
+  }
+
   async function confirmRename() {
     if (!renameTarget.value || !renameNewName.value.trim() || !currentProject.value) return
 
@@ -176,6 +184,15 @@ export function useProjectContentInteractions({
           `/api/projects/${currentProject.value.id}/trackers/${encodeURIComponent(renameTarget.value.id || renameTarget.value.slug || renameTarget.value.name)}`,
           { name: renameNewName.value.trim(), description: renameNewDescription.value }
         )
+      } else if (renameTarget.value.type === 'sandbox') {
+        const { data } = await api.put(
+          `/api/projects/${currentProject.value.id}/sandboxes/${encodeURIComponent(renameTarget.value.id)}`,
+          { name: renameNewName.value.trim(), description: renameNewDescription.value }
+        )
+        // The open sandbox keeps its page; only its name and description change.
+        if (currentPage?.value?.type === 'sandbox' && currentPage.value.id === data.id) {
+          currentPage.value = { ...currentPage.value, name: data.name, slug: data.slug, description: data.description }
+        }
       } else if (renameTarget.value.type === 'page') {
         await api.put(
           `/api/projects/${currentProject.value.id}/pages/${encodeURIComponent(renameTarget.value.id || renameTarget.value.slug || renameTarget.value.path)}`,
@@ -218,6 +235,7 @@ export function useProjectContentInteractions({
     startRenameFolder,
     startRenameTracker,
     startRenamePage,
+    startRenameSandbox,
     confirmRename,
   }
 }

@@ -96,6 +96,44 @@
   </VModal>
 
   <VModal
+    :modelValue="props.showCreateSandbox"
+    @update:modelValue="props.closeCreateSandbox"
+    title="Create Vue Sandbox"
+    size="md"
+  >
+    <template #header>
+      <VModalHeader title="Create Vue Sandbox" subtitle="A page for anything: a budget, a schedule, a pitch." @close="props.closeCreateSandbox" />
+    </template>
+
+    <div class="v-form-grid v-modal-stack">
+      <VField label="Name">
+        <input
+          :value="props.newSandboxName"
+          placeholder="For example, Budget"
+          class="v-input"
+          autofocus
+          @input="emit('update:newSandboxName', $event.target.value)"
+          @keydown.enter="props.createSandbox"
+        />
+      </VField>
+      <VField label="Description" optional :hint="sandboxDescriptionHint">
+        <textarea
+          :value="props.newSandboxDesc"
+          :maxlength="TRACKER_DESCRIPTION_MAX_LENGTH"
+          placeholder="What this page is for, so the team can tell it apart"
+          class="v-input modal-textarea"
+          @input="emit('update:newSandboxDesc', $event.target.value)"
+        ></textarea>
+      </VField>
+    </div>
+
+    <template #footer>
+      <button class="v-btn v-btn-secondary" @click="props.closeCreateSandbox">Cancel</button>
+      <button class="v-btn v-btn-primary" @click="props.createSandbox" :disabled="!props.newSandboxName?.trim()">Create</button>
+    </template>
+  </VModal>
+
+  <VModal
     :modelValue="props.showCreateTracker"
     @update:modelValue="props.closeCreateTracker"
     title="Create Vue Tracker"
@@ -168,7 +206,7 @@
     </template>
 
     <div class="v-form-grid v-modal-stack">
-      <VField :label="isTrackerRename ? 'Name' : 'New name'">
+      <VField :label="hasRenameDescription ? 'Name' : 'New name'">
         <input
           :value="props.renameNewName"
           class="v-input"
@@ -177,11 +215,11 @@
           @keydown.enter="props.confirmRename"
         />
       </VField>
-      <VField v-if="isTrackerRename" label="Description" optional :hint="trackerDescriptionHint">
+      <VField v-if="hasRenameDescription" label="Description" optional :hint="isTrackerRename ? trackerDescriptionHint : sandboxDescriptionHint">
         <textarea
           :value="props.renameNewDescription"
           :maxlength="TRACKER_DESCRIPTION_MAX_LENGTH"
-          placeholder="What this tracker covers, so the team can tell it apart"
+          :placeholder="isTrackerRename ? 'What this tracker covers, so the team can tell it apart' : 'What this page is for, so the team can tell it apart'"
           class="v-input modal-textarea"
           @input="emit('update:renameNewDescription', $event.target.value)"
         ></textarea>
@@ -190,7 +228,7 @@
 
     <template #footer>
       <button class="v-btn v-btn-secondary" @click="props.closeRenameModal">Cancel</button>
-      <button class="v-btn v-btn-primary" @click="props.confirmRename" :disabled="!props.renameNewName?.trim()">{{ isTrackerRename ? 'Save' : 'Rename' }}</button>
+      <button class="v-btn v-btn-primary" @click="props.confirmRename" :disabled="!props.renameNewName?.trim()">{{ hasRenameDescription ? 'Save' : 'Rename' }}</button>
     </template>
   </VModal>
 
@@ -256,6 +294,12 @@ const props = defineProps({
   closeCreatePage: { type: Function, required: true },
   createPage: { type: Function, required: true },
 
+  showCreateSandbox: { type: Boolean, default: false },
+  newSandboxName: { type: String, default: '' },
+  newSandboxDesc: { type: String, default: '' },
+  closeCreateSandbox: { type: Function, required: true },
+  createSandbox: { type: Function, required: true },
+
   showCreateTracker: { type: Boolean, default: false },
   newTrackerName: { type: String, default: '' },
   newTrackerDescription: { type: String, default: '' },
@@ -294,6 +338,8 @@ const emit = defineEmits([
   'update:newProjectStoragePath',
   'update:newPageTitle',
   'update:newPageDesc',
+  'update:newSandboxName',
+  'update:newSandboxDesc',
   'update:newTrackerName',
   'update:newTrackerDescription',
   'update:newFolderName',
@@ -304,6 +350,7 @@ const emit = defineEmits([
 // Matches the server limit; the card shows the first two lines.
 const TRACKER_DESCRIPTION_MAX_LENGTH = 240
 const trackerDescriptionHint = 'Shown on the tracker card. Keep it to a sentence or two.'
+const sandboxDescriptionHint = 'Shown on the sandbox card. Keep it to a sentence or two.'
 
 const workingProjectRoot = computed(() => props.projectStorageRoots.find(root => root.id === props.newProjectStorageRoot) || null)
 const workingProjectStorageAvailable = computed(() => (
@@ -320,8 +367,10 @@ const canCreateProject = computed(() => (
 ))
 
 const isTrackerRename = computed(() => props.renameTarget?.type === 'tracker')
+const hasRenameDescription = computed(() => isTrackerRename.value || props.renameTarget?.type === 'sandbox')
 const renameTitle = computed(() => {
   if (isTrackerRename.value) return 'Edit Vue Tracker'
+  if (props.renameTarget?.type === 'sandbox') return 'Edit Vue Sandbox'
   if (props.renameTarget?.type === 'page') return 'Rename Vue Dashboard'
   if (props.renameTarget?.type === 'folder') return 'Rename Folder'
   return 'Rename File'

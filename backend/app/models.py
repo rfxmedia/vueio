@@ -49,6 +49,7 @@ class ShareLink(Base):
     tracker_id = Column(String, nullable=True)
     tracker_name = Column(String, nullable=True)
     page_id = Column(String, nullable=True)
+    sandbox_id = Column(String, nullable=True, index=True)
     media_asset_id = Column(String, nullable=True, index=True)
     created_by = Column(String, nullable=True)
     created_at = Column(Float, default=time.time)
@@ -531,6 +532,53 @@ class HorizonShotExtraFile(Base):
     created_by = Column(String, nullable=True)
     created_at = Column(Float, default=time.time)
     updated_at = Column(Float, default=time.time)
+
+
+class HorizonSandbox(Base):
+    """A Vue Sandbox: one web page that a project builds, such as a budget.
+
+    The page is the newest of its versions (HorizonSandboxVersion).
+    `latest_version` is 0 until the first save.
+    """
+    __tablename__ = 'horizons_sandboxes'
+    __table_args__ = (
+        UniqueConstraint('project_id', 'slug', name='uq_horizons_sandboxes_project_slug'),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, nullable=False, index=True)
+    slug = Column(String, nullable=False)
+    name = Column(String, nullable=False)
+    description = Column(Text, nullable=True)
+    latest_version = Column(Integer, nullable=False, default=0)
+    created_by = Column(String, nullable=True)
+    created_at = Column(Float, default=time.time)
+    updated_at = Column(Float, default=time.time)
+
+
+class HorizonSandboxVersion(Base):
+    """One saved state of a sandbox page. A version never changes.
+
+    Restoring an old version saves a copy of it as the newest version, so
+    nothing in the history is lost.
+    """
+    __tablename__ = 'horizons_sandbox_versions'
+    __table_args__ = (
+        UniqueConstraint('sandbox_id', 'number', name='uq_horizons_sandbox_versions_number'),
+    )
+
+    id = Column(String, primary_key=True)
+    sandbox_id = Column(String, nullable=False, index=True)
+    project_id = Column(String, nullable=False, index=True)
+    number = Column(Integer, nullable=False)
+    content = deferred(Column(Text, nullable=False))
+    size_bytes = Column(Integer, nullable=False)
+    message = Column(String, nullable=True)
+    restored_from = Column(Integer, nullable=True)
+    author_id = Column(String, nullable=True)
+    author_name = Column(String, nullable=True)
+    agent_name = Column(String, nullable=True)
+    created_at = Column(Float, default=time.time)
 
 
 class OAuthClient(Base):

@@ -279,6 +279,7 @@ export function createProjectSettingsStore(ctx) {
 
   function openContextSettings() {
     if (ctx.currentTracker.value) return tracker.openSettings()
+    if (ctx.currentPage.value?.type === 'sandbox') return openProjectSettings()
     if (ctx.currentPage.value) return openDashboardSettings()
     return openProjectSettings()
   }

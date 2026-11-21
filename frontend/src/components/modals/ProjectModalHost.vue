@@ -100,6 +100,11 @@
     :new-page-desc="actions.newPageDesc"
     :close-create-page="actions.closeCreatePageModal"
     :create-page="actions.createPage"
+    :show-create-sandbox="actions.showCreateSandbox"
+    :new-sandbox-name="actions.newSandboxName"
+    :new-sandbox-desc="actions.newSandboxDesc"
+    :close-create-sandbox="actions.closeCreateSandboxModal"
+    :create-sandbox="actions.createSandbox"
     :show-create-tracker="actions.showCreateTracker"
     :new-tracker-name="actions.newTrackerName"
     :new-tracker-description="actions.newTrackerDescription"
@@ -130,6 +135,8 @@
     @update:new-project-storage-path="settings.newProjectStoragePath = $event"
     @update:new-page-title="actions.newPageTitle = $event"
     @update:new-page-desc="actions.newPageDesc = $event"
+    @update:new-sandbox-name="actions.newSandboxName = $event"
+    @update:new-sandbox-desc="actions.newSandboxDesc = $event"
     @update:new-tracker-name="actions.newTrackerName = $event"
     @update:new-tracker-description="actions.newTrackerDescription = $event"
     @update:new-folder-name="actions.newFolderName = $event"
@@ -283,7 +290,7 @@ watchEffect(() => {
   if (settings.showProjectSettingsModal || settings.showTrackerSettingsModal) loadedModals.add('settings')
   if (settings.showProjectStorageModal) loadedModals.add('storage')
   if (settings.showDashboardSettingsModal) loadedModals.add('dashboard')
-  if (actions.showCreateProject || actions.showCreatePage || actions.showCreateTracker
+  if (actions.showCreateProject || actions.showCreatePage || actions.showCreateSandbox || actions.showCreateTracker
     || actions.showCreateFolder || actions.showRenameModal || thumbnails.showThumbUpload) loadedModals.add('actions')
   if (projectUpload.showUploadModal || sharedUpload.showUploadModal) loadedModals.add('upload')
   if (picker.showFilePicker) loadedModals.add('picker')

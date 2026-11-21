@@ -326,6 +326,48 @@
               </div>
             </section>
 
+            <section v-if="projectSandboxItems.length" class="project-browser-section project-specialty-section">
+              <header class="project-browser-section-header">
+                <span class="project-browser-section-label">Sandboxes</span>
+                <span class="project-browser-section-count">{{ projectSandboxItems.length }}</span>
+              </header>
+              <div class="project-specialty-shelf">
+                <div class="project-specialty-grid">
+                  <ProjectSpecialtyItem
+                    v-for="item in visibleProjectSandboxItems"
+                    :key="item.id"
+                    :item="item"
+                    kind="sandbox"
+                    :activity-at="item.latest_version ? item.updated_at : null"
+                    :menu-open="contentMenuOpen === `sandbox:${item.id}`"
+                    @activate="openSandbox(item.slug || item.id)"
+                  >
+                    <template v-if="canEditProject || canShareProject" #actions>
+                      <VMenu
+                        :open="contentMenuOpen === `sandbox:${item.id}`"
+                        align="end"
+                        class="v-row-overflow"
+                        @update:open="open => !open && closeContentMenu()"
+                      >
+                        <template #trigger="{ triggerProps }">
+                          <VOverflowButton floating class="menu-trigger" v-bind="triggerProps" :active="contentMenuOpen === `sandbox:${item.id}`" @click="toggleContentMenu(`sandbox:${item.id}`)" />
+                        </template>
+                        <button v-if="canShareProject" class="v-dropdown-item" @click="shareProjectSandbox(item); closeContentMenu()"><svg class="icon"><use href="#icon-share"/></svg> Share sandbox</button>
+                        <div v-if="canEditProject && canShareProject" class="v-dropdown-divider"></div>
+                        <button v-if="canEditProject" class="v-dropdown-item" @click="startRenameSandbox(item); closeContentMenu()"><svg class="icon"><use href="#icon-edit"/></svg> Edit details</button>
+                        <button v-if="canEditProject" class="v-dropdown-item v-dropdown-item-danger" @click="deleteSandbox(item); closeContentMenu()"><svg class="icon"><use href="#icon-trash"/></svg> Delete</button>
+                      </VMenu>
+                    </template>
+                  </ProjectSpecialtyItem>
+                </div>
+                <div v-if="canLoadMoreProjectSandboxes" class="v-load-more">
+                  <button class="v-btn v-btn-secondary" @click="loadMoreProjectSandboxes">
+                    Load more sandboxes ({{ projectSandboxItems.length - visibleProjectSandboxItems.length }} remaining)
+                  </button>
+                </div>
+              </div>
+            </section>
+
             <ProjectFileToolbar
               v-if="hasProjectFileControls"
               :view-mode="viewMode"
@@ -602,6 +644,14 @@ const {
   visibleProjectPageItems,
   canLoadMoreProjectPages,
   loadMoreProjectPages,
+  projectSandboxItems,
+  visibleProjectSandboxItems,
+  canLoadMoreProjectSandboxes,
+  loadMoreProjectSandboxes,
+  openSandbox,
+  shareProjectSandbox,
+  startRenameSandbox,
+  deleteSandbox,
   projectFolderItems,
   projectBrowserEntries,
   projectShowUploader,
@@ -745,7 +795,7 @@ const visibleProjectBrowserEntries = computed(() => projectBrowserEntries.value)
 const hasNoProjectContents = computed(() => (
   !projectContentsLoading.value
   && (projectContents.value || []).length === 0
-  && (isRestrictedMember.value || (!projectPageItems.value.length && !projectTrackerItems.value.length))
+  && (isRestrictedMember.value || (!projectPageItems.value.length && !projectTrackerItems.value.length && !projectSandboxItems.value.length))
 ))
 const hasNoProjectFiles = computed(() => (
   !projectContentsLoading.value

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.models import ShareLink
 from app.services.horizon_pages import get_horizon_page_by_ref
 from app.services.horizons_fresh import get_horizon_project, get_horizon_tracker_for_share
+from app.services.sandboxes import get_sandbox
 from app.services.share_access import hash_share_password
 
 
@@ -25,6 +26,9 @@ def serialize_share_for_management(share: ShareLink, db: Session, project_cache:
                 elif share.share_type == 'page' and share.page_id:
                     page = get_horizon_page_by_ref(db, share.project_id, share.page_id)
                     target_name = f'{project.title} / {page.title}'
+                elif share.share_type == 'sandbox' and share.sandbox_id:
+                    sandbox = get_sandbox(db, share.project_id, share.sandbox_id)
+                    target_name = f'{project.title} / {sandbox.name}'
                 elif share.share_type == 'project':
                     target_name = project.title
             except Exception:
@@ -51,6 +55,7 @@ def serialize_share_for_management(share: ShareLink, db: Session, project_cache:
         'tracker_id': share.tracker_id,
         'tracker_name': tracker_name,
         'page_id': share.page_id,
+        'sandbox_id': share.sandbox_id,
         'target_name': target_name,
         'created_by': share.created_by,
         'created_at': share.created_at,

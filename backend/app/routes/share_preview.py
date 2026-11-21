@@ -20,6 +20,7 @@ from app.config import get_settings
 from app.models import ShareLink
 from app.services.external_urls import normalize_external_http_url, normalize_http_origin
 from app.services.horizon_pages import get_horizon_page_by_ref
+from app.services.sandboxes import get_sandbox
 from app.services.horizons_fresh import (
     get_horizon_media_asset_by_path,
     get_horizon_project,
@@ -218,6 +219,15 @@ def _page_title(db: Session, share: ShareLink, project_title: str) -> str:
     return project_title
 
 
+def _sandbox_title(db: Session, share: ShareLink, project_title: str) -> str:
+    if share.project_id and share.sandbox_id:
+        try:
+            return f'{get_sandbox(db, share.project_id, share.sandbox_id).name} - {project_title}'
+        except Exception:
+            pass
+    return project_title
+
+
 def _project_file_thumbnail_path(db: Session, share: ShareLink, route_path: str | None = None) -> str | None:
     path = (route_path or share.path or '').strip('/')
     if not _is_media_path(path):
@@ -269,6 +279,14 @@ def _build_share_preview(
     if share_type == 'page':
         return SharePreview(
             title=_page_title(db, share, project_title),
+            description='Open this shared page in Vue.',
+            image_path=_project_thumbnail_path(share),
+            image_alt=project_title,
+        )
+
+    if share_type == 'sandbox':
+        return SharePreview(
+            title=_sandbox_title(db, share, project_title),
             description='Open this shared page in Vue.',
             image_path=_project_thumbnail_path(share),
             image_alt=project_title,

@@ -396,9 +396,9 @@ def list_project_contents(project_id: str, path: str = '', include_counts: bool 
     """List the items in one folder of a project.
 
     `path` is a folder relative to the project folder. Leave it empty for the
-    project root, which also lists the project's pages and trackers. Each item
-    has a `type`: page, folder, tracker or file. `include_counts` adds the number
-    of items in each folder.
+    project root, which also lists the project's pages, Vue Sandboxes and
+    trackers. Each item has a `type`: page, sandbox, folder, tracker or file.
+    `include_counts` adds the number of items in each folder.
     """
     user, _auth_mode, _project, access_role = _require_project_access_ctx(db, project_id, vueio_session, x_vueio_agent_key, required_role='viewer')
     result = list_content(

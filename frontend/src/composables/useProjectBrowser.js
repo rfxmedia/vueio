@@ -80,6 +80,7 @@ export function useProjectBrowser({
       : projectContents.value
   ))
   const projectPageItems = computed(() => projectVueAssetItems.value.filter((item) => item.type === 'page'))
+  const projectSandboxItems = computed(() => projectVueAssetItems.value.filter((item) => item.type === 'sandbox'))
   const projectFolderItems = computed(() => workspaceFoldersFirst(
     sortItems(projectContents.value.filter(isFileBrowserFolder)),
   ))
@@ -101,6 +102,12 @@ export function useProjectBrowser({
     resetRenderLimit: resetProjectPageRenderLimit,
     loadMoreItems: loadMoreProjectPages,
   } = useBrowserRenderWindow(projectPageItems, { batchSize: 60 })
+  const {
+    visibleItems: visibleProjectSandboxItems,
+    canLoadMore: canLoadMoreProjectSandboxes,
+    resetRenderLimit: resetProjectSandboxRenderLimit,
+    loadMoreItems: loadMoreProjectSandboxes,
+  } = useBrowserRenderWindow(projectSandboxItems, { batchSize: 60 })
   const {
     visibleItems: visibleProjectTrackerItems,
     canLoadMore: canLoadMoreProjectTrackers,
@@ -147,6 +154,7 @@ export function useProjectBrowser({
       resetProjectFolderRenderLimit()
       resetProjectShortcutTrackerRenderLimit()
       resetProjectPageRenderLimit()
+      resetProjectSandboxRenderLimit()
       resetProjectTrackerRenderLimit()
     }
     loadedProjectId.value = snapshot?.projectId || currentProject.value?.id || ''
@@ -167,7 +175,7 @@ export function useProjectBrowser({
     ) {
       projectRootVueAssets.value = {
         projectId: snapshot?.projectId || '',
-        items: projectContents.value.filter((item) => item.type === 'page' || item.type === 'tracker'),
+        items: projectContents.value.filter((item) => ['page', 'sandbox', 'tracker'].includes(item.type)),
       }
     }
     projectBreadcrumbs.value = snapshot?.breadcrumbs || []
@@ -296,7 +304,7 @@ export function useProjectBrowser({
         return {
           ...currentSnapshot,
           ...(rootSnapshot ? {
-            rootVueAssets: rootSnapshot.items.filter((item) => item.type === 'page' || item.type === 'tracker'),
+            rootVueAssets: rootSnapshot.items.filter((item) => ['page', 'sandbox', 'tracker'].includes(item.type)),
             artistWorkspaceRoot: currentSnapshot.artistWorkspaceRoot || rootSnapshot.artistWorkspaceRoot || '',
           } : {}),
         }
@@ -408,6 +416,10 @@ export function useProjectBrowser({
     projectContentsError,
     projectShortcutTrackers,
     projectPageItems,
+    projectSandboxItems,
+    visibleProjectSandboxItems,
+    canLoadMoreProjectSandboxes,
+    loadMoreProjectSandboxes,
     projectFolderItems,
     projectTrackerItems,
     projectFileItems,

@@ -14,6 +14,7 @@ from app.config import get_settings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('vueio')
+UNSAFE_METHODS = frozenset({'POST', 'PUT', 'PATCH', 'DELETE'})
 settings = get_settings()
 
 
@@ -77,6 +78,7 @@ def create_app() -> FastAPI:
     from app.routes.project_media import router as project_media_router
     from app.routes.project_storage import router as project_storage_router
     from app.routes.projects import router as projects_router
+    from app.routes.sandboxes import router as sandboxes_router
     from app.routes.share_media import router as share_media_router
     from app.routes.share_preview import router as share_preview_router
     from app.routes.shot_extras import router as shot_extras_router
@@ -171,6 +173,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router)
     app.include_router(oauth_router)
     app.include_router(projects_router)
+    app.include_router(sandboxes_router)
     app.include_router(project_media_router)
     app.include_router(project_storage_router)
     app.include_router(share_media_router)
@@ -210,6 +213,20 @@ def create_app() -> FastAPI:
         from app.services.share_access import reset_request_share_access_token, set_request_share_access_token
 
         agent_key = request_agent_credential(request)
+        # Browsers mark a request from another website, or from a Vue Sandbox
+        # page, as cross-site. The SameSite cookie keeps such a request signed
+        # out. If a browser sends the cookie anyway, refuse the change.
+        if (
+            request.method in UNSAFE_METHODS
+            and request.url.path.startswith('/api/')
+            and request.url.path != '/api/mcp'
+            and not agent_key
+            and request.headers.get('sec-fetch-site') == 'cross-site'
+            and (request.cookies.get('vueio_session') or request.cookies.get('vueio_share_access'))
+        ):
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse({'detail': 'Vue.io refused a change that came from another website.'}, status_code=403)
         internal_token = set_request_internal_call(request.scope.get(INTERNAL_CALL_SCOPE_KEY) is True)
         credential_token = set_request_agent_key(agent_key)
         agent_identity_token = set_request_agent_identity(None)

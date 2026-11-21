@@ -4,7 +4,8 @@
 <div class="layout"><aside class="sidebar" id="sidebar"><label class="search-label" for="doc-search">Find an answer</label><input id="doc-search" class="search" type="search" placeholder="Search documentation…" autocomplete="off" aria-controls="search-results"><div class="results" id="search-results" aria-live="polite" hidden></div><nav aria-label="Documentation"><p class="navlabel">EXPLORE VUE.IO</p><a href="index.html" >Overview</a><p class="navlabel">THE GUIDES</p><a href="get-started.html" >Get started</a><a href="review.html" >Review &amp; versions</a><a href="workspace.html" aria-current="page">Workspace &amp; team</a><a href="sharing.html" >Sharing &amp; delivery</a><a href="storage.html" >Storage &amp; operations</a><a href="troubleshooting.html" >Troubleshooting</a><a href="faq.html" >Common questions</a><a href="self-hosting.html" >Administrator reference</a></nav><div class="side-note">Guide version<br>1.0 alpha<br><br><a href="https://github.com/rfxmedia/vueio/issues">Report an issue ↗</a></div></aside>
 <main class="article " id="content"><div class="eyebrow">VUE.IO / DOCUMENTATION</div><h1 id="workspace-and-team">Workspace and team</h1>
 <p>Use projects for related work. Use trackers for shots and revisions.
-Use Vue Dashboards for project information and resources.</p>
+Use Vue Dashboards for project information and resources.
+Use Vue Sandboxes for any other page, such as a budget or a schedule.</p>
 <h2 id="find-work-and-change-project-status">Find work and change project status</h2>
 <p><strong>Home → Your work</strong> lists assigned shots that need work.
 Open a shot to return to its tracker and review context.
@@ -81,6 +82,45 @@ Share visitors use the separate <a href="sharing.html">share-link rules</a>.</p>
 Dashboard edits require project edit access.
 Check a shared dashboard as a visitor; team access does not prove share access.
 For incoming files, confirm the block's target and upload permissions with a small sample.</p>
+<h2 id="build-a-vue-sandbox">Build a Vue Sandbox</h2>
+<p>A Vue Sandbox is a web page for one project, such as a budget, a schedule or a
+client overview. You decide what it shows and how it looks.</p>
+<ol>
+<li>Open the project.</li>
+<li>Select <strong>New → Vue Sandbox</strong>.</li>
+<li>Enter a name, then select <strong>Create</strong>.</li>
+<li>Choose how to start:
+<ul>
+<li><strong>Ask your AI agent</strong>: copy the prompt, add what the page must show, and
+give it to your connected agent. The agent saves the page in the sandbox.</li>
+<li><strong>Paste code</strong>: paste HTML, or press Ctrl+V (⌘V on a Mac) anywhere on the
+blank page.</li>
+<li><strong>Upload a file</strong>: choose an HTML file, or drop it on the page.</li>
+</ul>
+</li>
+<li>Check the page, then select <strong>Save version</strong>.</li>
+</ol>
+<p>Select <strong>Edit code</strong> to change the page yourself. The page beside the code
+updates while you type. Select <strong>Code</strong>, <strong>Split</strong> or <strong>Page</strong> to change the
+layout. Press Ctrl+S (⌘S) to save. Describe your change in the box next to
+<strong>Save version</strong> so the team can find it in the history later.</p>
+<p>Every save adds a version. Select <strong>History</strong> to see all versions, who saved
+each one, and which agent saved it. Select a version to see that page. Select
+<strong>Compare with current</strong> to see the lines that changed. Select <strong>Restore this
+version</strong> to make it the page again: Vue.io saves a copy of it as the newest
+version, so no version is deleted.</p>
+<p>An open sandbox shows a new version by itself, for example after an agent
+saves a change. If someone saves while you edit, Vue.io asks before your save
+replaces their version. Unsaved changes stay when you open another part of the
+project; they come back when you open the sandbox again.</p>
+<p>A sandbox page is one HTML file of up to 5 MB, with its CSS and JavaScript
+inside. It can load libraries, fonts and images from other websites. The page
+runs in an isolated frame: it cannot read Vue.io data, use Vue.io as the
+viewer, or keep storage between visits. Put every value that the page shows in
+the page itself.</p>
+<p>People with project edit access can build, change, restore and delete
+sandboxes. Other project members who manage project content can view them and
+their history. Restricted members do not see sandboxes.</p>
 <h2 id="work-with-project-files">Work with project files</h2>
 <p>Use <strong>New → Folder</strong> to create a folder in the current project location.
 Use <strong>New → Upload Files</strong> to copy files from your browser's computer.
@@ -133,6 +173,10 @@ the agent's MCP configuration.</li>
 <p>The agent finds every Vue.io feature through the MCP server. When Vue.io gets
 a new feature, connected agents can use it at once. There is no setup to
 update.</p>
+<p>An agent can create and change Vue Sandboxes with the <code>sandbox_create</code>,
+<code>sandbox_get</code> and <code>sandbox_save</code> tools. For a small change, such as one
+invoice status, the agent sends only the text to replace. Each save adds a
+version that names the agent.</p>
 <h3 id="connect-a-chat-app">Connect a chat app</h3>
 <p>Chat apps such as Claude and ChatGPT connect without a key. They use Sign in
 with Vue.io.</p>
@@ -162,4 +206,4 @@ Administrators change workspace colors in <strong>Settings → Theme</strong>.
 Check text contrast in the preview before saving changes.
 These controls change presentation, not project permissions or storage.</p>
 <footer class="page-footer"><span>Guide version: 1.0 alpha · Source-available.</span><a href="https://github.com/rfxmedia/vueio/blob/stable/docs/WORKSPACE.md">View this guide on GitHub ↗</a></footer></main>
-<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#find-work-and-change-project-status">Find work and change project status</a><a href="#add-team-members">Add team members</a><a href="#set-project-access">Set project access</a><a href="#create-a-vue-dashboard">Create a Vue Dashboard</a><a href="#work-with-project-files">Work with project files</a><a href="#read-notifications">Read notifications</a><a href="#connect-an-agent">Connect an agent</a><a href="#change-workspace-appearance">Change workspace appearance</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>
+<aside class="on-page" aria-label="On this page"><strong>On this page</strong><a href="#find-work-and-change-project-status">Find work and change project status</a><a href="#add-team-members">Add team members</a><a href="#set-project-access">Set project access</a><a href="#create-a-vue-dashboard">Create a Vue Dashboard</a><a href="#build-a-vue-sandbox">Build a Vue Sandbox</a><a href="#work-with-project-files">Work with project files</a><a href="#read-notifications">Read notifications</a><a href="#connect-an-agent">Connect an agent</a><a href="#change-workspace-appearance">Change workspace appearance</a><a href="https://github.com/rfxmedia/vueio/releases/latest">Latest release ↗</a></aside></div></body></html>

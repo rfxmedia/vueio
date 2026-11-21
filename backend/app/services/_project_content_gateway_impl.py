@@ -38,6 +38,7 @@ from app.services.project_link_content import build_linked_folder_items, collect
 from app.services.project_links import build_linked_file_item, build_linked_folder_item, find_link_by_virtual_path, join_rel_path, linked_virtual_root, link_storage_scope
 from app.services.project_permissions import make_project_path_smb_mutable
 from app.services.projects import get_project_dir, load_project_links, project_storage_is_read_only, resolve_project_root
+from app.services.sandboxes import build_sandbox_content_item, list_sandboxes
 from app.services.share_access import _resolve_horizons_media_target_by_refs, build_project_file_info_payload, normalize_virtual_path, resolve_shared_horizons_object_target
 from app.services.zip_utils import ZipDiscoveryBudget, ZipEntry, ZipFileIdentity, collect_boundary_zip_entries, new_zip_discovery_budget, unique_arcname
 from app.services.user_access import is_restricted_project_member
@@ -300,13 +301,14 @@ class HorizonsProjectAuthPolicy:
         items = self._list_project_fs(project_dir, links, normalized_path, include_counts, folder_asset_by_path, folder_thumbnail_paths)
         if not normalized_path:
             items.extend(build_page_content_item(page) for page in list_horizon_pages(self.db, self.project_id))
+            items.extend(build_sandbox_content_item(sandbox) for sandbox in list_sandboxes(self.db, self.project_id))
             existing_tracker_names = {item.get('name') for item in items if item.get('type') == 'tracker'}
             for tracker in list_horizon_trackers(self.db, self.project_id):
                 if tracker.name not in existing_tracker_names:
                     shots = list_visible_horizon_shots(self.db, self.project_id, tracker_id=tracker.id, user=self.user, access_role=self.access_role)
                     items.append(build_tracker_content_item(tracker, shots))
         append_horizon_asset_virtual_items(items, self.db, self.project_id, folder_visible_assets, normalized_path, include_counts=include_counts, folder_thumbnail_paths=folder_thumbnail_paths)
-        items.sort(key=lambda item: ({'page': 0, 'folder': 1, 'tracker': 2, 'file': 3}.get(item.get('type'), 99), item.get('name', '').lower()))
+        items.sort(key=lambda item: ({'page': 0, 'sandbox': 1, 'folder': 2, 'tracker': 3, 'file': 4}.get(item.get('type'), 99), item.get('name', '').lower()))
         read_only = project_storage_is_read_only(self.project)
         return ContentListResult(normalized_path, items, build_project_breadcrumbs(normalized_path), folder_context={'mode': 'project', 'is_linked_folder': False, 'can_upload': not read_only, 'upload_disabled_reason': 'This project storage location is read-only.' if read_only else ''})
 

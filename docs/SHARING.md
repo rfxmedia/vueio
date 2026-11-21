@@ -9,6 +9,7 @@ Use project membership for ongoing team work.
 | --- | --- |
 | Project | The project's share-visible content. This is broader than one tracker or file. |
 | Vue Dashboard | The selected dashboard and its permitted content. |
+| Vue Sandbox | The newest version of the selected sandbox page. Visitors do not see its history or code editor. |
 | Tracker | Published shot versions and the tracker tools enabled for share visitors. |
 | File | The selected file. |
 | Folder | The selected folder's permitted contents. Upload options depend on the folder type. |
@@ -38,6 +39,11 @@ A password protects entry to the link. It does not identify a particular person.
 Anyone who receives the link and password can use them until access ends.
 Disabling downloads restricts source-file downloads. It does not disable frame capture in this release.
 It also cannot prevent screen recording or copying displayed material.
+
+A Vue Sandbox link has no **Allow downloads** option. To share a sandbox, open
+it and select **Share**. An open link shows each new version of the page by
+itself, so a client always sees the current page. Deleting a sandbox ends its
+links.
 
 ## Review as a recipient
 

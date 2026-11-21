@@ -36,7 +36,7 @@ work between the first upload and the final delivery.
 | --- | --- | --- |
 | Browser playback and version history | Shot trackers with statuses and assignments | Selected local, USB, or mounted network storage |
 | Timestamped comments and visual annotations | Briefs and latest notes alongside each shot | Review links and file downloads |
-| Version comparison and preview LUTs | Project pages and a shared file navigator | File requests for incoming media |
+| Version comparison and preview LUTs | Project pages, custom Vue Sandbox pages and a shared file navigator | File requests for incoming media |
 | Voice notes and comment attachments | Project and role-based access | No Vue.io per-seat or cloud-storage subscription |
 
 **Not just a player with a comment box.** Follow a shot from its brief to the

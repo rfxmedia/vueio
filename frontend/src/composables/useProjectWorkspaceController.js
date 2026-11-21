@@ -110,6 +110,7 @@ export function useProjectWorkspaceController({
   })
   const interactions = useProjectContentInteractions({
     currentProject,
+    currentPage,
     projectPath: browser.projectPath,
     refreshProjectContents: browser.refreshProjectContents,
     handleProjectExternalDragOver,
@@ -356,7 +357,7 @@ export function useProjectWorkspaceController({
   }
 
   async function refreshCurrentPage() {
-    if (!currentProject.value || !currentPage.value) return
+    if (!currentProject.value || !currentPage.value || currentPage.value.type === 'sandbox') return
     if (shareMode.value && sharedItemType?.value === 'page') return
     const pageRef = currentPage.value.slug || currentPage.value.id
     if (pageRef) await openPage(pageRef, true)
@@ -382,6 +383,64 @@ export function useProjectWorkspaceController({
       await browser.refreshProjectContents()
     } catch (error) {
       handleError('Failed to delete page', error)
+    }
+  }
+
+  // A sandbox opens in place of the folder view, like a dashboard, so it
+  // uses the same slot: currentPage holds it with type 'sandbox'.
+  async function openSandbox(sandboxRef, options = {}) {
+    if (!currentProject.value || !sandboxRef) return
+    try {
+      const { data } = await api.get(
+        `/api/projects/${currentProject.value.id}/sandboxes/${encodeURIComponent(sandboxRef)}`,
+        { params: { limit: 0 }, signal: options.signal },
+      )
+      closeDashboardSettings()
+      currentPage.value = data
+      currentTracker.value = null
+      dismissCurrentMediaForNavigation()
+      if (!options.skipRouteUpdate && !shareMode.value) {
+        router.push({
+          name: 'project-sandbox',
+          params: { projectId: currentProject.value.id, sandbox: data.slug || data.id },
+        })
+      }
+    } catch (error) {
+      if (isRequestCanceledError?.(error)) return
+      handleError('Failed to open sandbox', error)
+    }
+  }
+
+  async function createSandbox() {
+    const name = chrome.newSandboxName.value.trim()
+    if (!name || !currentProject.value) return
+    try {
+      const { data } = await api.post(`/api/projects/${currentProject.value.id}/sandboxes`, {
+        name,
+        description: chrome.newSandboxDesc.value,
+      })
+      chrome.newSandboxName.value = ''
+      chrome.newSandboxDesc.value = ''
+      chrome.closeCreateSandboxModal()
+      void browser.refreshProjectContents()
+      await openSandbox(data.slug || data.id)
+    } catch (error) {
+      handleError('Failed to create sandbox', error)
+    }
+  }
+
+  async function deleteSandbox(sandbox) {
+    if (!currentProject.value || !sandbox?.id) return
+    if (!confirm(`Delete the sandbox "${sandbox.name}"? Its page, its whole history and its share links are deleted.`)) return
+    try {
+      await api.delete(`/api/projects/${currentProject.value.id}/sandboxes/${encodeURIComponent(sandbox.id)}`)
+      if (currentPage.value?.type === 'sandbox' && currentPage.value.id === sandbox.id) {
+        currentPage.value = null
+        if (!shareMode.value) router.push({ name: 'project-folder', params: { projectId: currentProject.value.id } })
+      }
+      await browser.refreshProjectContents()
+    } catch (error) {
+      handleError('Failed to delete sandbox', error)
     }
   }
 
@@ -471,6 +530,9 @@ export function useProjectWorkspaceController({
     closePage,
     openPage,
     createPage,
+    openSandbox,
+    createSandbox,
+    deleteSandbox,
     savePage,
     clonePageDraft,
     refreshCurrentPage,

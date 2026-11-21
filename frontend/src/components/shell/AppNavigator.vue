@@ -553,6 +553,7 @@ onBeforeUnmount(() => {
 
 .navigator-section.is-tone-accent { --navigator-section-tone: var(--v-accent); }
 .navigator-section.is-tone-page { --navigator-section-tone: var(--v-page); }
+.navigator-section.is-tone-sandbox { --navigator-section-tone: var(--v-sandbox); }
 
 .navigator-section.is-status-active { --navigator-status-color: var(--v-status-active); }
 .navigator-section.is-status-review { --navigator-status-color: var(--v-status-review); }

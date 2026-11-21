@@ -285,7 +285,12 @@ export function useFileBrowser(ctx) {
           data.shots.forEach(shot => { shot._originalId = shot.shot_id })
         }
 
-        if (data._open_page && data.page) {
+        if (data._open_sandbox && data.sandbox) {
+          ctx.sharedItemType.value = 'sandbox'
+          ctx.currentPage.value = data.sandbox
+          ctx.currentTracker.value = null
+          ctx.applyProjectContentsSnapshot?.({ items: [], path: '', breadcrumbs: [], folderContext: {}, artistWorkspaceRoot: '' })
+        } else if (data._open_page && data.page) {
           ctx.sharedItemType.value = 'page'
           ctx.currentPage.value = data.page
           ctx.currentTracker.value = null

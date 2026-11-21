@@ -57,7 +57,7 @@ const props = defineProps({
   kind: {
     type: String,
     default: 'tracker',
-    validator: (value) => ['dashboard', 'tracker'].includes(value),
+    validator: (value) => ['dashboard', 'tracker', 'sandbox'].includes(value),
   },
   activityAt: { type: [Number, String], default: null },
   menuOpen: { type: Boolean, default: false },
@@ -68,11 +68,13 @@ defineEmits(['activate'])
 const kindLabel = computed(() => ({
   dashboard: 'Dashboard',
   tracker: 'Tracker',
+  sandbox: 'Sandbox',
 })[props.kind])
 
 const iconHref = computed(() => ({
   dashboard: '#icon-layout',
   tracker: '#icon-project',
+  sandbox: '#icon-code',
 })[props.kind])
 
 const description = computed(() => String(props.item.description || '').trim())
@@ -92,9 +94,11 @@ const progress = computed(() => {
   }
 })
 
-const countLabel = computed(() => (
-  props.kind === 'dashboard' ? plural(Number(props.item.block_count) || 0, 'block') : 'No shots yet'
-))
+const countLabel = computed(() => {
+  if (props.kind === 'dashboard') return plural(Number(props.item.block_count) || 0, 'block')
+  if (props.kind === 'sandbox') return props.item.latest_version ? `Version ${props.item.latest_version}` : 'Blank page'
+  return 'No shots yet'
+})
 
 // The year only appears when it is not the current one.
 const createdLabel = computed(() => {
@@ -205,6 +209,14 @@ const activationLabel = computed(() => [
 
 .is-dashboard .project-specialty-icon {
   color: color-mix(in srgb, var(--v-page) 82%, white);
+}
+
+.is-sandbox .project-specialty-tile {
+  background: color-mix(in srgb, var(--v-sandbox) 16%, transparent);
+}
+
+.is-sandbox .project-specialty-icon {
+  color: color-mix(in srgb, var(--v-sandbox) 86%, white);
 }
 
 /* Long names wrap to a second line before they clip. */

@@ -2,6 +2,7 @@
 
 Use projects for related work. Use trackers for shots and revisions.
 Use Vue Dashboards for project information and resources.
+Use Vue Sandboxes for any other page, such as a budget or a schedule.
 
 ## Find work and change project status
 
@@ -71,6 +72,48 @@ Dashboard edits require project edit access.
 Check a shared dashboard as a visitor; team access does not prove share access.
 For incoming files, confirm the block's target and upload permissions with a small sample.
 
+## Build a Vue Sandbox
+
+A Vue Sandbox is a web page for one project, such as a budget, a schedule or a
+client overview. You decide what it shows and how it looks.
+
+1. Open the project.
+2. Select **New → Vue Sandbox**.
+3. Enter a name, then select **Create**.
+4. Choose how to start:
+   - **Ask your AI agent**: copy the prompt, add what the page must show, and
+     give it to your connected agent. The agent saves the page in the sandbox.
+   - **Paste code**: paste HTML, or press Ctrl+V (⌘V on a Mac) anywhere on the
+     blank page.
+   - **Upload a file**: choose an HTML file, or drop it on the page.
+5. Check the page, then select **Save version**.
+
+Select **Edit code** to change the page yourself. The page beside the code
+updates while you type. Select **Code**, **Split** or **Page** to change the
+layout. Press Ctrl+S (⌘S) to save. Describe your change in the box next to
+**Save version** so the team can find it in the history later.
+
+Every save adds a version. Select **History** to see all versions, who saved
+each one, and which agent saved it. Select a version to see that page. Select
+**Compare with current** to see the lines that changed. Select **Restore this
+version** to make it the page again: Vue.io saves a copy of it as the newest
+version, so no version is deleted.
+
+An open sandbox shows a new version by itself, for example after an agent
+saves a change. If someone saves while you edit, Vue.io asks before your save
+replaces their version. Unsaved changes stay when you open another part of the
+project; they come back when you open the sandbox again.
+
+A sandbox page is one HTML file of up to 5 MB, with its CSS and JavaScript
+inside. It can load libraries, fonts and images from other websites. The page
+runs in an isolated frame: it cannot read Vue.io data, use Vue.io as the
+viewer, or keep storage between visits. Put every value that the page shows in
+the page itself.
+
+People with project edit access can build, change, restore and delete
+sandboxes. Other project members who manage project content can view them and
+their history. Restricted members do not see sandboxes.
+
 ## Work with project files
 
 Use **New → Folder** to create a folder in the current project location.
@@ -132,6 +175,11 @@ that user can do in Vue.io, and nothing more.
 The agent finds every Vue.io feature through the MCP server. When Vue.io gets
 a new feature, connected agents can use it at once. There is no setup to
 update.
+
+An agent can create and change Vue Sandboxes with the `sandbox_create`,
+`sandbox_get` and `sandbox_save` tools. For a small change, such as one
+invoice status, the agent sends only the text to replace. Each save adds a
+version that names the agent.
 
 ### Connect a chat app
 

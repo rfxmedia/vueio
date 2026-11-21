@@ -69,7 +69,7 @@ defineProps({
   tone: {
     type: String,
     default: 'default',
-    validator: (value) => ['default', 'accent', 'page'].includes(value),
+    validator: (value) => ['default', 'accent', 'page', 'sandbox'].includes(value),
   },
   statusVariant: { type: String, default: '' },
   active: { type: Boolean, default: false },
@@ -134,6 +134,11 @@ defineEmits(['select', 'open', 'toggle', 'dragstart', 'dragend'])
 .nav-row.is-tone-page {
   --nav-row-tone: var(--v-page);
   --nav-row-marker: var(--v-page);
+}
+
+.nav-row.is-tone-sandbox {
+  --nav-row-tone: var(--v-sandbox);
+  --nav-row-marker: var(--v-sandbox);
 }
 
 .nav-row:hover {

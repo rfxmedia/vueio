@@ -13,6 +13,11 @@ export function useProjectShellChrome() {
     close: closeCreatePageModal,
   } = useModal()
   const {
+    isOpen: showCreateSandbox,
+    open: openCreateSandboxModal,
+    close: closeCreateSandboxModal,
+  } = useModal()
+  const {
     isOpen: showCreateTracker,
     open: openCreateTrackerModal,
     close: closeCreateTrackerModal,
@@ -29,6 +34,8 @@ export function useProjectShellChrome() {
   const newProjectDue = ref('')
   const newPageTitle = ref('')
   const newPageDesc = ref('')
+  const newSandboxName = ref('')
+  const newSandboxDesc = ref('')
   const newTrackerName = ref('')
   const newTrackerDescription = ref('')
   const newFolderName = ref('')
@@ -56,6 +63,11 @@ export function useProjectShellChrome() {
     showNewMenu.value = false
   }
 
+  function openProjectCreateSandbox() {
+    openCreateSandboxModal()
+    showNewMenu.value = false
+  }
+
   function openProjectCreateFolderFromMenu() {
     openCreateFolderModal()
     showNewMenu.value = false
@@ -65,6 +77,7 @@ export function useProjectShellChrome() {
   return {
     showCreateProject,
     showCreatePage,
+    showCreateSandbox,
     showCreateTracker,
     showCreateFolder,
     showNewMenu,
@@ -74,6 +87,8 @@ export function useProjectShellChrome() {
     newProjectDue,
     newPageTitle,
     newPageDesc,
+    newSandboxName,
+    newSandboxDesc,
     newTrackerName,
     newTrackerDescription,
     newFolderName,
@@ -81,6 +96,8 @@ export function useProjectShellChrome() {
     closeCreateProjectModal,
     openCreatePageModal,
     closeCreatePageModal,
+    openCreateSandboxModal,
+    closeCreateSandboxModal,
     openCreateTrackerModal,
     closeCreateTrackerModal,
     openCreateFolderModal,
@@ -89,6 +106,7 @@ export function useProjectShellChrome() {
     toggleArtistNewMenu,
     closeNewMenu,
     openProjectCreatePage,
+    openProjectCreateSandbox,
     openProjectCreateTracker,
     openProjectCreateFolderFromMenu,
   }
